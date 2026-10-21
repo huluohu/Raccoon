@@ -17,7 +17,7 @@ COPY backend/ ./
 # 前端产物进包（embed.FS，ADR-5）
 COPY --from=web-build /w/dist ./internal/web/dist
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags "-s -w -X github.com/huluohu/raccoon/internal/server.version=0.1.0" \
+    go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/huluohu/raccoon/internal/server.version=0.1.0" \
     -o /out/raccoon ./cmd/raccoon
 
 # ---- 阶段 3：运行镜像（非 root，内置引擎）----
