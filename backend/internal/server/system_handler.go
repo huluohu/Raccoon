@@ -25,33 +25,33 @@ func (s *Server) setupSystem() {
 	s.router.GET("/api/v1/system/queue", s.requireAuth(s.handleQueueStats))
 }
 
+// restartGraceWindow 运行中任务让出上限（docs/05 §6）。
+const restartGraceWindow = 30 * time.Second
+
 // handleSystemRestart 让出重启：停领新任务 → 等运行中任务让出 → 触发进程重启回调。
+//
+// 等待必须走 ShutdownTasks（它内部是「cancel 调度循环 → Stop 等 worker 退出」），
+// 不能在这里自己 sleep 轮询：worker ctx 已与调度循环 ctx 解耦（task.Manager.workerCtx），
+// cancel 只停「领新任务」，运行中的下载会自然跑完，Stop 才等得到它们。
+// 早先这里 cancel 后直接轮询 RunningCount，而 worker 当时仍挂在调度 ctx 上，
+// 会被当场打断 → running 瞬间归零 → waited_sec 恒为 0，等待语义形同虚设。
 func (s *Server) handleSystemRestart(w http.ResponseWriter, r *http.Request) error {
 	if s.restartFn == nil {
 		return &httpx.Error{HTTP: http.StatusNotImplemented, Code: "NOT_IMPLEMENTED",
 			Message: "当前部署方式不支持应用内重启，请用容器编排重启"}
 	}
-	// 停领新任务（调度循环退出）。
-	if s.shutdownCancel != nil {
-		s.shutdownCancel()
-	}
-	// 等运行中任务让出（上限 30s，docs/05 §6）。
-	waited := 0
-	for waited < 30 {
-		if s.tasks == nil || s.tasks.RunningCount() == 0 {
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-		waited++
-	}
+	start := time.Now()
+	s.ShutdownTasks(restartGraceWindow)
+	waited := int(time.Since(start).Seconds())
+
 	running := 0
 	if s.tasks != nil {
 		running = s.tasks.RunningCount()
 	}
-	s.log.Info("让出重启：停领新任务，等待运行中任务让出", map[string]any{"waited_sec": waited / 2, "running": running})
+	s.log.Info("让出重启完成", map[string]any{"waited_sec": waited, "still_running": running})
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
-		"waited_sec":    waited / 2,
+		"waited_sec":    waited,
 		"still_running": running,
 		"message":       "已停领新任务，正在退出进程由编排器拉起",
 	})

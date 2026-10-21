@@ -31,6 +31,10 @@ func execCommand(name string, args ...string) (string, error) {
 // pidFile 记录本进程 PID；启动时据此回收上次残留的引擎子进程。
 const pidFile = "raccoon.pid"
 
+// enginePIDFile 登记本服务拉起的引擎子进程（yt-dlp/ffmpeg/gallery-dl）PID。
+// 进程被 kill -9 时来不及注销，这个文件就是下次启动时的清理依据。
+const enginePIDFile = "engine.pids"
+
 func main() {
 	// 子命令剥离：`raccoon serve --addr X` 里 flag 包会在遇到非 flag 参数 "serve" 时停止解析，
 	// 后面的 --addr 会被静默丢弃（踩过一次：传了 18551 仍起在默认 8530）。
@@ -82,7 +86,7 @@ func main() {
 	reapOrphanEngines(dataDir, logger)
 	writePidFile(dataDir, logger)
 	// 引擎子进程 PID 登记（供下次启动回收）。
-	engine.SetPIDFile(dataDir + "/engine.pids")
+	engine.SetPIDFile(dataDir + "/" + enginePIDFile)
 
 	srv, err := server.New(cfg, st, logger.With("server"))
 	if err != nil {
@@ -134,15 +138,21 @@ func writePidFile(dataDir string, logger *logx.Logger) {
 
 // reapOrphanEngines 回收上次残留的引擎子进程。
 //
-// 策略：读取上次记录的引擎子进程 PID 列表，杀掉仍存活的。
+// 策略：读取上次记录的引擎子进程 PID 列表，只杀仍存活且身份可确认为引擎的。
 // 只杀本服务拉起的（PID 列表由本服务写），不扫全机进程（安全纪律）。
+//
+// 三种判定结果必须分开记账，因为失败含义完全不同：
+//   - gone       进程已退出 → 正常，无需处理
+//   - notEngine  PID 被系统复用成别的进程 → 必须跳过，否则误杀无关进程
+//   - unknown    无法探测进程身份 → 也跳过（安全默认），但必须告警，
+//     否则会出现「回收静默失效、孤儿进程继续写盘占带宽」而无人察觉
 func reapOrphanEngines(dataDir string, logger *logx.Logger) {
-	path := dataDir + "/engine.pids"
+	path := dataDir + "/" + enginePIDFile
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return // 无记录：首次启动或已清理
 	}
-	killed := 0
+	var killed, gone, notEngine, unknown []int
 	for _, line := range strings.Split(string(raw), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -152,36 +162,36 @@ func reapOrphanEngines(dataDir string, logger *logx.Logger) {
 		if err != nil || pid <= 1 {
 			continue
 		}
-		// 先确认进程存在且是我们拉起的引擎（命令名匹配 yt-dlp/ffmpeg）。
 		name, ok := processName(pid)
-		if !ok {
-			continue // 进程已退出
-		}
-		if !isEngineProcess(name) {
-			continue // PID 已被系统复用成别的进程，不动
-		}
-		if err := syscall.Kill(pid, syscall.SIGKILL); err == nil {
-			killed++
+		switch {
+		case !ok:
+			gone = append(gone, pid)
+		case !isEngineProcess(name):
+			notEngine = append(notEngine, pid)
+		default:
+			if err := syscall.Kill(pid, syscall.SIGKILL); err == nil {
+				killed = append(killed, pid)
+			} else {
+				unknown = append(unknown, pid)
+			}
 		}
 	}
+	// 无论回收结果如何都清空登记文件：这些 PID 属于上一个进程生命周期，
+	// 留着会让下次启动重复处理（也可能命中已被系统复用的新进程）。
 	_ = os.Remove(path)
-	if killed > 0 {
-		logger.Info("已回收上次残留的引擎子进程", map[string]any{"count": killed})
-	}
-}
 
-// processName 取进程名（Linux /proc，darwin 用 ps 回退）。
-func processName(pid int) (string, bool) {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm")
-	if err == nil {
-		return strings.TrimSpace(string(data)), true
+	if len(killed) > 0 {
+		logger.Info("已回收上次残留的引擎子进程", map[string]any{"pids": killed})
 	}
-	// macOS：ps -p <pid> -o comm=
-	out, err := execCommand("ps", "-p", strconv.Itoa(pid), "-o", "comm=")
-	if err != nil {
-		return "", false
+	if len(unknown) > 0 {
+		// 探测不到身份或 kill 失败：如实告警，不假装回收成功。
+		logger.Warn("部分残留引擎进程未能回收（无法确认进程身份或 kill 失败，可能继续占用磁盘与带宽）",
+			map[string]any{"pids": unknown})
 	}
-	return strings.TrimSpace(out), true
+	if len(notEngine) > 0 {
+		// PID 复用防护生效的证据，留痕便于排查。
+		logger.Info("跳过疑似 PID 复用进程（非引擎，未动）", map[string]any{"pids": notEngine})
+	}
 }
 
 // isEngineProcess 判断是否引擎进程（只回收这些，避免误杀）。

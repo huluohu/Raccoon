@@ -36,14 +36,27 @@ type Manager struct {
 	done      chan struct{}
 	stopOnce  sync.Once
 	startedAt time.Time
+
+	// workerCtx 是运行中 worker 的父上下文，与调度循环 ctx 解耦。
+	//
+	// 为什么必须解耦：调度循环的 ctx 在「让出重启」时被 cancel，若 worker 直接
+	// 从它派生，cancel 会立刻中断所有下载 —— RunningCount() 瞬间归零，
+	// docs/05 §6 的「等待运行中任务让出」变成永远 0 秒的空转，等待语义形同虚设
+	// （实测踩过：提交任务后立刻重启，waited_sec 恒为 0）。
+	// 解耦后 cancel 只停「领新任务」，worker 跑完当前文件自然结束，
+	// Stop() 再等它们退出，最长 30s 兜底。
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
 }
 
 // NewManager 构造（不启动循环；Start 由 main 调用）。
 func NewManager(st *store.Store, cfg *config.Config, eng *engine.Set, hub *sse.Hub, logger *logx.Logger) *Manager {
+	wctx, wcancel := context.WithCancel(context.Background())
 	return &Manager{
 		st: st, cfg: cfg, engines: eng, hub: hub, log: logger,
 		cancels: map[string]context.CancelFunc{}, running: map[string]bool{},
-		done: make(chan struct{}), startedAt: time.Now(),
+		done:       make(chan struct{}), startedAt: time.Now(),
+		workerCtx:  wctx, workerCancel: wcancel,
 	}
 }
 
@@ -53,9 +66,12 @@ func (m *Manager) Start(ctx context.Context) {
 }
 
 // Stop 优雅停机（docs/05 §6「意图重启」）：停领新任务 → 等待运行中 worker 让出 → 返回。
+//
+// 等待超时（ctx 到期）后会 cancel 所有 worker ctx 强制收尾——
+// 否则一个卡住的下载会把停机拖到调用方超时，编排器迟迟拉不起新实例。
 func (m *Manager) Stop(ctx context.Context) {
 	m.stopOnce.Do(func() { close(m.done) })
-	// 等待运行中 worker 退出（每 200ms 查一次，上限由 ctx 控制）。
+	// 等待运行中 worker 自然退出（每 200ms 查一次，上限由 ctx 控制）。
 	t := time.NewTicker(200 * time.Millisecond)
 	defer t.Stop()
 	for {
@@ -67,7 +83,8 @@ func (m *Manager) Stop(ctx context.Context) {
 		}
 		select {
 		case <-ctx.Done():
-			m.log.Warn("停机超时，仍有任务在运行", map[string]any{"running": n})
+			m.log.Warn("让出超时，强制取消剩余任务", map[string]any{"running": n})
+			m.workerCancel()
 			return
 		case <-t.C:
 		}
@@ -190,8 +207,10 @@ func (m *Manager) diskGate() (bool, string) {
 	return true, ""
 }
 
-func (m *Manager) startWorker(ctx context.Context, t *store.Task) {
-	wctx, cancel := context.WithCancel(ctx)
+func (m *Manager) startWorker(_ context.Context, t *store.Task) {
+	// 父上下文取 m.workerCtx 而非调度循环 ctx：见 Manager.workerCtx 字段注释
+	// （让出重启 cancel 调度循环时，运行中的下载不应被当场打断）。
+	wctx, cancel := context.WithCancel(m.workerCtx)
 	m.mu.Lock()
 	if m.running[t.ID] {
 		m.mu.Unlock()
