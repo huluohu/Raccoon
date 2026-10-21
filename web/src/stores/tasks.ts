@@ -38,6 +38,8 @@ export const useTasksStore = defineStore('tasks', () => {
   const error = ref('')
   const connected = ref(false)
   const warning = ref('')
+  /** SSE notif.new 计数：通知 store watch 它来增量拉未读（避免第二条 SSE 连接）。 */
+  const notifTick = ref(0)
 
   const activeCount = computed(
     () => counts.value.waiting + counts.value.parsing + counts.value.downloading + counts.value.post,
@@ -137,6 +139,12 @@ export const useTasksStore = defineStore('tasks', () => {
       const d = JSON.parse(ev.data) as { code: string; message: string }
       warning.value = d.message
     }) as EventListener)
+
+    // 通知中心复用这条连接：后端 notification_handler 在 notify() 里广播 notif.new。
+    // 这里只置个时间戳，由 notifications store 的 watch 触发拉取（保持单一数据源，不在前端拼通知对象）。
+    source.addEventListener('notif.new', (() => {
+      notifTick.value++
+    }) as EventListener)
   }
 
   function disconnect(): void {
@@ -196,6 +204,7 @@ export const useTasksStore = defineStore('tasks', () => {
     error,
     connected,
     warning,
+    notifTick,
     activeCount,
     refresh,
     connect,

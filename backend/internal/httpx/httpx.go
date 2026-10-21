@@ -42,10 +42,22 @@ func Internal(msg string) *Error     { return &Error{http.StatusInternalServerEr
 
 type CtxKey struct{}
 
-// RequestID 从 context 取 request_id（中间件注入）。
+// RequestID 从 context 取 request_id（中间件注入）；取不到时回退读响应头
+// （错误出口在中间件之外，拿不到注入后的 context）。
 func RequestID(r *http.Request) string {
-	if v, ok := r.Context().Value(CtxKey{}).(string); ok {
+	if v, ok := r.Context().Value(CtxKey{}).(string); ok && v != "" {
 		return v
+	}
+	return ""
+}
+
+// RequestIDFrom 从 context 或响应头取 request_id。
+func RequestIDFrom(r *http.Request, w http.ResponseWriter) string {
+	if v := RequestID(r); v != "" {
+		return v
+	}
+	if w != nil {
+		return w.Header().Get("X-Request-ID")
 	}
 	return ""
 }
@@ -68,7 +80,7 @@ func WriteErr(w http.ResponseWriter, r *http.Request, err error) {
 		"error": map[string]any{
 			"code":       he.Code,
 			"message":    he.Message,
-			"request_id": RequestID(r),
+			"request_id": RequestIDFrom(r, w),
 		},
 	})
 }

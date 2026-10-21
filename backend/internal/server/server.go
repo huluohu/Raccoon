@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -13,10 +14,12 @@ import (
 
 	"github.com/huluohu/raccoon/internal/auth"
 	"github.com/huluohu/raccoon/internal/config"
+	"github.com/huluohu/raccoon/internal/credential"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/logx"
 	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
+	"github.com/huluohu/raccoon/internal/subscription"
 	"github.com/huluohu/raccoon/internal/task"
 	"github.com/huluohu/raccoon/internal/web"
 )
@@ -33,9 +36,12 @@ type Server struct {
 	done           chan struct{}      // 优雅停机信号（manager/auth GC 监听）
 	hub            *sse.Hub           // SSE 广播（Wave 2）
 	tasks          *task.Manager      // 任务系统 Manager（Wave 2）
+	subs           *subscription.Service // 订阅服务（Wave 3）
+	vault          *credential.Vault  // 凭据加密（Wave 3）
 	shutdownCancel context.CancelFunc // 停机时 cancel manager loop
 	loginLimiter   *Limiter           // 登录限流（docs/04 §5：5 次/分钟/IP）
 	parseLimiter   *Limiter           // 解析限流（20 次/分钟/IP）
+	restartFn      func()             // 让出重启回调（main 注入）
 }
 
 // New 构建 Server：router + 中间件链 + 路由注册。
@@ -48,8 +54,22 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	s.loginLimiter = NewLimiter(time.Minute, 5)
 	s.parseLimiter = NewLimiter(time.Minute, 20)
 	s.router.SetErrorHandler(httpx.WriteErr)
+	// 凭据加密保管（主密钥在 data/keys/master.key）。
+	vault, err := credential.OpenVault(cfg.GetString("storage.data_dir"))
+	if err != nil {
+		return nil, fmt.Errorf("初始化凭据加密: %w", err)
+	}
+	s.vault = vault
 	s.setupAuth()
 	s.setupTasks()
+	s.setupConfig()
+	s.setupCredentials()
+	s.setupFiles()
+	s.setupSubscriptions()
+	s.setupLive()
+	s.setupNotifications()
+	s.setupTokens()
+	s.setupSystem()
 	s.registerRoutes()
 	return s, nil
 }
@@ -65,6 +85,9 @@ func (s *Server) registerRoutes() {
 
 // Handler 返回 http.Handler。
 func (s *Server) Handler() http.Handler { return s.router }
+
+// SetRestartFunc 注入让出重启回调（main 注入：退出进程由编排器拉起）。
+func (s *Server) SetRestartFunc(fn func()) { s.restartFn = fn }
 
 // ShutdownTasks 优雅停任务系统：cancel 调度循环 → 等待运行中 worker 让出（上限 timeout）。
 func (s *Server) ShutdownTasks(timeout time.Duration) {

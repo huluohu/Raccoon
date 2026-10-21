@@ -16,6 +16,7 @@ import (
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
+	"github.com/huluohu/raccoon/internal/subscription"
 	"github.com/huluohu/raccoon/internal/task"
 )
 
@@ -26,6 +27,8 @@ func (s *Server) setupTasks() {
 	s.hub = hub
 	tm := task.NewManager(s.store, s.cfg, eng, hub, s.log.With("tasks"))
 	s.tasks = tm
+	// 通知出口注入（task → notify 单向依赖）。
+	tm.SetNotifier(notifierFunc(s.notify))
 	if err := eng.CheckAll(); err != nil {
 		// 引擎不可用不阻断启动：/health 降级、任务提交 503（docs/04 §1.2）。
 		s.log.Warn("引擎自检未通过，下载能力降级", map[string]any{"err": err.Error()})
@@ -33,6 +36,10 @@ func (s *Server) setupTasks() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.shutdownCancel = cancel
 	go tm.Start(ctx)
+
+	// 订阅服务（Wave 3）：周期检查 + 走统一任务系统入队。
+	s.subs = subscription.New(s.store, s.cfg, eng, tm, s.log.With("subscription"))
+	go s.subs.Start(ctx)
 
 	// tasks REST（docs/04 §2.2）。
 	s.router.GET("/api/v1/tasks", s.requireAuth(s.handleTasksList))
@@ -42,6 +49,9 @@ func (s *Server) setupTasks() {
 	s.router.POST("/api/v1/tasks/:id/cancel", s.requireAuth(s.csrfForSession(s.handleTaskCancel)))
 	s.router.POST("/api/v1/tasks/:id/retry", s.requireAuth(s.csrfForSession(s.handleTaskRetry)))
 	s.router.DELETE("/api/v1/tasks/:id", s.requireAuth(s.csrfForSession(s.handleTaskDelete)))
+	s.router.POST("/api/v1/tasks/batch", s.requireAuth(s.csrfForSession(s.handleTasksBatch)))
+	s.router.GET("/api/v1/tasks/:id/files", s.requireAuth(s.handleTaskFiles))
+	s.router.DELETE("/api/v1/tasks/:id/files/:fileId", s.requireAuth(s.csrfForSession(s.handleTaskFileDelete)))
 
 	// parse 预览（不落库）。
 	s.router.POST("/api/v1/parse", s.requireAuth(s.csrfForSession(s.handleParse)))

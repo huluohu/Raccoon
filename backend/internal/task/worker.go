@@ -138,9 +138,10 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 		dur = &duration
 	}
 	if firstPath != "" {
-		_ = w.mgr.st.AddMediaFile(&store.MediaFile{
-			ID: store.NewTaskID(), TaskID: &t.ID, Path: firstPath, Name: firstName,
-			Size: total, Mime: firstMime, Duration: dur, Platform: platform, Uploader: uploader, CreatedAt: now,
+		_ = w.mgr.st.UpsertMediaFile(&store.MediaFile{
+			ID: store.NewTaskID(), TaskID: t.ID, Path: firstPath, Name: firstName,
+			Size: total, Mime: firstMime, Duration: dur, Platform: platform, Uploader: uploader,
+			Kind: store.MediaKindOf(firstMime, firstName), CreatedAt: now,
 		})
 	}
 	if err := w.transition(t.ID, "downloading", "post", nil); err != nil {
@@ -157,6 +158,9 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 	}
 	_ = w.mgr.st.AppendEvent(t.ID, "info", "done", fmt.Sprintf("下载完成：%d 个文件，共 %d 字节", len(files), total), "")
 	w.mgr.hub.Broadcast("task.done", map[string]any{"task_id": t.ID, "status": "done", "files": len(files), "size": total})
+	w.mgr.notify("task_done", "success", "下载完成："+t.Title, fmt.Sprintf("%d 个文件，共 %d 字节", len(files), total), t.ID)
+	// 父任务聚合（docs/05 §5）：子任务终态后刷新父进度。
+	w.mgr.aggregateParent(t.ParentID)
 }
 
 // transition CAS 状态推进（fromStatus 匹配才更新；终态/取消快速失败）。
@@ -230,6 +234,10 @@ func (w *Worker) fail(taskID, code, msg, hint string) {
 		"task_id": taskID, "status": "failed", "error_code": code,
 		"fix_hint": parseHint(hint),
 	}))
+	w.mgr.notify("task_failed", "error", "任务失败："+code, msg, taskID)
+	if t, err := w.mgr.st.GetTask(taskID); err == nil {
+		w.mgr.aggregateParent(t.ParentID)
+	}
 }
 
 // markCancelled 置 cancelled（幂等）。

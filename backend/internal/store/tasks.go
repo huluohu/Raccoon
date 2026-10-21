@@ -371,7 +371,7 @@ func (s *Store) DueWaiting(now int64, limit int) ([]*Task, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []*Task
+	out := []*Task{}
 	for rows.Next() {
 		t, err := scanTaskRows(rows)
 		if err != nil {
@@ -438,7 +438,7 @@ func (s *Store) ListEvents(taskID string, afterID int64, limit int) ([]*TaskEven
 		return nil, false, err
 	}
 	defer rows.Close()
-	var out []*TaskEvent
+	out := []*TaskEvent{}
 	for rows.Next() {
 		var e TaskEvent
 		var msg, fj sql.NullString
@@ -472,7 +472,7 @@ func (s *Store) TaskFiles(taskID string) ([]*TaskFile, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []*TaskFile
+	out := []*TaskFile{}
 	for rows.Next() {
 		var f TaskFile
 		var mime sql.NullString
@@ -485,27 +485,28 @@ func (s *Store) TaskFiles(taskID string) ([]*TaskFile, error) {
 	return out, rows.Err()
 }
 
-// AddMediaFile 登记媒体库索引（媒体库页面数据源；task_id 关联可空）。
-func (s *Store) AddMediaFile(f *MediaFile) error {
-	_, err := s.RW.Exec(`INSERT OR IGNORE INTO media_files (id, task_id, path, name, size, mime, duration, platform, uploader, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		f.ID, f.TaskID, f.Path, f.Name, f.Size, nullStr(f.Mime), nullInt64Value(f.Duration), nullStr(f.Platform), nullStr(f.Uploader), f.CreatedAt)
+// DeleteTaskFile 删除产物索引记录（磁盘文件由上层先删）。
+func (s *Store) DeleteTaskFile(fileID string) error {
+	_, err := s.RW.Exec(`DELETE FROM task_files WHERE id=?`, fileID)
 	return err
 }
 
-// MediaFile 媒体库文件（docs/03 §5）。
-type MediaFile struct {
-	ID          string  `json:"id"`
-	TaskID      *string `json:"task_id,omitempty"`
-	Path        string  `json:"path"`
-	Name        string  `json:"name"`
-	Size        int64   `json:"size"`
-	Mime        string  `json:"mime,omitempty"`
-	Duration    *int64  `json:"duration,omitempty"`
-	Platform    string  `json:"platform,omitempty"`
-	Uploader    string  `json:"uploader,omitempty"`
-	CreatedAt   int64   `json:"created_at"`
-	Previewable bool    `json:"previewable"`
+// ListChildren 取子任务（父子聚合用）。
+func (s *Store) ListChildren(parentID string) ([]*Task, error) {
+	rows, err := s.RO.Query(taskSelect+` WHERE t.parent_id=? AND t.deleted_at IS NULL ORDER BY t.created_at`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*Task{}
+	for rows.Next() {
+		t, err := scanTaskRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // ---- 小工具 ----

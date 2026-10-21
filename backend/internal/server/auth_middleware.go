@@ -7,8 +7,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/store"
@@ -44,7 +46,7 @@ func (s *Server) csrfForSession(h HandlerFunc) HandlerFunc {
 			c, err := r.Cookie(sessionCookieName)
 			if err == nil {
 				if _, csrf, ok := s.sessions.Get(c.Value); ok {
-					if subtle := r.Header.Get("X-CSRF-Token"); subtle == "" || subtle != csrf {
+					if got := r.Header.Get("X-CSRF-Token"); got == "" || got != csrf {
 						return httpx.Forbidden("CSRF 校验失败")
 					}
 				}
@@ -54,7 +56,7 @@ func (s *Server) csrfForSession(h HandlerFunc) HandlerFunc {
 	}
 }
 
-// authenticate 解析请求身份：优先 Cookie 会话；Bearer Token 走 api_tokens（4.9）。
+// authenticate 解析请求身份：优先 Cookie 会话；否则 Bearer Token（docs/04 §1.1）。
 func (s *Server) authenticate(r *http.Request) (*store.User, error) {
 	if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
 		uid, _, ok := s.sessions.Get(c.Value)
@@ -68,13 +70,75 @@ func (s *Server) authenticate(r *http.Request) (*store.User, error) {
 		return u, nil
 	}
 	if ah := r.Header.Get("Authorization"); strings.HasPrefix(ah, "Bearer ") {
-		return nil, httpx.Forbidden("API Token 通道尚未开放（Wave 4.9）")
+		return s.authenticateToken(r, strings.TrimSpace(strings.TrimPrefix(ah, "Bearer ")))
 	}
 	// 未带任何凭据：未初始化时引导 setup。
 	if n, err := s.store.CountUsers(); err == nil && n == 0 {
 		return nil, &httpx.Error{HTTP: http.StatusPreconditionRequired, Code: httpx.CodeSetupReq, Message: "尚未初始化管理员账号"}
 	}
 	return nil, httpx.Unauthorized("未登录")
+}
+
+// authenticateToken API Token 通道：校验哈希 → 撤销/过期检查 → scope 权限 → 载入用户。
+func (s *Server) authenticateToken(r *http.Request, raw string) (*store.User, error) {
+	if raw == "" {
+		return nil, httpx.Unauthorized("API Token 不能为空")
+	}
+	tok, err := s.store.GetAPITokenByHash(store.HashToken(raw))
+	if err != nil {
+		if errors.Is(err, store.ErrNoSuchToken) {
+			return nil, httpx.Unauthorized("API Token 无效")
+		}
+		return nil, httpx.Internal("API Token 校验失败")
+	}
+	// 撤销即时失效。
+	if tok.Revoked {
+		return nil, httpx.Unauthorized("API Token 已被撤销")
+	}
+	// 过期检查。
+	if tok.ExpiresAt != nil && *tok.ExpiresAt < time.Now().UnixMilli() {
+		return nil, httpx.Unauthorized("API Token 已过期")
+	}
+	// scope 检查：读需 read；写需 write；管理域（配置/凭据/订阅/直播/令牌）需 admin。
+	if need := requiredScope(r); tok.Scope&need == 0 {
+		return nil, httpx.Forbidden("API Token 权限不足（需要 scope=" + scopeName(need) + "）")
+	}
+	s.store.TouchToken(tok.ID)
+	u, err := s.store.GetUserByID(tok.UserID)
+	if err != nil {
+		return nil, httpx.Unauthorized("Token 所属用户不存在")
+	}
+	return u, nil
+}
+
+// requiredScope 请求所需 scope。
+func requiredScope(r *http.Request) int {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		return store.ScopeRead
+	}
+	for _, prefix := range []string{
+		"/api/v1/config", "/api/v1/credentials", "/api/v1/subscriptions",
+		"/api/v1/live-sources", "/api/v1/tokens",
+	} {
+		if strings.HasPrefix(r.URL.Path, prefix) {
+			return store.ScopeAdmin
+		}
+	}
+	return store.ScopeWrite
+}
+
+// scopeName scope 位 → 名称（错误提示用）。
+func scopeName(scope int) string {
+	switch scope {
+	case store.ScopeRead:
+		return "read"
+	case store.ScopeWrite:
+		return "write"
+	case store.ScopeAdmin:
+		return "admin"
+	}
+	return "unknown"
 }
 
 // ensureSetUp WRAPPER：requireAuth 已内嵌 428 逻辑，此函数供事件流等特殊路由复用。

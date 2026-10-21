@@ -22,7 +22,7 @@ export const useAuthStore = defineStore('auth', () => {
         return
       }
       const me = await api.authMe()
-      user.value = me.data
+      user.value = me.user
       phase.value = 'ready'
     } catch (e) {
       if (e instanceof ApiError && (e.code === 'SETUP_REQUIRED' || e.code === 'VALIDATION')) {

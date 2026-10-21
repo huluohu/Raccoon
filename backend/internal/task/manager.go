@@ -31,6 +31,7 @@ type Manager struct {
 	mu      sync.Mutex
 	cancels map[string]context.CancelFunc // taskID → 运行中 worker 的 cancel
 	running map[string]bool
+	notifier Notifier // 通知出口（server 注入；nil=不通知）
 
 	done      chan struct{}
 	stopOnce  sync.Once
@@ -257,6 +258,13 @@ func (m *Manager) Retry(taskID string) error {
 	_ = m.st.AppendEvent(taskID, "info", "retry", fmt.Sprintf("手动重试（第 %d 次尝试）", t.Attempt+1), "")
 	m.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "waiting"})
 	return nil
+}
+
+// RunningCount 当前运行中 worker 数（让出重启等待用）。
+func (m *Manager) RunningCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.running)
 }
 
 // SubmitItem 创建入参（docs/04 §2.2 POST /tasks items[]）。

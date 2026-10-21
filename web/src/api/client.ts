@@ -74,7 +74,8 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
-  authMe: () => request<{ data: import('./types').AuthUser }>('/auth/me'),
+  // 后端 handleAuthMe 返回 {"user": {...}}（非 data 信封，docs/04 §2.1）。
+  authMe: () => request<{ user: import('./types').AuthUser }>('/auth/me'),
 
   // ---- 任务（docs/04 §2.2/§2.3）----
   listTasks: (params: Record<string, string> = {}) => {
@@ -97,4 +98,187 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url }),
     }),
+
+  // ---- 配置中心（docs/04 §2.4）----
+  getConfig: () => request<import('./types').ConfigResponse>('/config'),
+  saveConfig: (settings: Record<string, unknown>) =>
+    request<import('./types').ConfigSaveResponse>('/config', {
+      method: 'PUT',
+      body: JSON.stringify({ settings }),
+    }),
+  testConnection: (target: string, params: Record<string, unknown> = {}) =>
+    request<import('./types').ConnTestResult>('/config/test-connection', {
+      method: 'POST',
+      body: JSON.stringify({ target, params }),
+    }),
+  exportConfig: () => request<Record<string, unknown>>('/config/export'),
+  importConfig: (settings: Record<string, unknown>, dryRun = false) =>
+    request<{ diff: { key: string; current: unknown; incoming: unknown }[]; applied: boolean }>('/config/import', {
+      method: 'POST',
+      body: JSON.stringify({ settings, dry_run: dryRun }),
+    }),
+  getConfigHistory: (key?: string) =>
+    request<{ items: import('./types').ConfigHistoryEntry[] }>(
+      '/config/history' + (key ? '?key=' + encodeURIComponent(key) : ''),
+    ),
+  rollbackConfig: (key: string, version: number) =>
+    request<import('./types').ConfigSaveResponse>('/config/rollback', {
+      method: 'POST',
+      body: JSON.stringify({ key, version }),
+    }),
+
+  // ---- 凭据中心（docs/04 §2.5）----
+  listCredentials: () => request<{ items: import('./types').Credential[] }>('/credentials'),
+  createCredential: (body: {
+    platform: string
+    kind: string
+    label: string
+    note?: string
+    value: string
+    expires_at?: number
+  }) =>
+    request<{ data: import('./types').Credential }>('/credentials', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateCredential: (
+    id: string,
+    body: { label?: string; note?: string; value?: string },
+  ) =>
+    request<{ data: import('./types').Credential }>(`/credentials/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteCredential: (id: string) =>
+    request<{ ok: boolean }>(`/credentials/${id}`, { method: 'DELETE' }),
+  checkCredential: (id: string) =>
+    request<{ ok: boolean; status: string; message: string }>(`/credentials/${id}/check`, {
+      method: 'POST',
+    }),
+
+  // ---- 媒体库（docs/04 §2.8）----
+  listFiles: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString()
+    return request<import('./types').MediaListResponse>('/files' + (qs ? '?' + qs : ''))
+  },
+  fileDownloadUrl: (id: string) => `${BASE}/files/${id}/download`,
+  filePreviewUrl: (id: string) => `${BASE}/files/${id}/preview`,
+
+  // ---- 订阅（docs/04 §2.6）----
+  listSubscriptions: () => request<{ items: import('./types').Subscription[] }>('/subscriptions'),
+  createSubscription: (body: {
+    source_url: string
+    source_type?: string
+    mode?: string
+    quality?: string
+    save_rule?: string
+    interval_min?: number
+    credential_id?: string
+    range_from?: number
+    range_to?: number
+    preview?: boolean
+  }) =>
+    request<{ data: import('./types').Subscription | import('./types').ParsePreview; preview?: boolean }>(
+      '/subscriptions',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  updateSubscription: (
+    id: string,
+    body: {
+      mode?: string
+      quality?: string
+      save_rule?: string
+      interval_min?: number
+      enabled?: boolean
+      range_from?: number
+      range_to?: number
+    },
+  ) =>
+    request<{ data: import('./types').Subscription }>(`/subscriptions/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteSubscription: (id: string) =>
+    request<{ ok: boolean }>(`/subscriptions/${id}`, { method: 'DELETE' }),
+  checkSubscriptionNow: (id: string) =>
+    request<{ ok: boolean; queued?: number; checking?: boolean; message?: string }>(
+      `/subscriptions/${id}/check-now`,
+      { method: 'POST' },
+    ),
+  listSubscriptionItems: (id: string) =>
+    request<{ items: import('./types').SubscriptionItem[] }>(`/subscriptions/${id}/items`),
+
+  // ---- 直播（docs/04 §2.7）----
+  listLiveSources: () => request<import('./types').LiveListResponse>('/live-sources'),
+  createLiveSource: (body: {
+    platform: string
+    room_url: string
+    title?: string
+    quality?: string
+    record_plan?: string
+    segment_min?: number
+    check_interval_sec?: number
+    credential_id?: string
+  }) =>
+    request<{ data: import('./types').LiveSource }>('/live-sources', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateLiveSource: (
+    id: string,
+    body: {
+      title?: string
+      quality?: string
+      record_plan?: string
+      segment_min?: number
+      check_interval_sec?: number
+      enabled?: boolean
+      credential_id?: string
+    },
+  ) =>
+    request<{ data: import('./types').LiveSource }>(`/live-sources/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteLiveSource: (id: string) =>
+    request<{ ok: boolean }>(`/live-sources/${id}`, { method: 'DELETE' }),
+  listLiveRecordings: (id: string) =>
+    request<{ items: import('./types').LiveRecording[] }>(`/live-sources/${id}/recordings`),
+  recordLive: (id: string) =>
+    request<{ data: import('./types').LiveRecording; task: import('./types').Task }>(
+      `/live-sources/${id}/record`,
+      { method: 'POST' },
+    ),
+
+  // ---- 通知（docs/04 §2.9）----
+  listNotifications: (unreadOnly = false) =>
+    request<{ items: import('./types').Notification[]; unread: number }>(
+      '/notifications' + (unreadOnly ? '?unread=1' : ''),
+    ),
+  markNotificationsRead: (ids: string[] = [], all = false) =>
+    request<{ updated: number; unread: number }>('/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify({ ids, all }),
+    }),
+
+  // ---- API Token（docs/04 §1.1）----
+  listTokens: () => request<{ items: import('./types').ApiToken[] }>('/tokens'),
+  createToken: (name: string, scope: number, expiresInHours = 0) =>
+    request<{ data: import('./types').ApiToken; token: string; notice: string }>('/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name, scope, expires_in_hours: expiresInHours }),
+    }),
+  revokeToken: (id: string) => request<{ ok: boolean }>(`/tokens/${id}`, { method: 'DELETE' }),
+
+  // ---- 系统（docs/04 §2.9）----
+  queueStats: () => request<import('./types').QueueStats>('/system/queue'),
+  restartService: () =>
+    request<{ ok: boolean; waited_sec: number; still_running: number; message: string }>(
+      '/system/restart',
+      { method: 'POST' },
+    ),
+  diagPreview: () =>
+    request<{ preview: boolean; manifest: Record<string, unknown>; log_sample: string[] }>(
+      '/system/diag/export?preview=1',
+    ),
 }

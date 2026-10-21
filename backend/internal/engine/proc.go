@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -79,6 +82,62 @@ type ProgressFn func(Progress)
 
 // ---- 子进程管理器（Wave 1.6：exec + 进程组 + 取消 + 超时） ----
 
+// pidFilePath 引擎子进程 PID 登记文件（孤儿回收用；nil=不登记）。
+var (
+	pidFilePath string
+	pidFileMu   sync.Mutex
+)
+
+// SetPIDFile 设置 PID 登记文件路径（服务启动时调用）。
+//
+// 用途：进程被 kill -9 后，yt-dlp/ffmpeg 子进程会变成孤儿继续写盘。
+// 启动时读该文件杀掉残留的引擎进程（只杀本服务拉起的）。
+func SetPIDFile(path string) {
+	pidFileMu.Lock()
+	pidFilePath = path
+	pidFileMu.Unlock()
+}
+
+// registerPID 登记子进程 PID。
+func registerPID(pid int) {
+	pidFileMu.Lock()
+	path := pidFilePath
+	pidFileMu.Unlock()
+	if path == "" || pid <= 0 {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.WriteString(strconv.Itoa(pid) + "\n")
+}
+
+// unregisterPID 注销子进程 PID（进程正常退出时清理文件）。
+func unregisterPID(pid int) {
+	pidFileMu.Lock()
+	path := pidFilePath
+	pidFileMu.Unlock()
+	if path == "" || pid <= 0 {
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(raw), "\n")
+	keep := make([]string, 0, len(lines))
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l == "" || l == strconv.Itoa(pid) {
+			continue
+		}
+		keep = append(keep, l)
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(keep, "\n")), 0o600)
+}
+
 // RunCmd 以新进程组运行命令；ctx 取消时杀整个进程组（含 yt-dlp 派生的 ffmpeg）。
 // stdout 逐行回调 onLine；stderr 合并进同一扫描器（yt-dlp 进度走 stderr）。
 // dir 非空时作为子进程工作目录（yt-dlp 的 -o 相对模板据此落盘，必须显式传
@@ -112,6 +171,8 @@ func RunCmd(ctx context.Context, bin string, args []string, onLine func(string),
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动 %s 失败: %w", bin, err)
 	}
+	registerPID(cmd.Process.Pid)
+	defer unregisterPID(cmd.Process.Pid)
 	lines := make(chan string, 64)
 	scan := func(r io.Reader) {
 		defer func() { _ = recover() }()
