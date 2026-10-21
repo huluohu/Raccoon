@@ -8,9 +8,10 @@
 # ---- 前端 ----
 web/node_modules/
 web/dist/
-# 内嵌占位页必须保留（embed.FS 需要至少一个文件）
+# 内嵌目录：构建产物不入库，仅保留占位页（embed.FS 需要）
+backend/internal/web/dist/*
 !backend/internal/web/dist/index.html
 
 # ---- 本地运行数据 ----
 /data/
-/tmp/
+/media/
