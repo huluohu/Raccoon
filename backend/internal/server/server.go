@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"io/fs"
 	"net/http"
 	"os"
@@ -10,21 +11,31 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/huluohu/raccoon/internal/auth"
 	"github.com/huluohu/raccoon/internal/config"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/logx"
+	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
+	"github.com/huluohu/raccoon/internal/task"
 	"github.com/huluohu/raccoon/internal/web"
 )
 
 // Server 聚合依赖并注册路由。
 type Server struct {
-	cfg    *config.Config
-	log    *logx.Logger
-	store  *store.Store
-	router *Router
-	start  time.Time
-	webFS  fs.FS // 前端产物（内嵌，ADR-5）
+	cfg            *config.Config
+	log            *logx.Logger
+	store          *store.Store
+	router         *Router
+	start          time.Time
+	webFS          fs.FS // 前端产物（内嵌，ADR-5）
+	sessions       *auth.SessionStore
+	done           chan struct{}      // 优雅停机信号（manager/auth GC 监听）
+	hub            *sse.Hub           // SSE 广播（Wave 2）
+	tasks          *task.Manager      // 任务系统 Manager（Wave 2）
+	shutdownCancel context.CancelFunc // 停机时 cancel manager loop
+	loginLimiter   *Limiter           // 登录限流（docs/04 §5：5 次/分钟/IP）
+	parseLimiter   *Limiter           // 解析限流（20 次/分钟/IP）
 }
 
 // New 构建 Server：router + 中间件链 + 路由注册。
@@ -33,8 +44,12 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{cfg: cfg, log: logger, store: st, router: NewRouter(RequestID, Recover), start: time.Now(), webFS: sub}
+	s := &Server{cfg: cfg, log: logger, store: st, router: NewRouter(RequestID, Recover), start: time.Now(), webFS: sub, done: make(chan struct{})}
+	s.loginLimiter = NewLimiter(time.Minute, 5)
+	s.parseLimiter = NewLimiter(time.Minute, 20)
 	s.router.SetErrorHandler(httpx.WriteErr)
+	s.setupAuth()
+	s.setupTasks()
 	s.registerRoutes()
 	return s, nil
 }
@@ -50,6 +65,50 @@ func (s *Server) registerRoutes() {
 
 // Handler 返回 http.Handler。
 func (s *Server) Handler() http.Handler { return s.router }
+
+// ShutdownTasks 优雅停任务系统：cancel 调度循环 → 等待运行中 worker 让出（上限 timeout）。
+func (s *Server) ShutdownTasks(timeout time.Duration) {
+	if s.shutdownCancel != nil {
+		s.shutdownCancel()
+	}
+	if s.tasks != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		s.tasks.Stop(ctx)
+	}
+	s.log.Info("任务系统已停止", nil)
+}
+
+// clientIP 取客户端 IP（限流键；反代 X-Forwarded-For 取第一段）。
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := indexByte(xff, ','); i > 0 {
+			return trimSpace(xff[:i])
+		}
+		return trimSpace(xff)
+	}
+	return r.RemoteAddr
+}
+
+func indexByte(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
+}
+
+func trimSpace(s string) string {
+	start, end := 0, len(s)
+	for start < end && (s[start] == ' ' || s[start] == '\t') {
+		start++
+	}
+	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
+		end--
+	}
+	return s[start:end]
+}
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) error {
 	checks := map[string]any{}

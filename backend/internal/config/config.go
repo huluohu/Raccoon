@@ -50,8 +50,9 @@ var Registry = []Setting{
 
 // Config 是运行期配置快照。锁定项只来自环境变量（docs/06 §4）。
 type Config struct {
-	values map[string]any
-	locked map[string]string // key -> 来源环境变量名
+	values  map[string]any
+	locked  map[string]string // key -> 来源环境变量名
+	version int               // 配置版本（Persist 递增；任务创建时快照）
 }
 
 // New 用默认值构建，并应用环境变量锁定。

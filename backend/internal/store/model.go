@@ -1,6 +1,7 @@
-package task
+package store
 
-// Task 对应 tasks 表（docs/03 §4.1）。字段与 DDL 一一对应，JSON tag 对齐 API 契约（docs/04）。
+// model.go：任务域模型与 SQLite 表一一对应（docs/03）。JSON tag 对齐 API 契约（docs/04）。
+// 存于 store 包避免 task(逻辑) ↔ store(数据) 循环依赖；状态机纯函数仍在 internal/task。
 type Task struct {
 	ID              string  `json:"id"`
 	ParentID        *string `json:"parent_id,omitempty"`
@@ -42,6 +43,7 @@ type Task struct {
 // TaskFile 任务产物（docs/03 §4.3）。
 type TaskFile struct {
 	ID        string `json:"id"`
+	TaskID    string `json:"task_id"`
 	Path      string `json:"path"`
 	Size      int64  `json:"size"`
 	Mime      string `json:"mime,omitempty"`

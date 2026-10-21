@@ -49,6 +49,12 @@ func main() {
 	defer st.Close()
 	logger.Info("数据库就绪", map[string]any{"path": dataDir + "/raccoon.db"})
 
+	// 配置持久化加载（Wave 1.2：settings 表覆盖默认值；env 锁定优先）。
+	if err := cfg.LoadFromStore(st.RW); err != nil {
+		logger.Error("加载持久化配置失败", map[string]any{"err": err.Error()})
+		os.Exit(1)
+	}
+
 	srv, err := server.New(cfg, st, logger.With("server"))
 	if err != nil {
 		logger.Error("服务初始化失败", map[string]any{"err": err.Error()})
@@ -68,11 +74,13 @@ func main() {
 		}
 	}()
 
-	// 优雅退出：SIGINT/SIGTERM → 停止接收新连接 → 等待在途请求（最多 15s）。
+	// 优雅退出：SIGINT/SIGTERM → 停机 manager（让出运行中任务）→ 停止接收新连接 → 等待在途请求（最多 15s）。
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	logger.Info("收到退出信号，优雅关闭中", nil)
+	// manager 让出窗口：停领新任务，运行中任务最多等 20s（下载可被取消语义）。
+	srv.ShutdownTasks(20 * time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(ctx); err != nil {
