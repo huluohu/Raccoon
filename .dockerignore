@@ -1,0 +1,13 @@
+.git
+.github
+docs
+data
+media
+backend/bin
+web/node_modules
+web/dist
+backend/internal/web/dist/*
+!backend/internal/web/dist/index.html
+*.md
+!README.md
+.DS_Store

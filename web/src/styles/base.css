@@ -1,0 +1,55 @@
+/* reset + 字阶基线（docs/07 §2 排版规则） */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: var(--font-body);
+  line-height: var(--line-height-body);
+  color: var(--text-1);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, p, figure {
+  margin: 0;
+}
+
+/* 数字等宽对齐：进度/速度/大小/时间不抖动 */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 中英文混排留隙（text-autospace 的兜底方案） */
+:lang(zh) body,
+body {
+  text-autospace: ideograph-alpha ideograph-numeric ideograph-parenthesis;
+}
+
+button {
+  font: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

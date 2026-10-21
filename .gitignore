@@ -1,0 +1,16 @@
+# ---- 后端 ----
+/bin/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store
+
+# ---- 前端 ----
+web/node_modules/
+web/dist/
+# 内嵌占位页必须保留（embed.FS 需要至少一个文件）
+!backend/internal/web/dist/index.html
+
+# ---- 本地运行数据 ----
+/data/
+/tmp/

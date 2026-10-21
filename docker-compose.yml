@@ -1,0 +1,21 @@
+# Raccoon 单容器部署：一个应用容器、一个 Web 端口、一个持久化数据目录（方案 §7）。
+# network_mode 显式 bridge：容器接入默认网桥，宿主机反代（Nginx Proxy Manager 等）经 127.0.0.1:8530 访问不断链。
+services:
+  raccoon:
+    build:
+      context: .
+      args:
+        YTDLP_VERSION: "2025.01.15"
+    image: raccoon:0.1.0
+    container_name: raccoon
+    network_mode: bridge
+    ports:
+      - "8530:8530"
+    volumes:
+      - ./data:/data          # 数据库/配置/凭据/日志/默认下载（唯一必需挂载）
+      - ./media:/media        # 可选：已有 NAS 媒体库（设置中把下载目录切到 /media 下）
+    environment:
+      TZ: Asia/Shanghai
+      # RACCOON_SERVER_ADDR: ":8530"   # 启动级设置（改动需重启，界面只读标注）
+      # RACCOON_DATA_DIR: "/data"
+    restart: unless-stopped

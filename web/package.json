@@ -1,0 +1,28 @@
+{
+  "name": "raccoon-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "浣熊 · 自托管多媒体下载中心 Web 管理界面（Vue 3 + TypeScript）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "@vue/test-utils": "^2.4.5",
+    "jsdom": "^24.0.0",
+    "typescript": "~5.4.3",
+    "vite": "^5.2.8",
+    "vitest": "^1.5.0",
+    "vue-tsc": "^2.0.13"
+  }
+}

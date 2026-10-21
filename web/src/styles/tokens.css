@@ -1,0 +1,70 @@
+/* 浣熊设计 Token（docs/07 §2，与方案 v2.4 §10.10 同源）。
+   全站唯一色值来源：组件禁止写死色值，新语义先加变量。 */
+
+:root {
+  /* 结构色：树影蓝灰 */
+  --accent: #2B3644;
+  --accent-strong: #1B2430;
+  --accent-soft: #E6EAF0;
+  --accent-softer: #F2F4F7;
+  /* 动作色：围巾金（全屏金色 ≤3 处） */
+  --gold: #F5B93C;
+  --gold-strong: #B8871A;
+  --gold-soft: #FDF3DC;
+  /* 画布 */
+  --bg: #F6F6F2;
+  --surface: #FFFFFF;
+  --surface-2: #EEF0F7;
+  --surface-3: #E4E6EC;
+  --border: #E2E5EF;
+  /* 文字（对比度：15.4 / 8.2 / 4.7） */
+  --text-1: #1B2133;
+  --text-2: #4D5670;
+  --text-3: #7E879F;
+  /* 语义状态（饱和度较原蓝紫降 10%） */
+  --success: #0F8A55;
+  --warning: #A9740A;
+  --danger: #CF4257;
+  --info: #2F7DE1;
+  --neutral: #667089;
+  /* 圆角（v2.4「胖半号」三档） */
+  --radius-ctrl: 8px;
+  --radius-card: 14px;
+  --radius-modal: 20px;
+  --radius-pill: 999px;
+  /* 阴影：树影色投影，禁纯黑 */
+  --shadow-1: 0 1px 2px rgb(43 54 68 / 6%);
+  --shadow-2: 0 8px 24px rgb(43 54 68 / 10%);
+  --shadow-3: 0 16px 48px rgb(43 54 68 / 16%);
+  /* 字阶 */
+  --font-body: 16px;
+  --font-aux: 13.5px;
+  --font-caption: 12px;
+  --line-height-body: 1.75;
+}
+
+[data-theme='dark'] {
+  --bg: #0F121B;
+  --surface: #161A26;
+  --surface-2: #1D2231;
+  --surface-3: #232A3C;
+  --border: #28304A;
+  --text-1: #E9ECF5;
+  --text-2: #AEB6CD;
+  --text-3: #7E8AA5;
+  --accent: #F5B93C;
+  --accent-strong: #F8CD77;
+  --accent-soft: #2E3746;
+  --accent-softer: #28303F;
+  --gold: #E8EDF3;
+  --gold-strong: #FFFFFF;
+  --gold-soft: #28303F;
+  --success: #4CC38A;
+  --warning: #E0A84A;
+  --danger: #F2728A;
+  --info: #6FA8F0;
+  --neutral: #8B94AD;
+  --shadow-1: none;
+  --shadow-2: 0 0 0 1px var(--border);
+  --shadow-3: 0 0 0 1px var(--border);
+}
