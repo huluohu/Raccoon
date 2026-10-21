@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/huluohu/raccoon/internal/engine"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/storage"
 	"github.com/huluohu/raccoon/internal/store"
@@ -148,7 +149,9 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	// 建父任务（kind=download，url=来源列表首项作占位；子任务 parent_id 指向它）。
 	now := nowMillis()
+	parentID := store.NewTaskID()
 	parent := &store.Task{
+		ID:            parentID, // 必须显式生成：CreateTask 直接落库，不补 ID
 		Kind:          task.KindDownload,
 		Source:        task.SourceWeb,
 		Platform:      "batch",
@@ -174,13 +177,20 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 	children := []*store.Task{}
 	for _, it := range req.Items {
 		pid := parent.ID
+		norm := store.NormalizeURL(strings.TrimSpace(it.URL))
+		// 去重键必须与 Manager.Submit 完全同构（同样的规范化 + 同样的平台推断），
+		// 否则同一链接走「单条提交」和「批量提交」两条路会算出不同 key，判重失效、
+		// 同一视频被重复下载。
+		childPlatform := engine.PlatformGuess(norm)
 		child := &store.Task{
+			ID:            store.NewTaskID(), // 同上：CreateTask 不补 ID
 			ParentID:      &pid,
 			Kind:          task.KindDownload,
 			Source:        task.SourceWeb,
 			SourceRef:     parent.ID,
-			URL:           strings.TrimSpace(it.URL),
-			DedupeKey:     store.DedupeKey(task.KindDownload, "", it.URL),
+			Platform:      childPlatform,
+			URL:           norm,
+			DedupeKey:     store.DedupeKey(task.KindDownload, childPlatform, norm),
 			Status:        task.StatusWaiting,
 			Quality:       it.Quality,
 			SavePath:      it.SavePath,
@@ -195,6 +205,20 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 		_ = s.store.AppendEvent(child.ID, "info", "created", "批量子任务", "")
 		children = append(children, child)
 		created++
+	}
+	if created == 0 {
+		// 全部子项都被去重跳过：父任务不会有任何子任务来聚合进度，
+		// 会永远停在 waiting（假队列头，UI 上还显示得出来）。直接判失败。
+		now := nowMillis()
+		_ = s.store.UpdateTaskFields(parent.ID, map[string]any{
+			"status":        task.StatusFailed,
+			"error_code":    "NO_NEW_ITEMS",
+			"error_message": "全部链接均已在队列中，无新增内容",
+			"finished_at":   now,
+		}, task.StatusWaiting)
+		_ = s.store.AppendEvent(parent.ID, "warn", "failed", "无有效子任务，批量未创建", "")
+		s.hub.Broadcast("task.status", map[string]any{"task_id": parent.ID, "status": task.StatusFailed})
+		return httpx.Conflict("全部链接均已在队列中，未创建新任务")
 	}
 	s.hub.Broadcast("task.status", map[string]any{"task_id": parent.ID, "status": "waiting"})
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{

@@ -20,8 +20,8 @@ func (m *Manager) aggregateParent(parentID *string) {
 	unknownSize := false
 	terminal := 0
 	failed := 0
+	doneCount := 0
 	for _, c := range children {
-		terminal++
 		sumDownloaded += c.DownloadedSize
 		if c.ExpectedSize != nil {
 			sumExpected += *c.ExpectedSize
@@ -31,16 +31,28 @@ func (m *Manager) aggregateParent(parentID *string) {
 		switch c.Status {
 		case "failed":
 			failed++
-		case "done", "cancelled":
+			terminal++
+		case "done":
+			doneCount++
+			terminal++
+		case "cancelled":
+			terminal++
 		default:
-			terminal--
+			// 非终态：不计入
 		}
 	}
 	fields := map[string]any{
 		"downloaded_size": sumDownloaded,
 	}
-	if !unknownSize && sumExpected > 0 {
+	switch {
+	case !unknownSize && sumExpected > 0:
+		// 有体积信息：按字节比例（最精确）。
 		fields["progress"] = float64(sumDownloaded) * 100 / float64(sumExpected)
+	case len(children) > 0:
+		// 无体积信息（B 站等平台 yt-dlp 不返回 expected_size）：
+		// 退化为「完成项占比」。否则父任务进度会永远停在 0，
+		// 即使全部子任务都已完成，UI 上仍显示未开始。
+		fields["progress"] = float64(doneCount+failed) * 100 / float64(len(children))
 	}
 	if terminal == len(children) {
 		// 全部子任务终态 → 父 done（带失败子计数）。

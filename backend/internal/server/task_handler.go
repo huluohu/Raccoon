@@ -50,6 +50,10 @@ func (s *Server) setupTasks() {
 	s.router.POST("/api/v1/tasks/:id/retry", s.requireAuth(s.csrfForSession(s.handleTaskRetry)))
 	s.router.DELETE("/api/v1/tasks/:id", s.requireAuth(s.csrfForSession(s.handleTaskDelete)))
 	s.router.POST("/api/v1/tasks/batch", s.requireAuth(s.csrfForSession(s.handleTasksBatch)))
+	// 父子批量（播放列表/频道展开）。必须注册在 GET /tasks/:id 之前吗？——不需要：
+	// 本路由是 POST，而 POST /tasks/:id 并不存在，两者不会争抢同一方法。
+	// 注意将来若要加 GET /tasks/parent 会被 GET /tasks/:id 抢先匹配（先注册先匹配）。
+	s.router.POST("/api/v1/tasks/parent", s.requireAuth(s.csrfForSession(s.handleTaskParentCreate)))
 	s.router.GET("/api/v1/tasks/:id/files", s.requireAuth(s.handleTaskFiles))
 	s.router.DELETE("/api/v1/tasks/:id/files/:fileId", s.requireAuth(s.csrfForSession(s.handleTaskFileDelete)))
 

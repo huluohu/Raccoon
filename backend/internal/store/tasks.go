@@ -365,8 +365,15 @@ func (s *Store) ClaimWaiting(id string, toStatus string) (*Task, error) {
 // 只按 scheduled_at 判到期：wait_reason 是给用户看的说明（排队/自动重试退避/
 // 进程中断恢复），不是调度闸门——若按 wait_reason 过滤，退避任务到期后
 // 会永久卡在 waiting。
+// DueWaiting 取到期的 waiting 任务。
+//
+// 排除批量父任务（platform='batch'）：父任务只是子任务的聚合壳，没有自己的下载动作，
+// 由 aggregateParent 推进。若不排除，调度器会把父任务也当普通下载领走，
+// 拿首个子任务的 URL 真跑一遍（重复下载），并把 platform 从 batch 覆写成真实平台，
+// 聚合语义与 UI 展示都会失真。
 func (s *Store) DueWaiting(now int64, limit int) ([]*Task, error) {
-	rows, err := s.RO.Query(taskSelect+` WHERE status='waiting' AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at LIMIT ?`, now, limit)
+	rows, err := s.RO.Query(taskSelect+` WHERE status='waiting' AND platform<>'batch'
+		AND (scheduled_at IS NULL OR scheduled_at <= ?) ORDER BY created_at LIMIT ?`, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -383,8 +390,15 @@ func (s *Store) DueWaiting(now int64, limit int) ([]*Task, error) {
 }
 
 // ActiveConcurrency 活跃并发：全局 + 按平台（闸门用，docs/05 §3）。
+// 排除批量父任务（与 DueWaiting 同理：它不占真实下载资源）。
+//
+// deleted_at 过滤是必需的，不能省：用户软删一个卡在 parsing/downloading 的任务后，
+// 它若仍被计入并发，byPlatform 会永久占满 platform_cap，
+// 该平台所有新任务全部饿死且没有任何报错（实测踩过：清库重跑时队列彻底不动）。
 func (s *Store) ActiveConcurrency() (total int, byPlatform map[string]int, err error) {
-	rows, err := s.RO.Query(`SELECT platform, COUNT(*) FROM tasks WHERE status IN ('parsing','downloading','post') GROUP BY platform`)
+	rows, err := s.RO.Query(`SELECT platform, COUNT(*) FROM tasks
+		WHERE status IN ('parsing','downloading','post') AND platform<>'batch'
+		  AND deleted_at IS NULL GROUP BY platform`)
 	if err != nil {
 		return 0, nil, err
 	}

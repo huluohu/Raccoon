@@ -145,7 +145,11 @@ func (m *Manager) recoverInterrupted() {
 func (m *Manager) tick(ctx context.Context) {
 	now := time.Now().UnixMilli()
 	due, err := m.st.DueWaiting(now, 20)
-	if err != nil || len(due) == 0 {
+	if err != nil {
+		m.log.Warn("调度查询失败", map[string]any{"err": err.Error()})
+		return
+	}
+	if len(due) == 0 {
 		return
 	}
 	total, byPlatform, err := m.st.ActiveConcurrency()
