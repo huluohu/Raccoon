@@ -107,13 +107,13 @@ type galleryPost struct {
 }
 
 type galleryFile struct {
-	URL      string `json:"url"`
-	Path     string `json:"path"`
-	Filename string `json:"filename"`
+	URL       string `json:"url"`
+	Path      string `json:"path"`
+	Filename  string `json:"filename"`
 	Extension string `json:"extension"`
-	Size     int64  `json:"size"`
-	Width    int    `json:"width"`
-	Height   int    `json:"height"`
+	Size      int64  `json:"size"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
 }
 
 // Resolve 拉元信息（--dump-json，多行 JSON 逐条解析）。

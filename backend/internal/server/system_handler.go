@@ -78,11 +78,11 @@ func (s *Server) handleQueueStats(w http.ResponseWriter, r *http.Request) error 
 	}
 	unread, _ := s.store.CountUnreadNotifications()
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"counts":       counts,
-		"total_tasks":  total,
-		"running":      running,
-		"media_count":  mediaCount,
-		"media_bytes":  mediaSize,
+		"counts":        counts,
+		"total_tasks":   total,
+		"running":       running,
+		"media_count":   mediaCount,
+		"media_bytes":   mediaSize,
 		"unread_notifs": unread,
 	})
 	return nil
@@ -120,10 +120,10 @@ func (s *Server) handleDiagExport(w http.ResponseWriter, r *http.Request) error 
 	}
 	if preview {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{
-			"preview":       true,
-			"manifest":      manifest,
-			"log_sample":    tailN(logTail, 20),
-			"redaction":     "cookie/token/password/key 等字段名强制替换为 ***",
+			"preview":    true,
+			"manifest":   manifest,
+			"log_sample": tailN(logTail, 20),
+			"redaction":  "cookie/token/password/key 等字段名强制替换为 ***",
 		})
 		return nil
 	}

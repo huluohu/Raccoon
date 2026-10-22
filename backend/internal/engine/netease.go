@@ -56,7 +56,7 @@ type NCMMetadata struct {
 	Album    string `json:"album"`
 	AlbumPic string `json:"albumPic"`
 	Format   string `json:"format"`
-	Bitrate int    `json:"bitrate"`
+	Bitrate  int    `json:"bitrate"`
 }
 
 // ErrNotNCM 输入不是合法的 .ncm 文件。

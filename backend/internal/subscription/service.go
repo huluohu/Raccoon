@@ -21,13 +21,13 @@ import (
 
 // Service 订阅服务。
 type Service struct {
-	st   *store.Store
-	cfg  *config.Config
-	eng  *engine.Set
-	mgr  *task.Manager
-	log  *logx.Logger
+	st  *store.Store
+	cfg *config.Config
+	eng *engine.Set
+	mgr *task.Manager
+	log *logx.Logger
 
-	mu      sync.Mutex
+	mu       sync.Mutex
 	checking map[string]bool // 订阅 ID → 检查中（单飞，docs/04 §4）
 }
 

@@ -13,18 +13,18 @@ import (
 
 // Credential 凭据元信息（不含密文）。
 type Credential struct {
-	ID          string  `json:"id"`
-	Platform    string  `json:"platform"`
-	Kind        string  `json:"kind"`
-	Label       string  `json:"label"`
-	Status      string  `json:"status"`
-	Note        string  `json:"note,omitempty"`
-	ExpiresAt   *int64  `json:"expires_at,omitempty"`
-	LastCheckAt *int64  `json:"last_check_at,omitempty"`
-	CreatedAt   int64   `json:"created_at"`
-	UpdatedAt   int64   `json:"updated_at"`
-	HasValue    bool    `json:"has_value"` // 是否含有效密文
-	Preview     string  `json:"preview,omitempty"`
+	ID          string `json:"id"`
+	Platform    string `json:"platform"`
+	Kind        string `json:"kind"`
+	Label       string `json:"label"`
+	Status      string `json:"status"`
+	Note        string `json:"note,omitempty"`
+	ExpiresAt   *int64 `json:"expires_at,omitempty"`
+	LastCheckAt *int64 `json:"last_check_at,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+	HasValue    bool   `json:"has_value"` // 是否含有效密文
+	Preview     string `json:"preview,omitempty"`
 }
 
 // ErrNoSuchCredential 凭据不存在。

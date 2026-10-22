@@ -20,9 +20,9 @@ type PlaylistEntry struct {
 
 // PlaylistResult 播放列表解析结果。
 type PlaylistResult struct {
-	Title   string          `json:"title"`
-	Uploader string         `json:"uploader"`
-	Entries []PlaylistEntry `json:"entries"`
+	Title    string          `json:"title"`
+	Uploader string          `json:"uploader"`
+	Entries  []PlaylistEntry `json:"entries"`
 }
 
 // ytdlpPlaylistJSON --flat-playlist 输出结构（只取关心的字段）。

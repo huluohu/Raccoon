@@ -40,7 +40,7 @@ func newExtTask(t *testing.T, m *Manager, kind, url string) *store.Task {
 	if err := m.st.CreateTask(&store.Task{
 		ID: id, Kind: kind, Source: "web", Platform: "qb",
 		URL: url, Title: "测试任务",
-		DedupeKey:  store.DedupeKey(kind, "qb", id),
+		DedupeKey:   store.DedupeKey(kind, "qb", id),
 		MaxAttempts: 3, CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}); err != nil {
 		t.Fatalf("建任务失败：%v", err)
@@ -314,8 +314,8 @@ func TestRunQB_不影响其他任务(t *testing.T) {
 	dlID := store.NewTaskID()
 	if err := m.st.CreateTask(&store.Task{
 		ID: dlID, Kind: KindDownload, Source: "web", Platform: "bilibili",
-		URL: "https://www.bilibili.com/video/BV1xx411c7mD",
-		DedupeKey: store.DedupeKey(KindDownload, "bilibili", dlID),
+		URL:         "https://www.bilibili.com/video/BV1xx411c7mD",
+		DedupeKey:   store.DedupeKey(KindDownload, "bilibili", dlID),
 		MaxAttempts: 3, CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
 	}); err != nil {
 		t.Fatalf("建下载任务失败：%v", err)

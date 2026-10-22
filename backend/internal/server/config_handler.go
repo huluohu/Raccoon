@@ -29,14 +29,14 @@ func (s *Server) setupConfig() {
 
 // configItemJSON 界面渲染用的一项（五要素 + 当前值 + 锁定状态）。
 type configItemJSON struct {
-	Key       string `json:"key"`
-	Desc      string `json:"desc"`
-	Default   any    `json:"default"`
-	Value     any    `json:"value"`
-	Type      string `json:"type"`
-	Effective string `json:"effective"`
-	Sensitive bool   `json:"sensitive"`
-	Locked    bool   `json:"locked"`
+	Key       string   `json:"key"`
+	Desc      string   `json:"desc"`
+	Default   any      `json:"default"`
+	Value     any      `json:"value"`
+	Type      string   `json:"type"`
+	Effective string   `json:"effective"`
+	Sensitive bool     `json:"sensitive"`
+	Locked    bool     `json:"locked"`
 	EnvVar    string   `json:"env_var,omitempty"`
 	Version   int      `json:"version"`
 	Choices   []string `json:"choices,omitempty"` // 枚举项的合法取值（前端渲染成下拉）
@@ -153,9 +153,9 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request, values map[s
 	// 3. 广播 config.changed（前端即时生效；docs/04 §3）。
 	s.hub.Broadcast("config.changed", map[string]any{"keys": saved, "effective": effective})
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"saved":            saved,
+		"saved":             saved,
 		"effective_summary": effective,
-		"version":          s.cfg.Version(),
+		"version":           s.cfg.Version(),
 	})
 	return nil
 }
@@ -165,6 +165,7 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request, values map[s
 // 同一份定义供两处使用，避免「后端校验一套、前端下拉另一套」慢慢漂移：
 //   - validateSettingValue 做保存时校验（前端绕过也拦得住）
 //   - configItemJSON 下发给前端，渲染成下拉（用户不用猜合法值）
+//
 // 缺省项（未列出的 key）没有枚举，自由文本 + 后端类型校验。
 var settingChoices = map[string][]string{
 	"download.default_quality": {"best", "audio", "360p", "480p", "720p", "1080p"},
@@ -243,7 +244,7 @@ func inStrList(list []string, s string) bool {
 // handleConfigTestConn 连接类设置测试（qb / 115 / telegram）。
 func (s *Server) handleConfigTestConn(w http.ResponseWriter, r *http.Request) error {
 	var req struct {
-		Target string `json:"target"`
+		Target string         `json:"target"`
 		Params map[string]any `json:"params"`
 	}
 	if err := httpx.DecodeJSON(r, &req); err != nil {
@@ -271,9 +272,9 @@ func (s *Server) handleConfigExport(w http.ResponseWriter, r *http.Request) erro
 		items[meta.Key] = val
 	}
 	out := map[string]any{
-		"version": s.cfg.Version(),
+		"version":     s.cfg.Version(),
 		"exported_at": nowMillis(),
-		"settings": items,
+		"settings":    items,
 	}
 	if includeSensitive {
 		out["warning"] = "本次导出包含敏感项明文，请妥善保管"

@@ -33,10 +33,10 @@ func NewQBAdapter(c *qb.Client) task.QBClient {
 
 func (a *qbAdapter) AddMagnet(ctx context.Context, magnet string, opts task.QBAddOptions) (string, error) {
 	return a.c.AddMagnet(ctx, magnet, qb.AddOptions{
-		SavePath:  opts.SavePath,
-		Category:  opts.Category,
-		Tags:      opts.Tags,
-		Paused:    opts.Paused,
+		SavePath:     opts.SavePath,
+		Category:     opts.Category,
+		Tags:         opts.Tags,
+		Paused:       opts.Paused,
 		SkipChecking: opts.SkipCheck,
 	})
 }

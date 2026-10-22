@@ -17,21 +17,21 @@ import "strings"
 // 覆盖的是「以图片/图集为主体」的站点。刻意不含视频站：yt-dlp 对视频站的
 // extractor 更全，误路由到 gallery-dl 会让本可下载的任务直接失败。
 var galleryHosts = []string{
-	"xiaohongshu.com",  // 小红书
-	"xhslink.com",      // 小红书短链
-	"x.com",            // X（原 Twitter）
-	"twitter.com",      // X 旧域名
-	"instagram.com",    // Instagram
-	"tumblr.com",       // Tumblr
-	"weibo.com",        // 微博
-	"zhihu.com",        // 知乎
-	"douban.com",       // 豆瓣
-	"pixiv.net",        // Pixiv
-	"artstation.com",   // ArtStation
-	"deviantart.com",   // DeviantArt
-	"imgur.com",        // Imgur
-	"reddit.com",       // Reddit
-	"9gag.com",         // 9GAG
+	"xiaohongshu.com", // 小红书
+	"xhslink.com",     // 小红书短链
+	"x.com",           // X（原 Twitter）
+	"twitter.com",     // X 旧域名
+	"instagram.com",   // Instagram
+	"tumblr.com",      // Tumblr
+	"weibo.com",       // 微博
+	"zhihu.com",       // 知乎
+	"douban.com",      // 豆瓣
+	"pixiv.net",       // Pixiv
+	"artstation.com",  // ArtStation
+	"deviantart.com",  // DeviantArt
+	"imgur.com",       // Imgur
+	"reddit.com",      // Reddit
+	"9gag.com",        // 9GAG
 }
 
 // IsGalleryURL 判断 URL 是否应由 gallery-dl 处理。
@@ -87,10 +87,10 @@ func IsMagnet(rawURL string) bool {
 // 因此它们不需要独立引擎，只需要正确的平台标识（UI 徽章 + 调度分组）。
 // 网易云音乐 yt-dlp 无可用 extractor，须走独立通道（见 docs/13 音乐平台说明）。
 var musicHosts = map[string]string{
-	"music.163.com":       "netease",
-	"music.apple.com":     "applemusic",
-	"itunes.apple.com":    "applemusic",
-	"music.youtube.com":   "ytmusic",
+	"music.163.com":        "netease",
+	"music.apple.com":      "applemusic",
+	"itunes.apple.com":     "applemusic",
+	"music.youtube.com":    "ytmusic",
 	"youtube.com/playlist": "ytmusic",
 }
 

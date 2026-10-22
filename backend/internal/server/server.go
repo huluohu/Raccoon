@@ -35,15 +35,15 @@ type Server struct {
 	start          time.Time
 	webFS          fs.FS // 前端产物（内嵌，ADR-5）
 	sessions       *auth.SessionStore
-	done           chan struct{}      // 优雅停机信号（manager/auth GC 监听）
-	hub            *sse.Hub           // SSE 广播（Wave 2）
-	tasks          *task.Manager      // 任务系统 Manager（Wave 2）
+	done           chan struct{}         // 优雅停机信号（manager/auth GC 监听）
+	hub            *sse.Hub              // SSE 广播（Wave 2）
+	tasks          *task.Manager         // 任务系统 Manager（Wave 2）
 	subs           *subscription.Service // 订阅服务（Wave 3）
-	vault          *credential.Vault  // 凭据加密（Wave 3）
-	shutdownCancel context.CancelFunc // 停机时 cancel manager loop
-	loginLimiter   *Limiter           // 登录限流（docs/04 §5：5 次/分钟/IP）
-	parseLimiter   *Limiter           // 解析限流（20 次/分钟/IP）
-	restartFn      func()             // 让出重启回调（main 注入）
+	vault          *credential.Vault     // 凭据加密（Wave 3）
+	shutdownCancel context.CancelFunc    // 停机时 cancel manager loop
+	loginLimiter   *Limiter              // 登录限流（docs/04 §5：5 次/分钟/IP）
+	parseLimiter   *Limiter              // 解析限流（20 次/分钟/IP）
+	restartFn      func()                // 让出重启回调（main 注入）
 
 	// Telegram 通道状态（docs/08 W4.8）。
 	tgClient *tgbot.Client

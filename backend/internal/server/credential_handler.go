@@ -46,11 +46,11 @@ func (s *Server) handleCredGet(w http.ResponseWriter, r *http.Request) error {
 }
 
 type credReq struct {
-	Platform string `json:"platform"`
-	Kind     string `json:"kind"`
-	Label    string `json:"label"`
-	Note     string `json:"note"`
-	Value    string `json:"value"`
+	Platform  string `json:"platform"`
+	Kind      string `json:"kind"`
+	Label     string `json:"label"`
+	Note      string `json:"note"`
+	Value     string `json:"value"`
 	ExpiresAt *int64 `json:"expires_at"`
 }
 

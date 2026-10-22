@@ -30,8 +30,8 @@ func TestActiveConcurrency_软删任务不占并发(t *testing.T) {
 		id := NewTaskID()
 		if err := s.CreateTask(&Task{
 			ID: id, Kind: "download", Source: "web", Platform: "bilibili",
-			URL: "https://www.bilibili.com/video/BV" + string(rune('A'+i)),
-			DedupeKey: DedupeKey("download", "bilibili", id),
+			URL:         "https://www.bilibili.com/video/BV" + string(rune('A'+i)),
+			DedupeKey:   DedupeKey("download", "bilibili", id),
 			MaxAttempts: 3, CreatedAt: 1, UpdatedAt: 1,
 		}); err != nil {
 			t.Fatalf("建任务失败：%v", err)

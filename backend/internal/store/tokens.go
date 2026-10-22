@@ -22,15 +22,15 @@ const ScopeAll = ScopeRead | ScopeWrite | ScopeAdmin
 
 // APIToken 令牌元信息（明文 token 只在创建时返回一次）。
 type APIToken struct {
-	ID         string  `json:"id"`
-	UserID     string  `json:"user_id"`
-	Name       string  `json:"name"`
-	Scope      int     `json:"scope"`
-	ExpiresAt  *int64  `json:"expires_at,omitempty"`
-	RevokedAt  *int64  `json:"revoked_at,omitempty"`
-	CreatedAt  int64   `json:"created_at"`
-	LastUsedAt *int64  `json:"last_used_at,omitempty"`
-	Revoked    bool    `json:"revoked"`
+	ID         string `json:"id"`
+	UserID     string `json:"user_id"`
+	Name       string `json:"name"`
+	Scope      int    `json:"scope"`
+	ExpiresAt  *int64 `json:"expires_at,omitempty"`
+	RevokedAt  *int64 `json:"revoked_at,omitempty"`
+	CreatedAt  int64  `json:"created_at"`
+	LastUsedAt *int64 `json:"last_used_at,omitempty"`
+	Revoked    bool   `json:"revoked"`
 }
 
 // ErrNoSuchToken 令牌不存在。

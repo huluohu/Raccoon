@@ -10,36 +10,36 @@ import (
 
 // Subscription 订阅规则。
 type Subscription struct {
-	ID            string  `json:"id"`
-	Platform      string  `json:"platform"`
-	SourceType    string  `json:"source_type"`
-	SourceID      string  `json:"source_id"`
-	SourceURL     string  `json:"source_url"`
-	Title         string  `json:"title,omitempty"`
-	Mode          string  `json:"mode"`
-	RangeFrom     *int64  `json:"range_from,omitempty"`
-	RangeTo       *int64  `json:"range_to,omitempty"`
-	Quality       string  `json:"quality,omitempty"`
-	SaveRule      string  `json:"save_rule,omitempty"`
-	IntervalMin   int     `json:"interval_min"`
-	Enabled       bool    `json:"enabled"`
-	CredentialID  string  `json:"credential_id,omitempty"`
-	LastCheckedAt *int64  `json:"last_checked_at,omitempty"`
-	LastItemID    string  `json:"last_item_id,omitempty"`
-	NextCheckAt   int64   `json:"next_check_at"`
-	ErrorNote     string  `json:"error_note,omitempty"`
-	CreatedAt     int64   `json:"created_at"`
-	UpdatedAt     int64   `json:"updated_at"`
+	ID            string    `json:"id"`
+	Platform      string    `json:"platform"`
+	SourceType    string    `json:"source_type"`
+	SourceID      string    `json:"source_id"`
+	SourceURL     string    `json:"source_url"`
+	Title         string    `json:"title,omitempty"`
+	Mode          string    `json:"mode"`
+	RangeFrom     *int64    `json:"range_from,omitempty"`
+	RangeTo       *int64    `json:"range_to,omitempty"`
+	Quality       string    `json:"quality,omitempty"`
+	SaveRule      string    `json:"save_rule,omitempty"`
+	IntervalMin   int       `json:"interval_min"`
+	Enabled       bool      `json:"enabled"`
+	CredentialID  string    `json:"credential_id,omitempty"`
+	LastCheckedAt *int64    `json:"last_checked_at,omitempty"`
+	LastItemID    string    `json:"last_item_id,omitempty"`
+	NextCheckAt   int64     `json:"next_check_at"`
+	ErrorNote     string    `json:"error_note,omitempty"`
+	CreatedAt     int64     `json:"created_at"`
+	UpdatedAt     int64     `json:"updated_at"`
 	ItemCounts    SubCounts `json:"item_counts"`
 }
 
 // SubCounts 订阅内容统计（详情页展示）。
 type SubCounts struct {
-	Total     int `json:"total"`
+	Total      int `json:"total"`
 	Downloaded int `json:"downloaded"`
-	Queued   int `json:"queued"`
-	Skipped  int `json:"skipped"`
-	Failed   int `json:"failed"`
+	Queued     int `json:"queued"`
+	Skipped    int `json:"skipped"`
+	Failed     int `json:"failed"`
 }
 
 // SubscriptionItem 订阅发现的一条内容。

@@ -35,9 +35,9 @@ func (s *Server) handleLiveList(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Internal("直播源查询失败")
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"items":            items,
-		"supported":        supportedLivePlatforms,
-		"supported_note":   "支持清单以实测为准；新增平台需先验证开播检测可用",
+		"items":          items,
+		"supported":      supportedLivePlatforms,
+		"supported_note": "支持清单以实测为准；新增平台需先验证开播检测可用",
 	})
 	return nil
 }

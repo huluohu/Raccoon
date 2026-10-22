@@ -379,8 +379,8 @@ func cmdList(args []string) error {
 		q += "&platform=" + platform
 	}
 	var out struct {
-		Items []map[string]any `json:"items"`
-		Counts map[string]int  `json:"counts"`
+		Items  []map[string]any `json:"items"`
+		Counts map[string]int   `json:"counts"`
 	}
 	if err := call(http.MethodGet, q, nil, &out); err != nil {
 		return err

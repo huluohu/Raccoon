@@ -63,10 +63,10 @@ type QBTorrent struct {
 
 // N115Request 115 离线提交参数。
 type N115Request struct {
-	URL     string
-	WPPath  string
+	URL      string
+	WPPath   string
 	WPPathID string
-	CID     string
+	CID      string
 }
 
 // N115Task 115 离线任务状态快照。

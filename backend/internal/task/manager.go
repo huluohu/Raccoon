@@ -28,10 +28,10 @@ type Manager struct {
 	hub     *sse.Hub
 	log     *logx.Logger
 
-	mu      sync.Mutex
-	cancels map[string]context.CancelFunc // taskID → 运行中 worker 的 cancel
-	running map[string]bool
-	notifier Notifier // 通知出口（server 注入；nil=不通知）
+	mu       sync.Mutex
+	cancels  map[string]context.CancelFunc // taskID → 运行中 worker 的 cancel
+	running  map[string]bool
+	notifier Notifier           // 通知出口（server 注入；nil=不通知）
 	creds    CredentialResolver // 凭据解析器（server 注入；nil=不取凭据）
 	external *ExternalExecutor  // qB/115 外部通道执行器（server 注入；nil=不支持）
 
@@ -57,8 +57,8 @@ func NewManager(st *store.Store, cfg *config.Config, eng *engine.Set, hub *sse.H
 	return &Manager{
 		st: st, cfg: cfg, engines: eng, hub: hub, log: logger,
 		cancels: map[string]context.CancelFunc{}, running: map[string]bool{},
-		done:       make(chan struct{}), startedAt: time.Now(),
-		workerCtx:  wctx, workerCancel: wcancel,
+		done: make(chan struct{}), startedAt: time.Now(),
+		workerCtx: wctx, workerCancel: wcancel,
 	}
 }
 

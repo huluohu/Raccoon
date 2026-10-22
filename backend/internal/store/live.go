@@ -10,25 +10,25 @@ import (
 
 // LiveSource 直播源。
 type LiveSource struct {
-	ID              string  `json:"id"`
-	Platform        string  `json:"platform"`
-	RoomID          string  `json:"room_id"`
-	RoomURL         string  `json:"room_url"`
-	Title           string  `json:"title,omitempty"`
-	CredentialID    string  `json:"credential_id,omitempty"`
-	Enabled         bool    `json:"enabled"`
-	Quality         string  `json:"quality,omitempty"`
-	RecordPlan      string  `json:"record_plan"`
-	ScheduleJSON    string  `json:"schedule_json,omitempty"`
-	SegmentMin      int     `json:"segment_min"`
+	ID               string `json:"id"`
+	Platform         string `json:"platform"`
+	RoomID           string `json:"room_id"`
+	RoomURL          string `json:"room_url"`
+	Title            string `json:"title,omitempty"`
+	CredentialID     string `json:"credential_id,omitempty"`
+	Enabled          bool   `json:"enabled"`
+	Quality          string `json:"quality,omitempty"`
+	RecordPlan       string `json:"record_plan"`
+	ScheduleJSON     string `json:"schedule_json,omitempty"`
+	SegmentMin       int    `json:"segment_min"`
 	CheckIntervalSec int    `json:"check_interval_sec"`
-	Status          string  `json:"status"`
-	LastCheckedAt   *int64  `json:"last_checked_at,omitempty"`
-	LastLiveAt      *int64  `json:"last_live_at,omitempty"`
-	ErrorNote       string  `json:"error_note,omitempty"`
-	CreatedAt       int64   `json:"created_at"`
-	UpdatedAt       int64   `json:"updated_at"`
-	RecordingCount  int     `json:"recording_count"`
+	Status           string `json:"status"`
+	LastCheckedAt    *int64 `json:"last_checked_at,omitempty"`
+	LastLiveAt       *int64 `json:"last_live_at,omitempty"`
+	ErrorNote        string `json:"error_note,omitempty"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
+	RecordingCount   int    `json:"recording_count"`
 }
 
 // LiveRecording 一次录制。
