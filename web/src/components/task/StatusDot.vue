@@ -58,10 +58,10 @@ const glyph = computed(() => {
   line-height: 1;
 }
 .sdot--neutral .sdot-glyph { background: var(--surface-3); color: var(--text-2); }
-.sdot--info .sdot-glyph { background: var(--info); color: #fff; }
+.sdot--info .sdot-glyph { background: var(--info); color: var(--on-info); }
 .sdot--active .sdot-glyph { background: var(--gold); color: var(--accent-strong); }
-.sdot--success .sdot-glyph { background: var(--success); color: #fff; }
-.sdot--danger .sdot-glyph { background: var(--danger); color: #fff; }
+.sdot--success .sdot-glyph { background: var(--success); color: var(--on-success); }
+.sdot--danger .sdot-glyph { background: var(--danger); color: var(--on-danger); }
 .sdot--muted .sdot-glyph { background: var(--surface-3); color: var(--text-3); }
 .sdot--neutral .sdot-text { color: var(--text-2); }
 .sdot--info .sdot-text { color: var(--info); }

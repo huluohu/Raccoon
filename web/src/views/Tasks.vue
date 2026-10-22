@@ -8,6 +8,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useShortcuts } from '@/composables/useShortcuts'
+import { useTaskTree, type FilterKey } from '@/composables/useTaskTree'
 import { useTasksStore } from '@/stores/tasks'
 import { useToastStore } from '@/stores/toast'
 import type { ParsePreview, Task, TaskEvent, TaskFile, TaskStatus } from '@/api/types'
@@ -15,12 +16,10 @@ import { ApiError } from '@/api/types'
 import { errorText, formatBytes, formatDuration } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
 import RDialog from '@/components/base/RDialog.vue'
-import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
-import TaskCard from '@/components/task/TaskCard.vue'
-import TaskRow from '@/components/task/TaskRow.vue'
+import TaskList from '@/components/task/TaskList.vue'
 import TaskDetail from '@/components/task/TaskDetail.vue'
 
 const router = useRouter()
@@ -34,14 +33,16 @@ const parseErr = ref('')
 const preview = ref<ParsePreview | null>(null)
 const chosenQuality = ref('')
 
-async function onPreview() {
-  const target = url.value.trim()
-  if (!target || submitting.value) return
+async function onPreview(target?: string) {
+  // 用 QuickSubmit 抛上来的链接（它已做过格式校验 + 分享文案提取），
+  // 不要重新读 url.value —— 那是原始输入，可能还带着一整段分享文案。
+  const link = (target ?? url.value).trim()
+  if (!link || submitting.value) return
   submitting.value = true
   parseErr.value = ''
   preview.value = null
   try {
-    const res = await tasks.preview(target)
+    const res = await tasks.preview(link)
     preview.value = res.data
     // 默认选中最高档（后端 formats 已按分辨率降序，末位可能是 audio）。
     const videoFormats = res.data.formats.filter((f) => f.quality !== 'audio')
@@ -181,7 +182,6 @@ function pushPreviewToBatch() {
 watch(batchText, syncBatchItems)
 
 // ---- 筛选 ----
-type FilterKey = 'all' | 'active' | 'done' | 'failed' | 'cancelled'
 const filter = ref<FilterKey>('all')
 
 const FILTERS: { key: FilterKey; label: string }[] = [
@@ -192,115 +192,23 @@ const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'cancelled', label: '已取消' },
 ]
 
-function matchesFilter(t: Task): boolean {
-  switch (filter.value) {
-    case 'active':
-      return ['waiting', 'parsing', 'downloading', 'post'].includes(t.status)
-    case 'done':
-      return t.status === 'done'
-    case 'failed':
-      return t.status === 'failed'
-    case 'cancelled':
-      return t.status === 'cancelled'
-    default:
-      return true
-  }
-}
-
 // ---- 任务树（父 → 子）----
-/** 全部任务。 */
-const allTasks = computed<Task[]>(() => tasks.items ?? [])
-
-/** parent_id → 子任务列表。 */
-const childrenByParent = computed(() => {
-  const m = new Map<string, Task[]>()
-  for (const t of allTasks.value) {
-    if (!t.parent_id) continue
-    const arr = m.get(t.parent_id)
-    if (arr) arr.push(t)
-    else m.set(t.parent_id, [t])
-  }
-  return m
+// 树与筛选逻辑放在 composable 里：列表组件和键盘导航必须看同一份「可见行」，
+// 两边各算一份会漂移（筛选变了、键盘光标还停在看不见的行上）。
+const { visibleRoots, childrenOf, shownChildren, isParent, statOf } = useTaskTree({
+  allTasks: computed<Task[]>(() => tasks.items ?? []),
+  filter,
+  childStats: computed(() => tasks.childStats),
 })
-
-const knownIds = computed(() => new Set(allTasks.value.map((t) => t.id)))
-
-/** 顶层任务：无父，或父不在当前列表里（孤儿子项，按顶层展示，不隐藏）。 */
-const rootTasks = computed<Task[]>(() => allTasks.value.filter((t) => !t.parent_id || !knownIds.value.has(t.parent_id)))
-
-function childrenOf(id: string): Task[] {
-  return childrenByParent.value.get(id) ?? []
-}
-
-/** 父任务展开后展示的子项：按当前筛选过滤（全部时展示全部）。 */
-function shownChildren(id: string): Task[] {
-  const all = childrenOf(id)
-  if (filter.value === 'all') return all
-  return all.filter(matchesFilter)
-}
-
-/** 父任务判定：后端建父任务时 platform 固定为 "batch"（backend task_extra_handler.go），
- *  子任务的 platform 是按 URL 推断的平台名。列表里出现子项时也认作父。 */
-function isParent(t: Task): boolean {
-  return t.platform === 'batch' || childrenOf(t.id).length > 0
-}
-
-/** 顶层筛选：自身命中，或任一子项命中（否则「失败」筛选会漏掉父卡里的失败子项）。 */
-const visibleRoots = computed<Task[]>(() =>
-  rootTasks.value.filter((r) => matchesFilter(r) || childrenOf(r.id).some(matchesFilter)),
-)
 
 /** 展开状态（父任务 ID 集合）。 */
 const expanded = ref<Set<string>>(new Set())
-
-function isExpanded(id: string): boolean {
-  return expanded.value.has(id)
-}
 
 function toggleExpand(id: string) {
   const next = new Set(expanded.value)
   if (next.has(id)) next.delete(id)
   else next.add(id)
   expanded.value = next
-}
-
-/** 父卡聚合统计。
- *  - 总数/失败数：服务端上报的 child_total / child_failed（SSE 聚合帧 + 创建响应）优先；
- *  - 「已完成」数：只能从已加载的子项数出来（后端未下发 done 子项计数）；
- *  - 列表被截断时（子项没全加载到）如实标注，不假装数全了。 */
-function parentStat(parent: Task, children: Task[]) {
-  const meta = tasks.childStats[parent.id]
-  const loadedTotal = children.length
-  const loadedDone = children.filter((c) => c.status === 'done').length
-  const loadedFailed = children.filter((c) => c.status === 'failed').length
-  const total = Math.max(meta?.total ?? 0, loadedTotal)
-  const failed = Math.max(meta?.failed ?? 0, loadedFailed)
-  const truncated = (meta?.total ?? 0) > loadedTotal || (meta?.failed ?? 0) > loadedFailed
-  return { done: loadedDone, total, failed, loadedTotal, loadedDone, loadedFailed, truncated }
-}
-
-/** 父卡统计（模板里多处用，算一次即可）。 */
-const parentStats = computed(() => {
-  const m = new Map<string, ReturnType<typeof parentStat>>()
-  for (const r of rootTasks.value) {
-    if (!isParent(r)) continue
-    m.set(r.id, parentStat(r, childrenOf(r.id)))
-  }
-  return m
-})
-
-function statOf(id: string): ReturnType<typeof parentStat> {
-  return (
-    parentStats.value.get(id) ?? {
-      done: 0,
-      total: 0,
-      failed: 0,
-      loadedTotal: 0,
-      loadedDone: 0,
-      loadedFailed: 0,
-      truncated: false,
-    }
-  )
 }
 
 function countOf(key: FilterKey): number {
@@ -431,10 +339,6 @@ const cursorIndex = ref(0)
 /** 待删除的任务；null = 对话框关闭。 */
 const pendingDelete = ref<Task | null>(null)
 
-function isSelected(id: string): boolean {
-  return selectedIds.value.has(id)
-}
-
 /** 行点击选中：Shift 表示追加多选，普通点击切换单选。 */
 function onSelect(t: Task, ev?: MouseEvent) {
   const next = new Set(selectedIds.value)
@@ -449,6 +353,58 @@ function toggleSelect(id: string) {
   if (next.has(id)) next.delete(id)
   else next.add(id)
   selectedIds.value = next
+}
+
+/**
+ * 批量操作（方案 §3「筛选/批量工具条」的另一半）。
+ *
+ * 批量删除是破坏性决策 → 走 RDialog 二次确认（§4「仅破坏性决策」）；
+ * 批量重试/取消直接执行，逐条报告结果（后端 batch 接口语义）。
+ * 操作完成后清空选择——留着旧选择会让用户误以为还能再操作一次已处理的行。
+ */
+async function onBatch(action: 'cancel' | 'retry' | 'delete', ids: string[]) {
+  if (!ids.length) return
+  if (action === 'delete') {
+    pendingBatchDelete.value = ids
+    return
+  }
+  busyId.value = 'batch'
+  try {
+    const res = await tasks.batch(action, ids)
+    if (res.failed?.length) {
+      toast.warning(`已处理 ${res.succeeded?.length ?? 0} 项，${res.failed.length} 项失败：${res.failed[0].reason}`)
+    } else {
+      toast.success(`已处理 ${res.succeeded?.length ?? ids.length} 项`)
+    }
+    selectedIds.value = new Set()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '批量操作失败')
+  } finally {
+    busyId.value = ''
+  }
+}
+
+/** 批量删除的待确认任务 ID（null = 不弹确认框）。 */
+const pendingBatchDelete = ref<string[] | null>(null)
+
+async function confirmBatchDelete() {
+  const ids = pendingBatchDelete.value
+  pendingBatchDelete.value = null
+  if (!ids?.length) return
+  busyId.value = 'batch'
+  try {
+    const res = await tasks.batch('delete', ids)
+    if (res.failed?.length) {
+      toast.warning(`已删除 ${res.succeeded?.length ?? 0} 项，${res.failed.length} 项失败：${res.failed[0].reason}`)
+    } else {
+      toast.success(`已删除 ${res.succeeded?.length ?? ids.length} 项`)
+    }
+    selectedIds.value = new Set()
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '批量删除失败')
+  } finally {
+    busyId.value = ''
+  }
 }
 
 function gotoConnections() {
@@ -492,8 +448,6 @@ async function confirmDelete() {
   if (!t) return
   await runAction(t.id, tasks.remove)
 }
-
-const isActive = (t: Task) => ['waiting', 'parsing', 'downloading', 'post'].includes(t.status)
 
 onMounted(async () => {
   await tasks.refresh()
@@ -664,147 +618,43 @@ onBeforeUnmount(() => {
       <p v-else class="muted">还没有链接。粘贴多行链接后会在这里逐条展示解析预览。</p>
     </section>
 
-    <!-- 筛选 -->
-    <div class="filters">
-      <button
-        v-for="f in FILTERS"
-        :key="f.key"
-        type="button"
-        class="tab"
-        :class="{ on: filter === f.key }"
-        @click="filter = f.key"
-      >
-        {{ f.label }}<em class="tnum">{{ countOf(f.key) }}</em>
-      </button>
-    </div>
-
-    <!-- 列表（父 → 子） -->
-    <p v-if="tasks.loading && !tasks.items.length" class="muted">加载中…</p>
-
-    <p v-if="tasks.listTruncated" class="alert">
-      任务较多，当前只加载了最近 100 条；更早的父子任务未在列表中。
-    </p>
-
-    <REmpty
-      v-else-if="!visibleRoots.length"
-      face="waiting"
-      title="这个筛选下还没有任务"
-      hint="粘贴链接开始第一次下载；合集或频道用「批量导入」一次建一个父子任务。"
+    <!-- 任务列表（方案 §3 视图级组件 TaskList：筛选 + 批量工具条） -->
+    <TaskList
+      v-model:filter="filter"
+      :roots="visibleRoots"
+      :filters="FILTERS"
+      :count-of="countOf"
+      :loading="tasks.loading"
+      :truncated="tasks.listTruncated"
+      :selected-ids="selectedIds"
+      :expanded-ids="expanded"
+      :flash-ids="flashIds"
+      :busy-id="busyId"
+      :stat-of="statOf"
+      :children-of="childrenOf"
+      :shown-children="shownChildren"
+      :is-parent="isParent"
+      @open="openDetail"
+      @select="onSelect"
+      @toggle-expand="toggleExpand"
+      @retry="(id) => runAction(id, tasks.retry)"
+      @cancel="(id) => runAction(id, tasks.cancel)"
+      @remove="(t) => (pendingDelete = t)"
+      @retry-failed-children="retryFailedChildren"
+      @batch="onBatch"
     />
 
-    <!-- 列表（父 → 子）。父任务用 TaskCard（子项聚合计数 + 重试失败项插槽），
-         普通任务与子项用 TaskRow 紧凑行；选中态供 §7 键盘多选使用。 -->
-    <div v-else class="list">
-      <template v-for="t in visibleRoots" :key="t.id">
-        <TaskCard
-          v-if="isParent(t)"
-          class="root-card"
-          :class="{ on: detail?.id === t.id, 'row-flash': flashIds.has(t.id) }"
-          :task="t"
-          parent
-          :child-stats="{
-            total: statOf(t.id).total,
-            failed: statOf(t.id).failed,
-            done: statOf(t.id).done,
-          }"
-          :selected="isSelected(t.id)"
-          @open="openDetail"
-          @select="onSelect"
-        >
-          <template #actions>
-            <RButton size="sm" variant="ghost" @click.stop="toggleExpand(t.id)">
-              {{ isExpanded(t.id) ? '收起' : '展开子项' }}
-            </RButton>
-            <RButton
-              size="sm"
-              variant="ghost"
-              tone="danger"
-              :disabled="busyId === t.id"
-              @click.stop="pendingDelete = t"
-            >
-              删除
-            </RButton>
-          </template>
-          <template #retry-failed>
-            <RButton size="sm" :disabled="busyId === t.id" @click.stop="retryFailedChildren(t)">
-              重试失败项
-            </RButton>
-          </template>
-        </TaskCard>
-
-        <TaskRow
-          v-else
-          :task="t"
-          :class="{ 'row-flash': flashIds.has(t.id) }"
-          :selected="isSelected(t.id)"
-          @open="openDetail"
-          @select="onSelect"
-        >
-          <template #actions>
-            <RButton
-              v-if="isActive(t)"
-              size="sm"
-              variant="ghost"
-              :disabled="busyId === t.id"
-              @click.stop="runAction(t.id, tasks.cancel)"
-            >
-              取消
-            </RButton>
-            <RButton
-              v-if="t.status === 'failed' || t.status === 'cancelled'"
-              size="sm"
-              :disabled="busyId === t.id"
-              @click.stop="runAction(t.id, tasks.retry)"
-            >
-              重试
-            </RButton>
-            <RButton
-              size="sm"
-              variant="ghost"
-              tone="danger"
-              :disabled="busyId === t.id"
-              @click.stop="pendingDelete = t"
-            >
-              删除
-            </RButton>
-          </template>
-        </TaskRow>
-
-        <!-- 子任务列表：父卡展开后逐条列出（状态点 + 迷你进度 + 标题） -->
-        <ul v-if="isParent(t) && isExpanded(t.id)" class="children">
-          <TaskRow
-            v-for="c in shownChildren(t.id)"
-            :key="c.id"
-            :task="c"
-            size="sm"
-            :class="{ 'row-flash': flashIds.has(c.id) }"
-            :selected="isSelected(c.id)"
-            @open="openDetail"
-            @select="onSelect"
-          >
-            <template #actions>
-              <RButton
-                v-if="isActive(c)"
-                size="sm"
-                variant="ghost"
-                :disabled="busyId === c.id"
-                @click.stop="runAction(c.id, tasks.cancel)"
-              >
-                取消
-              </RButton>
-              <RButton
-                v-if="c.status === 'failed' || c.status === 'cancelled'"
-                size="sm"
-                :disabled="busyId === c.id"
-                @click.stop="runAction(c.id, tasks.retry)"
-              >
-                重试
-              </RButton>
-            </template>
-          </TaskRow>
-        </ul>
-      </template>
-    </div>
+    <!-- 批量删除确认框（破坏性决策，§4：默认焦点在「取消」） -->
+    <RDialog
+      :open="pendingBatchDelete !== null"
+      title="批量删除任务？"
+      danger
+      confirm-text="删除"
+      :description="pendingBatchDelete ? `将删除选中的 ${pendingBatchDelete.length} 个任务及其本地文件，此操作不可撤销。` : ''"
+      @update:open="(v) => !v && (pendingBatchDelete = null)"
+      @confirm="confirmBatchDelete"
+      @cancel="pendingBatchDelete = null"
+    />
 
     <!-- 删除确认框（docs/07 §4：破坏性决策走 RDialog；默认焦点在「取消」） -->
     <RDialog
@@ -912,26 +762,5 @@ onBeforeUnmount(() => {
 .bi-title { margin: 0; font-size: var(--font-body); font-weight: var(--weight-medium); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bi-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-aux); color: var(--text-2); }
 .bi-err { color: var(--danger); }
-
-/* 筛选 */
-.filters { display: flex; gap: 6px; flex-wrap: wrap; }
-.tab {
-  padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-pill);
-  background: var(--surface); color: var(--text-2); font-size: var(--font-aux); cursor: pointer;
-}
-.tab em { font-style: normal; margin-left: 6px; color: var(--text-3); font-size: var(--font-aux); }
-.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.tab.on em { color: rgb(255 255 255 / 75%); }
-
-/* 列表（父卡 TaskCard + 行 TaskRow 由各自组件负责样式，这里只管间距） */
-.list { display: flex; flex-direction: column; gap: 8px; }
-.root-card { width: 100%; }
-.root-card.on { border-color: var(--gold); }
-
-/* 子任务容器（父卡展开后） */
-.children {
-  list-style: none; margin: 0; padding: 8px 0 0 0; width: 100%;
-  display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border);
-}
 
 </style>

@@ -155,6 +155,24 @@ const errorReason = computed(() => {
 })
 
 /**
+ * 引擎原始报错（yt-dlp / gallery-dl 的 ERROR 行）。
+ *
+ * 为什么把它从日志区提到错误区：
+ * error_message 是分类后的中文文案（"所选清晰度不可用"），
+ * 说的是「属于哪一类问题」；引擎原文说的是「到底报了什么」
+ * （"Requested format is not available"）。
+ * 只给前者，用户换清晰度、换链接还是升级引擎全靠猜；
+ * 两者都给，才谈得上「讲事实 + 给下一步」。
+ *
+ * 取法：后端把引擎 stderr 摘要写进 event='engine_error' 的事件里（backend worker.go），
+ * 这里从事件流里取最后一条。
+ */
+const engineDetail = computed(() => {
+  const hits = props.events.filter((e) => e.event === 'engine_error' && e.message)
+  return hits.length ? hits[hits.length - 1].message : ''
+})
+
+/**
  * 错误结论：把「失败」翻译成一句人话。
  * 讲事实 + 小机灵鬼式幽默，但整屏只此一处拟人（docs/07 §5「每界面至多一处拟人」），其余区块保持中性。
  */
@@ -296,6 +314,11 @@ function fileName(f: TaskFile): string {
           <dd class="tnum">{{ task.error_code || '—' }}</dd>
           <dt>原因</dt>
           <dd>{{ errorReason }}</dd>
+          <!-- 引擎原文：分类文案说的是「哪类问题」，原文说的是「到底报了什么」。 -->
+          <template v-if="engineDetail">
+            <dt>引擎原文</dt>
+            <dd class="td-engine-detail mono">{{ engineDetail }}</dd>
+          </template>
           <dt>下一步</dt>
           <dd>{{ suggestion }}</dd>
         </dl>
@@ -473,6 +496,19 @@ function fileName(f: TaskFile): string {
   margin: 0;
   font-size: var(--font-body);
   color: var(--text-3);
+}
+/* 引擎原文：等宽字体 + 弱化背景，和上方的人话「原因」明显区分——
+   上面那句是结论，这段是原文，两者不能长得像。 */
+.td-engine-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-aux);
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  padding: 6px 10px;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 .td-fix {
   display: flex;

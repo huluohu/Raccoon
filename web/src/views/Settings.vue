@@ -5,7 +5,7 @@
 // 脏状态拦截（路由离开提示）+ 测试连接 + 历史回滚 + API Token 管理。
 //
 // 铁律：保存结果按接口返回的 effective_summary 展示，不在前端猜生效时机。
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
@@ -16,6 +16,10 @@ import RButton from '@/components/base/RButton.vue'
 import RInput from '@/components/base/RInput.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import REmpty from '@/components/base/REmpty.vue'
+import SettingsNav from '@/components/settings/SettingsNav.vue'
+import SettingItem from '@/components/settings/SettingItem.vue'
+import DiagPanel from '@/components/settings/DiagPanel.vue'
+import type { SettingsSection } from '@/components/settings/SettingsNav.vue'
 
 const toast = useToastStore()
 const auth = useAuthStore()
@@ -57,144 +61,61 @@ const grouped = computed(() =>
 )
 
 /**
- * 左分组导航的「当前分组」高亮（方案 §3「SettingsNav（左分组）」）。
+ * 左分组导航的分组清单（方案 §3「SettingsNav（左分组）」）。
  *
- * 为什么需要：设置页有 14 个分组、5400+px 高，锚点跳过去之后用户不知道自己在哪一段。
- *
- * 为什么不用 IntersectionObserver：
- * 「相交就高亮」在这页是错的——分组卡片高 200–400px，视口里可能同时
- * 没有任何分组相交（正卡在两张卡之间的空隙），此时高亮会突然消失；
- * 用零高度哨兵也一样有边界问题（向上滚时多个哨兵同时相交，取谁都不对）。
- *
- * 用经典 scrollspy：判定线固定在视口顶部往下 140px，
- * 高亮「判定线上方最后一个分组」。这样：
- *   - 两组之间的空隙 → 保持上一个分组（不会突然没高亮）
- *   - 向下滚 → 下一个分组越过判定线时切换
- *   - 向上滚 → 上一个分组越过判定线时切换，方向天然正确
- * 性能：scroll 事件里只排一次 rAF，一帧只读一次布局，不写样式，不触发 layout thrash。
- *
- * 光有判定线还不够，两个边界必须额外兜住（否则高亮会「卡住」）：
- *
- *   ① 页面底部：最后一个分组的 docTop 永远在「最大 scrollY + 判定线」之下，
- *      判定线永远越不过它 → 滚到底部时高亮会停在上一个分组。
- *      兜底：已经滚到底（scrollY + innerHeight >= scrollHeight）→ 直接高亮最后一个。
- *   ② 锚点点击被底部截断：点击「API 令牌」时目标 docTop=5564，
- *      但页面最大只能滚到 scrollHeight - innerHeight，目标被顶到视口 235px 处，
- *      判定线（140px）同样选不中它 → 高亮停在「通道测试」。
- *      兜底：点击时锁定到被点项（lockedId），被点项一旦滚出视口就自动解锁。
- *      用户主动滚动（滚轮/触摸/方向键）同样解锁，避免锁定僵死。
+ * 顺序 = 导航项顺序 = 文档顺序（账号 → 各配置分组 → 通道测试 → 令牌 → 历史）。
+ * scrollspy 的判定线、底部兜底、点击锁定三机制在 SettingsNav 组件内部实现，
+ * 这里只负责把「有哪些分组」如实告诉它。
  */
-const activeSection = ref('account')
-/** rAF 句柄：保证一帧内最多算一次。 */
-let scrollRaf = 0
-/** 判定线：视口顶部往下多少像素算「当前分组」。 */
-const SPY_LINE = 140
-/** 点击导航后的锁定目标：锚点被页面底部截断时判定线选不中被点项，用它兜住。 */
-let lockedId: string | null = null
-
-/** 页面上的全部分组 id（顺序 = 导航项顺序 = 文档顺序）。 */
-function sectionIds(): string[] {
-  return ['account', ...grouped.value.map((g) => g.key), 'conn', 'tokens', 'history']
-}
-
-/** 算当前分组：判定线上方最后一个分组；页面到底时兜底到最后一个。 */
-function updateActiveSection(): void {
-  scrollRaf = 0
-  const ids = sectionIds()
-  if (!ids.length) return
-
-  // 只认「已经在 DOM 里」的分组：grouped 是异步加载的，
-  // 拿还没渲染的 id 当兜底目标会高亮到一个看不见的分组上。
-  const present = ids.filter((id) => document.getElementById(id) !== null)
-  if (!present.length) return
-
-  // ① 点击锁定：被点项只要还在视口里，就以它为准（锚点被底部截断时判定线选不中它）
-  if (lockedId && present.includes(lockedId)) {
-    const el = document.getElementById(lockedId)!
-    const r = el.getBoundingClientRect()
-    if (r.top < window.innerHeight && r.bottom > 0) {
-      activeSection.value = lockedId
-      return
-    }
-    lockedId = null
-  }
-
-  // ② 页面底部兜底：最后一个分组永远越不过判定线，直接高亮最后一个
-  //    注意要排除「内容还没撑开」的情况：首帧 scrollHeight 可能还是 0，
-  //    此时 innerHeight + 0 >= 0 - 2 恒成立 → 会误高亮到最后一个分组。
-  const docH = document.documentElement.scrollHeight
-  const atBottom =
-    docH > window.innerHeight + 2 && window.innerHeight + window.scrollY >= docH - 2
-  if (atBottom) {
-    activeSection.value = present[present.length - 1]
-    return
-  }
-
-  // ③ 判定线：取「判定线上方最后一个分组」
-  let current = present[0]
-  for (const id of present) {
-    const el = document.getElementById(id)!
-    if (el.getBoundingClientRect().top <= SPY_LINE) {
-      current = id
-    } else {
-      // 文档顺序，越过判定线的第一个就是「线上方最后一个」；
-      // 后面的分组只会更靠下，不用再算。
-      break
-    }
-  }
-  if (current) activeSection.value = current
-}
-
-/** scroll 回调：只排 rAF，不直接算。 */
-function onScroll(): void {
-  if (scrollRaf) return
-  scrollRaf = window.requestAnimationFrame(updateActiveSection)
-}
-
-/** 用户主动滚动（滚轮/触摸/方向键）→ 解除点击锁定，让 scrollspy 重新接管。 */
-function releaseLock(): void {
-  if (!lockedId) return
-  lockedId = null
-  updateActiveSection()
-}
-
-function onKeydown(e: KeyboardEvent): void {
-  if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(e.key)) {
-    releaseLock()
-  }
-}
-
-/** 点击导航项：锁定到被点项，并让浏览器执行锚点跳转。 */
-function pickSection(id: string): void {
-  lockedId = id
-  activeSection.value = id
-}
-
-watch(grouped, () => nextTick(updateActiveSection), { immediate: true })
-onMounted(() => {
-  window.addEventListener('scroll', onScroll, { passive: true })
-  window.addEventListener('resize', onScroll)
-  window.addEventListener('wheel', releaseLock, { passive: true })
-  window.addEventListener('touchmove', releaseLock, { passive: true })
-  window.addEventListener('keydown', onKeydown)
-  updateActiveSection()
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', onScroll)
-  window.removeEventListener('resize', onScroll)
-  window.removeEventListener('wheel', releaseLock)
-  window.removeEventListener('touchmove', releaseLock)
-  window.removeEventListener('keydown', onKeydown)
-  if (scrollRaf) window.cancelAnimationFrame(scrollRaf)
-})
+const navSections = computed<SettingsSection[]>(() => [
+  { id: 'account', label: '账号' },
+  ...grouped.value.map((g) => ({ id: g.key, label: g.label })),
+  { id: 'conn', label: '通道测试' },
+  { id: 'diag', label: '诊断' },
+  { id: 'tokens', label: 'API 令牌' },
+  { id: 'history', label: '配置历史' },
+])
 
 const isDirty = computed(() => dirtyKeys.value.size > 0)
 
-/** 生效时机徽章文案。 */
+/** 生效时机徽章文案（与 SettingItem 保持同一套说法）。 */
 const EFFECTIVE_TEXT: Record<Effective, string> = {
   immediate: '立即生效',
   next_task: '下个任务生效',
   restart: '需重启生效',
+}
+
+/**
+ * 逐项保存反馈（方案 §3「SettingItem（生效时机徽章 + 脏圆点 + 保存反馈）」）。
+ *
+ * key → 保存后这一项的生效时机文案。
+ * 数据来源只有后端返回的 effective_summary（铁律：前端不猜生效时机），
+ * 接口没提到的 key 就没反馈，不编。
+ */
+const savedHints = ref<Record<string, string>>({})
+
+/** 反馈自动消失的定时器：反馈是「刚刚发生了什么」，不是永久状态。 */
+let hintTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 保存成功后把 effective_summary 摊平成 key → 文案。 */
+function buildSavedHints(summary: Record<Effective, string[]>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const eff of Object.keys(EFFECTIVE_TEXT) as Effective[]) {
+    for (const key of summary[eff] ?? []) {
+      out[key] = `已保存 · ${EFFECTIVE_TEXT[eff]}`
+    }
+  }
+  return out
+}
+
+/** 展示逐项保存反馈，并在若干秒后自动收回。 */
+function showSavedHints(summary: Record<Effective, string[]>): void {
+  savedHints.value = buildSavedHints(summary)
+  if (hintTimer) clearTimeout(hintTimer)
+  hintTimer = setTimeout(() => {
+    savedHints.value = {}
+    hintTimer = null
+  }, 6000)
 }
 
 function draftOf(item: ConfigItem): unknown {
@@ -217,26 +138,11 @@ function setDraft(item: ConfigItem, val: unknown) {
     next.delete(item.key)
   }
   dirtyKeys.value = next
-}
-
-/** 敏感项当前值的只读展示：后端只回传掩码，空串 = 未设置（不显示明文）。 */
-function sensitiveMask(item: ConfigItem): string {
-  const v = typeof item.value === 'string' ? item.value : ''
-  return v ? v : '未设置'
-}
-
-function onBoolChange(item: ConfigItem, ev: Event) {
-  const checked = (ev.target as HTMLInputElement).checked
-  setDraft(item, checked)
-}
-
-function onTextChange(item: ConfigItem, ev: Event) {
-  const raw = (ev.target as HTMLInputElement).value
-  if (item.type === 'int') {
-    const n = Number(raw)
-    setDraft(item, raw === '' ? item.value : Number.isNaN(n) ? raw : n)
-  } else {
-    setDraft(item, raw)
+  // 改动即作废该项的旧「已保存」反馈：它已经不是当前值了，继续显示会骗人。
+  if (savedHints.value[item.key]) {
+    const hints = { ...savedHints.value }
+    delete hints[item.key]
+    savedHints.value = hints
   }
 }
 
@@ -287,6 +193,8 @@ async function save() {
     if (s.next_task?.length) parts.push(`下个任务生效：${s.next_task.join('、')}`)
     if (s.restart?.length) parts.push(`需重启生效：${s.restart.join('、')}`)
     toast.success(parts.length ? '已保存 · ' + parts.join('；') : '已保存')
+    // 逐项反馈：哪一项什么时候生效，直接标在这一项上（§3 SettingItem）。
+    showSavedHints(s)
     await load()
   } catch (e) {
     toast.error(e instanceof Error ? e.message : '保存失败')
@@ -465,6 +373,11 @@ onBeforeRouteLeave(() => {
 watch(historyKey, () => void loadHistory())
 
 onMounted(load)
+
+// 离开页面时收回保存反馈定时器，别让回调打到已卸载的组件上。
+onBeforeUnmount(() => {
+  if (hintTimer) clearTimeout(hintTimer)
+})
 </script>
 
 <template>
@@ -490,40 +403,7 @@ onMounted(load)
 
     <template v-else>
       <div class="layout">
-        <nav class="side-nav" aria-label="设置分组">
-          <a
-            href="#account"
-            class="side-link"
-            :class="{ on: activeSection === 'account' }"
-            @click="pickSection('account')"
-          >账号</a>
-          <a
-            v-for="g in grouped"
-            :key="g.key"
-            :href="'#' + g.key"
-            class="side-link"
-            :class="{ on: activeSection === g.key }"
-            @click="pickSection(g.key)"
-          >{{ g.label }}</a>
-          <a
-            href="#conn"
-            class="side-link"
-            :class="{ on: activeSection === 'conn' }"
-            @click="pickSection('conn')"
-          >通道测试</a>
-          <a
-            href="#tokens"
-            class="side-link"
-            :class="{ on: activeSection === 'tokens' }"
-            @click="pickSection('tokens')"
-          >API 令牌</a>
-          <a
-            href="#history"
-            class="side-link"
-            :class="{ on: activeSection === 'history' }"
-            @click="pickSection('history')"
-          >配置历史</a>
-        </nav>
+        <SettingsNav :sections="navSections" />
 
         <div class="content">
           <!-- 账号（用户名 / 密码）：与配置分组相互独立，各自即时保存 -->
@@ -607,91 +487,15 @@ onMounted(load)
 
           <article v-for="g in grouped" :id="g.key" :key="g.key" class="group">
             <h2 class="group-title">{{ g.label }}</h2>
-            <div v-for="item in g.items" :key="item.key" class="setting">
-              <div class="setting-head">
-                <span class="setting-key">{{ item.key }}</span>
-                <span class="eff-badge" :class="`eff-badge--${item.effective}`">
-                  {{ EFFECTIVE_TEXT[item.effective] }}
-                </span>
-                <span v-if="item.locked" class="lock-badge" :title="`由环境变量 ${item.env_var} 锁定`">
-                  <!-- SVG 线稿锁：docs/07 §4/§5 禁 emoji 冒充图标 -->
-                  <svg class="lock-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-                    <rect x="3.5" y="7" width="9" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
-                    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
-                  </svg>
-                  {{ item.env_var }}
-                </span>
-                <span v-if="item.sensitive" class="sens-badge">敏感</span>
-                <span v-if="dirtyKeys.has(item.key)" class="dirty-pip" title="已修改未保存" />
-              </div>
-              <p class="setting-desc">{{ item.desc }}</p>
-              <div class="setting-control">
-                <template v-if="item.locked">
-                  <!-- env 锁定的项只读；敏感项即使锁定也只回显掩码，不显示明文。 -->
-                  <input
-                    v-if="item.sensitive"
-                    class="input"
-                    type="password"
-                    :value="''"
-                    disabled
-                    placeholder="由环境变量锁定"
-                  />
-                  <span v-if="item.sensitive" class="sens-state">当前：{{ sensitiveMask(item) }}</span>
-                  <input v-else class="input" type="text" :value="String(item.value ?? '')" disabled />
-                </template>
-                <template v-else-if="item.sensitive">
-                  <!-- 敏感项：password 输入框 + 掩码展示；留空 = 不修改（不回填掩码，避免把掩码写回配置） -->
-                  <input
-                    class="input"
-                    type="password"
-                    autocomplete="new-password"
-                    :value="String(draftOf(item) ?? '')"
-                    placeholder="留空表示不修改"
-                    @input="onTextChange(item, $event)"
-                    @change="onTextChange(item, $event)"
-                  />
-                  <span class="sens-state">当前：{{ sensitiveMask(item) }}</span>
-                </template>
-                <template v-else-if="item.type === 'bool'">
-                  <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="draftOf(item) === true"
-                      @change="onBoolChange(item, $event)"
-                    />
-                    <span>{{ draftOf(item) === true ? '开' : '关' }}</span>
-                  </label>
-                </template>
-                <template v-else-if="item.type === 'int'">
-                  <input
-                    class="input input--num tnum"
-                    type="number"
-                    :value="String(draftOf(item) ?? '')"
-                    @input="onTextChange(item, $event)"
-                    @change="onTextChange(item, $event)"
-                  />
-                </template>
-                <template v-else-if="item.choices && item.choices.length > 0">
-                  <!-- 枚举项：值域由后端 choices 定义，用户不必猜合法值（前端绕过后端仍会拦） -->
-                  <RSelect
-                    :model-value="String(draftOf(item) ?? '')"
-                    :label="item.desc"
-                    :options="item.choices.map((c) => ({ value: c, label: c }))"
-                    @update:model-value="(v) => setDraft(item, String(v))"
-                  />
-                </template>
-                <template v-else>
-                  <input
-                    class="input"
-                    type="text"
-                    :value="String(draftOf(item) ?? '')"
-                    @input="onTextChange(item, $event)"
-                    @change="onTextChange(item, $event)"
-                  />
-                </template>
-                <span v-if="!item.sensitive" class="setting-default tnum">默认 {{ String(item.default) }}</span>
-              </div>
-            </div>
+            <SettingItem
+              v-for="item in g.items"
+              :key="item.key"
+              :item="item"
+              :model-value="draftOf(item)"
+              :dirty="dirtyKeys.has(item.key)"
+              :saved-text="savedHints[item.key]"
+              @update:model-value="(v) => setDraft(item, v)"
+            />
           </article>
 
           <!-- 外部集成通道测试 -->
@@ -713,6 +517,12 @@ onMounted(load)
             >
               {{ r.ok ? '✓' : '✕' }} {{ r.message }}
             </p>
+          </article>
+
+          <!-- 诊断入口（方案 §3「诊断入口在设置页」） -->
+          <article id="diag" class="group">
+            <h2 class="group-title">诊断</h2>
+            <DiagPanel @error="(m) => toast.error(m)" />
           </article>
 
           <!-- API Token -->
@@ -789,20 +599,9 @@ onMounted(load)
 .page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .dirty-dot { color: var(--warning); font-size: var(--font-aux); }
-/* 左分组导航：方案 §3「SettingsNav（左分组）」。列宽抬到 180px，
-   条目字号提回 16px——原来 150px/13.5px，条目又窄又小，一眼看不出是导航。 */
+/* 左分组导航在 SettingsNav 组件内（含它的响应式折行规则）；
+   这里只留两栏布局本身。 */
 .layout { display: grid; grid-template-columns: 180px 1fr; gap: 28px; align-items: start; }
-.side-nav {
-  position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px;
-  max-height: calc(100vh - 32px); overflow-y: auto;
-}
-.side-link {
-  padding: 8px 12px; border-radius: var(--radius-ctrl); color: var(--text-2);
-  text-decoration: none; font-size: var(--font-body); line-height: 1.4;
-  border-left: 3px solid transparent; transition: background 120ms ease-out, color 120ms ease-out;
-}
-.side-link:hover { background: var(--surface-2); color: var(--text-1); }
-.side-link.on { background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-semibold); border-left-color: var(--gold); }
 
 /* 账号分组：左侧说明当前值，右侧表单；窄屏折成上下两行 */
 .acct-row {
@@ -819,15 +618,7 @@ onMounted(load)
 .group-title { font-size: var(--font-title-2); font-weight: var(--weight-strong); margin-bottom: 6px; }
 /* 分组说明是正文档：它解释这组配置管什么，用户不看就改不了。 */
 .group-desc { font-size: var(--font-body); color: var(--text-3); margin-bottom: 16px; line-height: 1.7; }
-.setting { padding: 14px 0; border-bottom: 1px solid var(--border); }
-.setting:last-child { border-bottom: none; }
-.setting-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-/* 配置项名（等宽键名）：正文档 16px，它是这一行的主角。 */
-.setting-key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-body); color: var(--text-1); }
-/* 配置项说明：辅助档 13.5px。 */
-.setting-desc { font-size: var(--font-aux); color: var(--text-3); margin: 4px 0 10px; line-height: 1.6; }
-.setting-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.setting-default { font-size: var(--font-aux); color: var(--text-3); }
+/* 配置项（.setting 及其控件）在 SettingItem 组件内。 */
 .input {
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -838,17 +629,6 @@ onMounted(load)
   min-width: 180px;
 }
 .input:disabled { background: var(--surface-2); color: var(--text-3); }
-.input--num { width: 110px; min-width: 110px; }
-.switch { display: inline-flex; align-items: center; gap: 6px; font-size: var(--font-aux); color: var(--text-2); }
-.eff-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-2); }
-.eff-badge--immediate { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
-.eff-badge--next_task { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
-.eff-badge--restart { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
-.lock-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-3); color: var(--text-2); display: inline-flex; align-items: center; gap: 4px; }
-.lock-icon { flex-shrink: 0; }
-.sens-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--gold-soft); color: var(--gold-strong); }
-.sens-state { font-size: var(--font-caption); color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.dirty-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
 .conn-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .conn-result { margin-top: 10px; font-size: var(--font-aux); }
 .conn-result.ok { color: var(--success); }
@@ -868,6 +648,5 @@ onMounted(load)
 .skeleton-row { height: 44px; border-radius: var(--radius-ctrl); background: var(--surface-2); }
 @media (max-width: 1024px) {
   .layout { grid-template-columns: 1fr; }
-  .side-nav { position: static; flex-direction: row; flex-wrap: wrap; }
 }
 </style>

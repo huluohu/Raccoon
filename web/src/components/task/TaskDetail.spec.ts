@@ -103,4 +103,51 @@ describe('TaskDetail', () => {
     const w = mount(TaskDetail, { props: { task: makeTask({ status: 'done', progress: 100 }) }, global: { stubs } })
     expect(w.text()).toContain('本次没有错误记录')
   })
+
+  it('引擎原文提升到错误区：分类文案 + 原文两件套都在', () => {
+    // 后端把引擎 stderr 摘要写进 event='engine_error' 的事件里（backend worker.go）。
+    // 只显示 error_message 的话，用户只知道「哪类问题」，不知道「到底报了什么」。
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({
+          status: 'failed',
+          error_code: 'FORMAT_UNAVAILABLE',
+          error_message: '所选清晰度不可用，可换其他清晰度重试',
+        }),
+        events: [
+          makeEvent({ id: 1, level: 'error', event: 'engine_error', message: 'Requested format is not available' }),
+        ],
+      },
+      global: { stubs },
+    })
+    expect(w.text()).toContain('所选清晰度不可用')
+    expect(w.find('.td-engine-detail').text()).toBe('Requested format is not available')
+    expect(w.text()).toContain('引擎原文')
+  })
+
+  it('没有引擎原文时不留空位（不显示「引擎原文：—」）', () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({ status: 'failed', error_code: 'HTTP_403', error_message: '对方不放' }),
+        events: [makeEvent({ id: 1, event: 'state_change', message: '普通事件' })],
+      },
+      global: { stubs },
+    })
+    expect(w.find('.td-engine-detail').exists()).toBe(false)
+    expect(w.text()).not.toContain('引擎原文')
+  })
+
+  it('多条引擎原文取最后一条（最新那次尝试的报错才是当前事实）', () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({ status: 'failed', error_code: 'PARSE_FAILED', error_message: '解析失败' }),
+        events: [
+          makeEvent({ id: 1, level: 'error', event: 'engine_error', message: '第一次的报错' }),
+          makeEvent({ id: 2, level: 'error', event: 'engine_error', message: '第二次的报错' }),
+        ],
+      },
+      global: { stubs },
+    })
+    expect(w.find('.td-engine-detail').text()).toBe('第二次的报错')
+  })
 })

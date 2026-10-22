@@ -157,7 +157,7 @@ function goTask(taskId?: string) {
   padding: 0 4px;
   border-radius: var(--radius-pill);
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
   font-size: var(--font-caption);
   font-weight: var(--weight-strong);
   line-height: 17px;

@@ -7,6 +7,11 @@
   --accent-strong: #1B2430;
   --accent-soft: #E6EAF0;
   --accent-softer: #F2F4F7;
+  /* 压在 --accent 实色块上的文字色。
+     浅色：accent 是深蓝灰 → 白字（对比度 12.6:1）。
+     深色：accent 变成金色 → 必须换成深墨色，白字压金底只有 1.9:1，根本读不清。
+     这就是「实色按钮上的文字色」不能写死 #fff 的原因。 */
+  --on-accent: #FFFFFF;
   /* 动作色：围巾金（全屏金色 ≤3 处） */
   --gold: #F5B93C;
   --gold-strong: #B8871A;
@@ -27,6 +32,16 @@
   --danger: #CF4257;
   --info: #2F7DE1;
   --neutral: #667089;
+  /* 压在语义色实色块上的文字色。
+     语义色在深色模式下会自动变亮（如 success → #4CC38A），
+     实色块上的文字必须跟着换：浅色模式用白字，深色模式用深墨字。
+     这三个变量由 --success/--danger/--info/--neutral 派生，但写死成字面量
+     是为了让「块上文字」这个语义独立可调（对比度不达标时只改这里）。 */
+  --on-success: #FFFFFF;
+  --on-danger: #FFFFFF;
+  --on-info: #FFFFFF;
+  --on-neutral: #FFFFFF;
+  --on-warning: #FFFFFF;
   /* 圆角（v2.4「胖半号」三档） */
   --radius-ctrl: 8px;
   --radius-card: 14px;
@@ -73,6 +88,8 @@
   --accent-strong: #F8CD77;
   --accent-soft: #2E3746;
   --accent-softer: #28303F;
+  /* 深色模式下 accent 是金色，实色块上的文字改深墨色（对比度 11.8:1）。 */
+  --on-accent: #0F121B;
   --gold: #E8EDF3;
   --gold-strong: #FFFFFF;
   --gold-soft: #28303F;
@@ -81,7 +98,19 @@
   --danger: #F2728A;
   --info: #6FA8F0;
   --neutral: #8B94AD;
+  /* 深色模式下语义色变亮 → 块上文字改深墨字（对比度 ≥ 7:1）。 */
+  --on-success: #0F121B;
+  --on-danger: #0F121B;
+  --on-info: #0F121B;
+  --on-neutral: #0F121B;
+  --on-warning: #0F121B;
+  /* 抽屉/遮罩层：树影蓝灰半透明。深色模式改用纯黑压暗，
+     否则浅色遮罩压在深色界面上会「发灰发白」，看着像弹窗没加载完。 */
+  --scrim: rgb(27 33 51 / 32%);
+  --scrim-deep: rgb(0 0 0 / 55%);
   --shadow-1: none;
   --shadow-2: 0 0 0 1px var(--border);
   --shadow-3: 0 0 0 1px var(--border);
+  --scrim: rgb(0 0 0 / 55%);
+  --scrim-deep: rgb(0 0 0 / 70%);
 }

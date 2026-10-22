@@ -37,7 +37,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 
 <style scoped>
 .dd-root { position: fixed; inset: 0; z-index: 60; }
-.dd-mask { position: absolute; inset: 0; background: rgba(27, 33, 51, 0.32); }
+.dd-mask { position: absolute; inset: 0; background: var(--scrim); }
 .dd-panel {
   position: absolute;
   top: 0;

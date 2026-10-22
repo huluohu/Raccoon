@@ -116,6 +116,86 @@ def check_tokens() -> None:
     for tok in SPEC_TOKENS:
         check(f"§2 Token {tok} 已定义", f"{tok}:" in root_block, "styles/tokens.css :root")
 
+    # 实色块上的文字色：必须走 --on-* 系列。
+    # 为什么单列一条：--accent 在浅色是深蓝灰、在深色是金色，
+    # 写死 #fff 在深色模式下就是白字压金底（1.9:1），完全读不清。
+    for tok in ("--on-accent", "--on-success", "--on-danger", "--on-info", "--on-neutral", "--on-warning"):
+        check(f"§2 Token {tok} 已定义（实色块上的文字色）", f"{tok}:" in root_block,
+              "styles/tokens.css :root")
+
+
+# ------------------------------------------- §2 禁硬编码色值（全形式扫描）
+# 上一版只查 `#hex` 三件套，漏掉了：
+#   - `#fff`（短写）
+#   - `rgba(27, 33, 51, 0.32)`（遮罩层）
+#   - `white` / `black`（具名色）
+# 实测全站有 13 处 `color: #fff` 分布在 8 个文件——深色模式下全部对比度不合格。
+# 这里把扫描扩到所有形式，并把「平台品牌色」单独豁免（外部客观事实，不是设计选择，
+# 但品牌色块上的文字色仍需配对，见 PLATFORM_TONE_FG）。
+COLOR_LITERAL_RE = re.compile(
+    r"#[0-9a-fA-F]{3,8}\b"
+    r"|rgba?\([^)]*\)"
+    r"|hsla?\([^)]*\)"
+    r"|(?<=[:\s])(white|black)(?=[\s;}])"
+)
+# 平台品牌色是外部事实（YouTube 红、微博红…），允许出现在 utils/format.ts。
+COLOR_EXEMPT_FILES = {"styles/tokens.css"}
+# 注释里的色值说明不算违规（要解释「浅色下 text-1 = #1B2133」这种来由）
+COLOR_COMMENT_RE = re.compile(r"^\s*(/\*|\*|//)")
+
+
+def check_no_hardcoded_colors() -> None:
+    offenders = []
+    for p in list(WEB.rglob("*.vue")) + list(WEB.rglob("*.css")):
+        rel = str(p.relative_to(WEB))
+        if rel in COLOR_EXEMPT_FILES or p.name.endswith(".spec.ts"):
+            continue
+        in_block_comment = False
+        for i, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            # 注释要连带跳过：/* 开头后到 */ 结束的所有行都是注释
+            # （实测踩过：RDialog 里解释「浅色下 text-1 = #1B2133」的续行注释被误判）
+            stripped = line.strip()
+            if in_block_comment:
+                if "*/" in stripped:
+                    in_block_comment = False
+                continue
+            if stripped.startswith("/*"):
+                if "*/" not in stripped:
+                    in_block_comment = True
+                continue
+            if COLOR_COMMENT_RE.match(line):
+                continue
+            # 平台品牌色调色板（外部客观事实）
+            if "utils/format.ts" in rel and "PLATFORM_TONE" in line:
+                continue
+            if COLOR_LITERAL_RE.search(line):
+                offenders.append(f"{rel}:{i}")
+    check("§2 无硬编码色值（#hex/rgb()/hsl()/具名色全形式）", not offenders,
+          f"写死处：{offenders[:8]}" if offenders else "")
+
+
+# ------------------------------------------- §8 文件完整性（非法字符会静默破坏 SFC）
+# 实测踩过：新建组件时注释里混进一个损坏的 UTF-8 字节（U+FFFD 替换字符），
+# vue-tsc 报出来的却是一堆「PLATFORM_LABEL 不存在」「onSubmit 不存在」——
+# 因为 SFC 的 script 块根本没被正确解析，模板里的标识符全成了「未定义」。
+# 排查这类怪错误要先看文件本身有没有坏字符。
+def check_source_integrity() -> None:
+    offenders = []
+    for p in list(WEB.rglob("*.vue")) + list(WEB.rglob("*.ts")):
+        raw = p.read_bytes()
+        rel = str(p.relative_to(WEB))
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            offenders.append(f"{rel}(非法字节)")
+            continue
+        if "�" in text:
+            for i, line in enumerate(text.split("\n"), 1):
+                if "�" in line:
+                    offenders.append(f"{rel}:{i}")
+    check("§8 源码无损坏字符（U+FFFD / 非法 UTF-8）", not offenders,
+          f"坏字符处：{offenders[:6]}" if offenders else "")
+
 
 # ------------------------------------------------- §2 字阶落地（禁写死字号/字重）
 # 方案 §2 给了完整字阶（12/13.5/16/18/20/24/30px + 七档字重）并规定「最小字号 12px」。
@@ -328,14 +408,45 @@ def check_face_system() -> None:
 #
 # 这里断言：方案点名的视图级组件必须是真实存在的 .vue 文件，
 # 且至少有一个视图 import 了它（真在用，不是摆设）。
+#
+# 覆盖 §3 路由表「关键组件」列点名的全部组件（22 个）：
+#   /setup        向导表单
+#   /             QuickSubmit / ActiveTasks / IssuesPanel / StatusStrip
+#   /tasks        TaskList / TaskDetail
+#   /media        FileCard / PreviewDrawer / DownloadBtn
+#   /subscriptions SubList / SubForm / ItemsTable
+#   /live         SourceList / RecordPlanForm / RecordingList
+#   /connections  CredentialList / QbTestPanel / TelegramPanel
+#   /settings     SettingsNav / SettingItem
+# （§3 的 /media 写「FileTable/FileCard」二选一，落地为 FileCard；
+#   §3 的 /setup「向导表单」落地为 SetupWizard。）
 SPEC_VIEW_COMPONENTS = {
+    "SetupWizard": "components/auth/SetupWizard.vue",
     "QuickSubmit": "components/shell/QuickSubmit.vue",
+    "ActiveTasks": "components/overview/ActiveTasks.vue",
+    "IssuesPanel": "components/overview/IssuesPanel.vue",
     "StatusStrip": "components/shell/StatusStrip.vue",
+    "TaskList": "components/task/TaskList.vue",
+    "TaskDetail": "components/task/TaskDetail.vue",
+    "FileCard": "components/media/FileCard.vue",
+    "PreviewDrawer": "components/media/PreviewDrawer.vue",
+    "DownloadBtn": "components/media/DownloadBtn.vue",
+    "SubList": "components/subs/SubList.vue",
+    "SubForm": "components/subs/SubForm.vue",
+    "ItemsTable": "components/subs/ItemsTable.vue",
+    "SourceList": "components/live/SourceList.vue",
+    "RecordPlanForm": "components/live/RecordPlanForm.vue",
+    "RecordingList": "components/live/RecordingList.vue",
+    "CredentialList": "components/conn/CredentialList.vue",
+    "QbTestPanel": "components/conn/QbTestPanel.vue",
+    "TelegramPanel": "components/conn/TelegramPanel.vue",
+    "SettingsNav": "components/settings/SettingsNav.vue",
+    "SettingItem": "components/settings/SettingItem.vue",
 }
 
 
 def check_view_components() -> None:
-    """§3 视图级关键组件：真实文件 + 被视图引用。"""
+    """§3 视图级关键组件：真实文件 + 被视图真实引用。"""
     sources = all_sources()
     for name, rel in SPEC_VIEW_COMPONENTS.items():
         if not exists(rel):
@@ -356,44 +467,219 @@ def check_view_components() -> None:
               f"{rel}（零引用）" if not referenced else "")
 
 
+# ------------------------------------- §3 视图级组件：方案点名的视图必须真的用上
+# 上一条只查「有人 import 了它」——但 import 了不等于用对了位置。
+# 实测翻车：设置页把「生效时机徽章」写在视图里，组件抽出来了却没接上，
+# 于是组件成了摆设（闸门全绿，页面照旧）。
+# 这里加一条：方案点名的每个视图，必须真的在模板里用了对应的组件标签。
+# 断言查的是「模板里出现该组件名」，不是「文件里出现过这个词」——
+# 注释里写「本该用 TaskList」不算。
+def check_view_component_usage() -> None:
+    """§3 每个视图真的用了方案点名的组件（在模板里，不是注释里）。"""
+    VIEW_USAGE = {
+        "views/Overview.vue": ["ActiveTasks", "IssuesPanel", "StatusStrip"],
+        "views/Tasks.vue": ["TaskList", "TaskDetail"],
+        "views/Media.vue": ["FileCard", "PreviewDrawer", "DownloadBtn"],
+        "views/Subscriptions.vue": ["SubList", "SubForm", "ItemsTable"],
+        "views/Live.vue": ["SourceList", "RecordPlanForm", "RecordingList"],
+        "views/Connections.vue": ["CredentialList", "QbTestPanel", "TelegramPanel"],
+        "views/Settings.vue": ["SettingsNav", "SettingItem"],
+        "views/Setup.vue": ["SetupWizard"],
+    }
+    for rel, names in VIEW_USAGE.items():
+        path = WEB / rel
+        if not path.exists():
+            check(f"§3 视图 {rel} 存在", False, f"缺少 {rel}")
+            continue
+        txt = path.read_text(encoding="utf-8", errors="ignore")
+        m = re.search(r"<template>(.*)</template>", txt, re.S)
+        tpl = m.group(1) if m else ""
+        missing = [n for n in names if not re.search(rf"<{n}[\s/>]", tpl)]
+        check(f"§3 视图 {Path(rel).stem} 真的用了 {', '.join(names)}",
+              not missing, f"模板里没用：{missing}" if missing else "")
+
+    # QuickSubmit 是全局顶栏组件（方案 §3 全局条款「顶部 QuickSubmit」），
+    # 物理上挂在外壳 App.vue，不在总览视图里——单独断言它挂在顶栏且能聚焦。
+    app = read("App.vue")
+    app_tpl_m = re.search(r"<template>(.*)</template>", app, re.S)
+    app_tpl = app_tpl_m.group(1) if app_tpl_m else ""
+    check("§3 全局 QuickSubmit 挂在顶栏外壳（App.vue）",
+          "<QuickSubmit" in app_tpl, "App.vue")
+    check("§3 QuickSubmit 有 id 供快捷键聚焦",
+          re.search(r'id="[^"]*"', read("components/shell/QuickSubmit.vue")) is not None
+          or "quick" in read("components/shell/QuickSubmit.vue").lower(),
+          "components/shell/QuickSubmit.vue")
+
+
 # --------------------------------------- §3 设置页分组导航（SettingsNav 左分组）
 def check_settings_nav() -> None:
-    """方案 §3 设置页：「SettingsNav（左分组）」。"""
+    """方案 §3 设置页：「SettingsNav（左分组）」。
+
+    注意：scrollspy 的判定逻辑已随组件抽进 components/settings/SettingsNav.vue，
+    这里必须查组件文件（查视图文件会误报「没有判定线」）。
+    """
     s = read("views/Settings.vue")
-    check("§3 设置页有左分组导航（.side-nav）", ".side-nav" in s, "views/Settings.vue")
+    nav = read("components/settings/SettingsNav.vue")
+
+    # 视图必须真的用上导航组件
+    check("§3 设置页有左分组导航（SettingsNav 组件）",
+          "<SettingsNav" in s, "views/Settings.vue")
+
     # 分组导航必须有当前项高亮，否则 5000px 长页滚到哪都不知道自己在哪
     check("§3 设置页分组导航有当前项高亮（active 状态）",
-          "side-link.on" in s or "activeSection" in s, "views/Settings.vue")
+          "side-link.on" in nav or "activeSection" in nav,
+          "components/settings/SettingsNav.vue")
     # 分组容器要能独立滚动（长页面里导航不能被顶出视口）
     check("§3 设置页分组导航 sticky 定位",
-          re.search(r"\.side-nav\s*\{[^}]*position:\s*sticky", s) is not None,
-          "views/Settings.vue .side-nav")
+          re.search(r"\.side-nav\s*\{[^}]*position:\s*sticky", nav) is not None,
+          "components/settings/SettingsNav.vue .side-nav")
     # 导航条目必须是人能读的正文字号，不能是 13px 小字
     check("§3 设置页导航条目用正文字号",
-          re.search(r"\.side-link\s*\{[^}]*font-size:\s*var\(--font-body", s) is not None,
-          "views/Settings.vue .side-link")
+          re.search(r"\.side-link\s*\{[^}]*font-size:\s*var\(--font-body", nav) is not None,
+          "components/settings/SettingsNav.vue .side-link")
 
     # ---- scrollspy 三个必备机制（实测踩过的坑，不能只靠"存在 activeSection"糊弄）----
     # ① 判定线 scrollspy：不能用 IntersectionObserver（长卡片页视口可能无分组相交 → 高亮消失）
     #    只查代码行、忽略注释——注释里写「为什么不用 IntersectionObserver」是正常的。
     code_only = "\n".join(
-        ln for ln in s.splitlines() if not ln.strip().startswith(("*", "//", "/*"))
+        ln for ln in nav.splitlines() if not ln.strip().startswith(("*", "//", "/*"))
     )
     check("§3 设置页分组导航用判定线 scrollspy（不是 IntersectionObserver）",
           "IntersectionObserver" not in code_only and "SPY_LINE" in code_only,
-          "views/Settings.vue scrollspy")
+          "components/settings/SettingsNav.vue scrollspy")
     # ② 页面底部兜底：最后一个分组永远越不过判定线，滚到底必须能高亮它
     check("§3 设置页 scrollspy 有页面底部兜底",
-          "scrollHeight" in s and "atBottom" in s,
-          "views/Settings.vue atBottom")
+          "scrollHeight" in nav and "atBottom" in nav,
+          "components/settings/SettingsNav.vue atBottom")
     # ③ 锚点点击兜底：锚点被页面底部截断时判定线选不中被点项，必须有点击锁定
     check("§3 设置页 scrollspy 有锚点点击锁定",
-          "lockedId" in s and "pickSection" in s,
-          "views/Settings.vue lockedId")
+          "lockedId" in nav and "pickSection" in nav,
+          "components/settings/SettingsNav.vue lockedId")
     # 锁定不能僵死：用户主动滚动要能解锁
     check("§3 设置页 scrollspy 锁定可被用户滚动解除",
-          "releaseLock" in s and "wheel" in s,
-          "views/Settings.vue releaseLock")
+          "releaseLock" in nav and "wheel" in nav,
+          "components/settings/SettingsNav.vue releaseLock")
+    # 首帧坑：内容没撑开时 scrollHeight=0，不能误高亮到最后一个分组
+    check("§3 设置页 scrollspy 有首帧兜底（scrollHeight=0 不误判到底）",
+          re.search(r"docH\s*>\s*window\.innerHeight", nav) is not None,
+          "components/settings/SettingsNav.vue docH 守卫")
+
+
+# --------------------------------- §3 设置页 SettingItem：生效时机徽章 + 脏圆点 + 保存反馈
+def check_setting_item() -> None:
+    """方案 §3 设置页：「SettingItem（生效时机徽章 + 脏圆点 + 保存反馈）」。"""
+    item = read("components/settings/SettingItem.vue")
+    # ① 生效时机徽章：文案来自后端 effective，不是前端写死三选一
+    check("§3 SettingItem 有生效时机徽章",
+          "eff-badge" in item and "item.effective" in item,
+          "components/settings/SettingItem.vue")
+    # ② 脏圆点
+    check("§3 SettingItem 有脏圆点", "dirty-pip" in item and "dirty" in item,
+          "components/settings/SettingItem.vue")
+    # ③ 保存反馈：逐项告知这一项什么时候生效（不能只有全局 toast）
+    check("§3 SettingItem 有逐项保存反馈", "saved-badge" in item and "savedText" in item,
+          "components/settings/SettingItem.vue")
+    # 铁律：敏感项不回填掩码（回填后保存会把掩码写进配置）
+    check("§3 SettingItem 敏感项不回填掩码",
+          "sensitive" in item and "留空表示不修改" in item,
+          "components/settings/SettingItem.vue")
+    # env 锁定项只读
+    check("§3 SettingItem env 锁定项只读",
+          "item.locked" in item and "disabled" in item,
+          "components/settings/SettingItem.vue")
+
+
+# --------------------------------- §3 全局条款：诊断入口在设置页
+def check_diag_entry() -> None:
+    """方案 §3 全局条款：「诊断入口在设置页」。"""
+    s = read("views/Settings.vue")
+    panel = read("components/settings/DiagPanel.vue")
+    check("§3 设置页有诊断分组", 'id="diag"' in s, "views/Settings.vue #diag")
+    check("§3 设置页真的接了诊断面板", "<DiagPanel" in s, "views/Settings.vue")
+    check("§3 诊断面板提供预览与导出两个入口",
+          "diagPreview" in panel and "diagExport" in panel,
+          "components/settings/DiagPanel.vue")
+
+
+# --------------------------------- §3 /setup 初始化向导表单（独立于登录页）
+def check_setup_wizard() -> None:
+    """方案 §3「/setup | 初始化管理员 | 向导表单」。"""
+    check("§3 初始化向导组件存在", exists("components/auth/SetupWizard.vue"),
+          "components/auth/SetupWizard.vue")
+    check("§3 /setup 路由指向独立视图",
+          "views/Setup.vue" in read("router/index.ts"), "router/index.ts")
+    # 向导必须分步（只有一个表单就是登录页兼职，不是向导）
+    wizard = read("components/auth/SetupWizard.vue")
+    check("§3 初始化向导是分步的", "第 {{ step }}" in wizard or "step" in wizard and "确认创建" in wizard,
+          "components/auth/SetupWizard.vue")
+    # 初始化向导要说明以后去哪改账号
+    check("§3 初始化向导说明后续修改入口",
+          "设置" in wizard and "账号" in wizard,
+          "components/auth/SetupWizard.vue")
+
+
+def check_engine_detail_visible() -> None:
+    """任务详情要给出引擎真实原因（不能只有一句「引擎退出码 1」）。
+
+    背景：error_message 是分类后的中文文案（"所选清晰度不可用"），
+    说的是「属于哪一类问题」；引擎原文（yt-dlp 的 ERROR 行）说的是
+    「到底报了什么」。只给前者，用户换清晰度/换链接/升级引擎全靠猜。
+    后端已把原文写进 event='engine_error' 的事件里，前端必须把它提到错误区。
+    """
+    detail = read("components/task/TaskDetail.vue")
+    check("§4 任务详情展示引擎原文（engine_error 事件）",
+          "engine_error" in detail and "engineDetail" in detail,
+          "components/task/TaskDetail.vue")
+    check("§4 引擎原文有独立视觉标记（等宽 + 弱化底）",
+          ".td-engine-detail" in detail and "mono" in detail,
+          "components/task/TaskDetail.vue .td-engine-detail")
+    # 后端确实把原文写进事件了（这条查后端，不是查前端）
+    worker = (ROOT / "backend" / "internal" / "task" / "worker.go")
+    wtxt = worker.read_text(encoding="utf-8", errors="ignore") if worker.exists() else ""
+    check("§4 后端把引擎 stderr 摘要写进 engine_error 事件",
+          'ee.Detail' in wtxt and '"engine_error"' in wtxt,
+          "backend/internal/task/worker.go")
+
+
+def check_link_validation() -> None:
+    """提交前的链接格式闸：分享文案能提取，缺协议头有提示。
+
+    背景：B 站/抖音分享出来的是一整段带文案的文本，
+    直接粘进后端会被协议白名单拒，用户看到的是看不懂的技术报错。
+    """
+    check("§7 链接格式校验工具存在", exists("utils/link.ts"), "utils/link.ts")
+    link = read("utils/link.ts")
+    check("§7 链接校验能从分享文案里提取 URL",
+          "extractUrl" in link and "http" in link,
+          "utils/link.ts")
+    check("§7 链接校验区分「缺协议头」与「不是链接」",
+          "http://" in link and "没找到链接" in link,
+          "utils/link.ts")
+    # QuickSubmit 必须在提交前过这道闸（而不是等后端报错）
+    qs = read("components/shell/QuickSubmit.vue")
+    check("§7 QuickSubmit 提交前做格式校验", "checkLink" in qs, "components/shell/QuickSubmit.vue")
+    check("§7 格式错误就地内联展示（role=alert）",
+          "formatError" in qs and 'role="alert"' in qs,
+          "components/shell/QuickSubmit.vue")
+    check("§7 链接校验有独立用例", exists("utils/link.spec.ts"), "utils/link.spec.ts")
+
+    # 提交路径必须用组件抛出的「规范化链接」，不能回头读原始 v-model。
+    # 踩过的坑：下载页 onPreview 忽略 emit 的值、自己重读 url.value，
+    # 于是分享文案原样进了请求（后端 400），组件里的格式闸形同虚设。
+    # 注意只查「取链接那一行」——onPreview 里 url.value = ''（预览成功后清空输入框）
+    # 是正确的，不能被这条断言误伤。
+    tasks_view = read("views/Tasks.vue")
+    m = re.search(r"async function onPreview\([^)]*\)\s*\{(.*?)\n\}", tasks_view, re.S)
+    body = m.group(1) if m else ""
+    check("§7 下载页提交用组件抛出的规范化链接",
+          "onPreview(target" in tasks_view
+          and "const link = (target ?? url.value).trim()" in body
+          and "await tasks.preview(link)" in body,
+          "views/Tasks.vue onPreview")
+    app = read("App.vue")
+    check("§7 顶栏提交用组件抛出的规范化链接",
+          "onQuickSubmit(value" in app and "quickUrl.value = value" not in app,
+          "App.vue onQuickSubmit")
 
 
 # ---------------------------------------------------------------- §7 交互铁律
@@ -456,11 +742,20 @@ def check_spec_files() -> None:
     # 组件层用例：本轮新增的核心组件必须有用例
     comp_specs = sorted(p.name for p in WEB.rglob("*.spec.ts"))
     check("§8 视图层 spec 齐备", not missing, f"缺 spec：{missing}" if missing else "")
-    check("§8 组件层 spec 存在（base/task/raccoon）",
-          len([s for s in comp_specs if s in {
-              "RInput.spec.ts", "RTable.spec.ts", "RDialog.spec.ts",
-              "TaskCard.spec.ts", "TaskDetail.spec.ts", "PawSlider.spec.ts"}]) == 6,
-          f"现有：{comp_specs}")
+    # §3 点名的视图级组件必须有自己的用例（组件边界落地 = 有独立验收点）
+    view_comp_specs = {
+        "SetupWizard.spec.ts", "QuickSubmit.spec.ts", "StatusStrip.spec.ts",
+        "ActiveTasks.spec.ts", "IssuesPanel.spec.ts", "TaskList.spec.ts",
+        "FileCard.spec.ts", "PreviewDrawer.spec.ts", "DownloadBtn.spec.ts",
+        "SubList.spec.ts", "SubForm.spec.ts", "ItemsTable.spec.ts",
+        "SourceList.spec.ts", "RecordPlanForm.spec.ts", "RecordingList.spec.ts",
+        "CredentialList.spec.ts", "QbTestPanel.spec.ts", "TelegramPanel.spec.ts",
+        "SettingsNav.spec.ts", "SettingItem.spec.ts", "DiagPanel.spec.ts",
+    }
+    have = set(comp_specs)
+    missing_comp = sorted(view_comp_specs - have)
+    check("§3 视图级组件都有独立用例（组件边界有验收点）", not missing_comp,
+          f"缺 spec：{missing_comp}" if missing_comp else "")
 
 
 # ---------------------------------------------------------------- §6 动效与响应式
@@ -581,10 +876,18 @@ def main() -> int:
     check_routes()
     check_components()
     check_view_components()
+    check_view_component_usage()
     check_settings_nav()
+    check_setting_item()
+    check_diag_entry()
+    check_setup_wizard()
+    check_engine_detail_visible()
+    check_link_validation()
     check_tokens()
     check_typography()
     check_typography_semantics()
+    check_no_hardcoded_colors()
+    check_source_integrity()
     check_grid_collapse()
     check_no_emoji_icons()
     check_face_system()

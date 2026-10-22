@@ -10,8 +10,10 @@ import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import RTable from '@/components/base/RTable.vue'
-import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
+import FileCard from '@/components/media/FileCard.vue'
+import PreviewDrawer from '@/components/media/PreviewDrawer.vue'
+import DownloadBtn from '@/components/media/DownloadBtn.vue'
 import type { MediaFile } from '@/api/types'
 
 const toast = useToastStore()
@@ -69,10 +71,9 @@ const COLUMNS = [
   { key: 'created_at', title: '入库时间', width: '140px' },
 ]
 
-const isVideo = computed(() => selected.value?.kind === 'video')
-const isAudio = computed(() => selected.value?.kind === 'audio')
-const isImage = computed(() => selected.value?.kind === 'image')
-const previewUrl = computed(() => (selected.value ? api.filePreviewUrl(selected.value.id) : ''))
+/** 预览 / 下载 URL 生成器（注入给子组件，组件不直接依赖 api 层）。 */
+const previewUrl = (id: string) => api.filePreviewUrl(id)
+const downloadUrl = (id: string) => api.fileDownloadUrl(id)
 
 async function load() {
   loading.value = true
@@ -98,7 +99,6 @@ function openDetail(f: MediaFile) {
 }
 
 function download(f: MediaFile) {
-  window.open(api.fileDownloadUrl(f.id), '_blank')
   toast.success('开始下载：' + f.name)
 }
 
@@ -193,63 +193,29 @@ onMounted(load)
         <span class="tnum">{{ formatRelative((row as MediaFile).created_at) }}</span>
       </template>
       <template #actions="{ row }">
-        <RButton size="sm" variant="ghost" @click.stop="download(row as MediaFile)">下载</RButton>
+        <DownloadBtn :href="downloadUrl((row as MediaFile).id)" @click="download(row as MediaFile)" />
       </template>
     </RTable>
 
     <ul v-else class="grid">
-      <li v-for="f in items" :key="f.id" class="file-card">
-        <button class="file-open" type="button" @click="openDetail(f)">
-          <div class="file-thumb" :class="`file-thumb--${f.kind}`">
-            <span v-if="f.kind === 'image'" class="file-thumb-img">
-              <img :src="api.filePreviewUrl(f.id)" :alt="f.name" loading="lazy" />
-            </span>
-            <span v-else class="file-kind">{{ f.kind }}</span>
-          </div>
-          <div class="file-body">
-            <p class="file-name" :title="f.name">{{ f.name }}</p>
-            <div class="file-meta">
-              <PlatformBadge :platform="f.platform" />
-              <span class="tnum">{{ formatBytes(f.size) }}</span>
-              <span v-if="f.duration" class="tnum">{{ formatDuration(f.duration) }}</span>
-            </div>
-          </div>
-        </button>
-        <div class="file-actions">
-          <RButton size="sm" variant="ghost" @click="download(f)">下载</RButton>
-          <RButton size="sm" variant="ghost" @click="openDetail(f)">详情</RButton>
-        </div>
-      </li>
+      <FileCard
+        v-for="f in items"
+        :key="f.id"
+        :file="f"
+        :preview-url="previewUrl"
+        @open="openDetail"
+        @download="download"
+      />
     </ul>
 
-    <DetailDrawer :open="selected !== null" title="文件详情" @close="selected = null">
-      <div v-if="selected" class="detail">
-        <div v-if="isImage && selected.previewable" class="detail-preview">
-          <img :src="previewUrl" :alt="selected.name" />
-        </div>
-        <div v-else-if="isVideo && selected.previewable" class="detail-preview">
-          <video :src="previewUrl" controls preload="metadata" />
-        </div>
-        <div v-else-if="isAudio && selected.previewable" class="detail-preview">
-          <audio :src="previewUrl" controls preload="metadata" />
-        </div>
-        <div v-else class="detail-unsupported">
-          <p>该文件编码浏览器无法直接播放，下载后用本地播放器打开。</p>
-        </div>
-
-        <dl class="kv">
-          <dt>文件名</dt><dd>{{ selected.name }}</dd>
-          <dt>大小</dt><dd class="tnum">{{ formatBytes(selected.size) }}</dd>
-          <dt>类型</dt><dd>{{ selected.kind }}</dd>
-          <dt>平台</dt><dd>{{ platformText(selected.platform) }}</dd>
-          <dt>作者</dt><dd>{{ selected.uploader || '—' }}</dd>
-          <dt>入库时间</dt><dd class="tnum">{{ formatRelative(selected.created_at) }}</dd>
-          <dt>路径</dt><dd class="path">{{ selected.path }}</dd>
-        </dl>
-
-        <RButton variant="accent" block @click="download(selected)">下载文件</RButton>
-      </div>
-    </DetailDrawer>
+    <!-- 文件预览抽屉（方案 §3 视图级组件 PreviewDrawer） -->
+    <PreviewDrawer
+      :file="selected"
+      :preview-url="previewUrl"
+      :download-url="downloadUrl"
+      @close="selected = null"
+      @download="download"
+    />
   </section>
 </template>
 
@@ -275,34 +241,10 @@ onMounted(load)
   font-size: var(--font-body); cursor: pointer; transition: background 120ms ease-out, color 120ms ease-out;
 }
 .vt-btn + .vt-btn { border-left: 1px solid var(--border); }
-.vt-btn.on { background: var(--accent); color: #fff; }
+.vt-btn.on { background: var(--accent); color: var(--on-accent); }
 .cell-name { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 卡片网格：auto-fit 让空轨道塌陷。
    auto-fill 在 1184px 宽下排 4 条 285px 轨道，文件只有 2 个时右侧空出 570px，
    整页看着「东西全挤在左边」——这是比例失衡最直接的来源。 */
-.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-.file-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow-1); display: flex; flex-direction: column; }
-.file-open { border: none; background: transparent; padding: 0; cursor: pointer; text-align: left; display: flex; flex-direction: column; }
-.file-thumb { height: 140px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--font-caption); }
-.file-thumb--video { background: linear-gradient(135deg, var(--accent-soft), var(--surface-2)); }
-.file-thumb--audio { background: linear-gradient(135deg, var(--gold-soft), var(--surface-2)); }
-.file-thumb-img { width: 100%; height: 100%; }
-.file-thumb-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.file-body { padding: 12px 14px 8px; }
-/* 文件名是卡片主角：正文档 16px。 */
-.file-name { font-size: var(--font-body); color: var(--text-1); line-height: 1.5; max-height: 3em; overflow: hidden; margin-bottom: 8px; }
-.file-meta { display: flex; align-items: center; gap: 10px; font-size: var(--font-aux); color: var(--text-3); }
-.file-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
-.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
-.error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
-.detail { display: flex; flex-direction: column; gap: 14px; }
-.detail-preview { background: var(--surface-2); border-radius: var(--radius-ctrl); overflow: hidden; }
-.detail-preview img, .detail-preview video { width: 100%; display: block; }
-.detail-preview audio { width: 100%; display: block; padding: 8px; }
-.detail-unsupported { background: var(--gold-soft); border-radius: var(--radius-ctrl); padding: 12px; font-size: var(--font-body); color: var(--text-2); }
-/* 详情键值：正文档 16px。 */
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: var(--font-body); }
-.kv dt { color: var(--text-3); }
-.kv dd { margin: 0; color: var(--text-1); word-break: break-all; }
-.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-aux); color: var(--text-2); }
-</style>
+.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
+.error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }</style>

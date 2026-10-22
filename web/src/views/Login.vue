@@ -1,5 +1,8 @@
 <script setup lang="ts">
-// 登录 / 首次初始化（后端 428 setup_required 语义的前端落点）。
+// 登录页（方案 §3「/login | 登录 | ——」）。
+//
+// 首次初始化不在这里：走 /setup 的向导（components/auth/SetupWizard.vue）。
+// 方案把两者列成两行，且 /login 的关键组件列是「——」——登录不需要特殊组件。
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -10,21 +13,13 @@ const router = useRouter()
 const route = useRoute()
 const username = ref('')
 const password = ref('')
-const confirm = ref('')
-
-const isSetup = () => auth.phase === 'setup'
 
 async function submit() {
   if (!username.value.trim() || !password.value) return
-  if (isSetup() && password.value !== confirm.value) {
-    auth.error = '两次输入的密码不一致'
-    return
-  }
   try {
-    if (isSetup()) await auth.setup(username.value.trim(), password.value)
-    else await auth.login(username.value.trim(), password.value)
+    await auth.login(username.value.trim(), password.value)
     // 认证成功：只有在 auth 路由上才需要跳走。
-    // /login、/setup 的路由组件除了会话 gate 还会被外壳的 router-view 渲染一次，
+    // /login 的路由组件除了会话 gate 还会被外壳的 router-view 渲染一次，
     // 停在这儿不放就是「外壳 + 登录卡」同屏重复；停在别的页面（如会话过期后
     // 在 /tasks 重新登录）则原地恢复，不强行拽回总览。
     // 用 path 而不是 name：name 依赖路由表命名，反代/书签跳进来时路径才是事实。
@@ -41,10 +36,10 @@ async function submit() {
   <section class="auth">
     <div class="card">
       <div class="brand">
-        <RaccoonFace face="working" :size="52" />
+        <RaccoonFace face="waiting" :size="52" />
         <div>
           <h1>浣熊 <em>Raccoon</em></h1>
-          <p class="sub">{{ isSetup() ? '首次使用：创建管理员账号' : '请登录以继续' }}</p>
+          <p class="sub">请登录以继续</p>
         </div>
       </div>
 
@@ -57,15 +52,11 @@ async function submit() {
           <span>密码</span>
           <input v-model="password" type="password" autocomplete="current-password" required placeholder="至少 8 位" />
         </label>
-        <label v-if="isSetup()">
-          <span>确认密码</span>
-          <input v-model="confirm" type="password" autocomplete="new-password" required placeholder="再输入一次" />
-        </label>
 
-        <p v-if="auth.error" class="error">{{ auth.error }}</p>
+        <p v-if="auth.error" class="error" role="alert">{{ auth.error }}</p>
 
         <button type="submit" :disabled="auth.busy">
-          {{ auth.busy ? '处理中…' : isSetup() ? '创建账号并进入' : '登录' }}
+          {{ auth.busy ? '登录中…' : '登录' }}
         </button>
       </form>
       <p class="hint">账号仅存于本机数据库，密码以 Argon2id 散列保存。</p>
@@ -86,7 +77,7 @@ form { display: flex; flex-direction: column; gap: 14px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-aux); color: var(--text-2); }
 input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
 input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: #fff; font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
+button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: var(--on-accent); font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
 button:disabled { opacity: 0.6; cursor: progress; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-aux); }
 .hint { margin: 18px 0 0; font-size: var(--font-caption); color: var(--text-3); }

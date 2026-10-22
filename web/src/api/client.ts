@@ -59,6 +59,31 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await resp.json()) as T
 }
 
+/**
+ * 下载二进制文件（如诊断包 zip）。
+ *
+ * 为什么不能复用 request()：那个函数按 JSON 解析响应体，
+ * 诊断包是 zip 字节流，走 JSON.parse 会直接抛错。
+ */
+async function requestBlob(path: string): Promise<Blob> {
+  const resp = await fetch(BASE + path, { credentials: 'same-origin' })
+  if (!resp.ok) {
+    let code = 'HTTP_' + resp.status
+    let message = resp.statusText
+    try {
+      const body = (await resp.json()) as ApiErrorBody
+      if (body?.error) {
+        code = body.error.code
+        message = body.error.message
+      }
+    } catch {
+      // 非 JSON 错误响应，保留 HTTP 级信息
+    }
+    throw new ApiError(code, message, '')
+  }
+  return resp.blob()
+}
+
 export const api = {
   systemInfo: () => request<import('./types').SystemInfo>('/system/info'),
   health: () => request<import('./types').HealthCheck>('/system/health'),
@@ -314,4 +339,6 @@ export const api = {
     request<{ preview: boolean; manifest: Record<string, unknown>; log_sample: string[] }>(
       '/system/diag/export?preview=1',
     ),
+  /** 下载诊断包（zip 字节流，非 JSON）。 */
+  diagExport: () => requestBlob('/system/diag/export'),
 }

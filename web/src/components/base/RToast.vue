@@ -59,12 +59,12 @@ const toast = useToastStore()
   justify-content: center;
   font-size: var(--font-caption);
   font-weight: var(--weight-strong);
-  color: #fff;
+  color: var(--on-info);
   background: var(--info);
 }
-.rtoast--success .rtoast-glyph { background: var(--success); }
-.rtoast--warning .rtoast-glyph { background: var(--warning); }
-.rtoast--error .rtoast-glyph { background: var(--danger); }
+.rtoast--success .rtoast-glyph { background: var(--success); color: var(--on-success); }
+.rtoast--warning .rtoast-glyph { background: var(--warning); color: var(--on-warning); }
+.rtoast--error .rtoast-glyph { background: var(--danger); color: var(--on-danger); }
 .rtoast-text { flex: 1; line-height: 1.5; word-break: break-word; }
 .rtoast-close { border: none; background: transparent; color: var(--text-3); cursor: pointer; font-size: var(--font-caption); padding: 0 2px; }
 </style>

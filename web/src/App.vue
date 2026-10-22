@@ -14,6 +14,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
 import { useNotificationsStore } from '@/stores/notifications'
 import Login from '@/views/Login.vue'
+import Setup from '@/views/Setup.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import RToast from '@/components/base/RToast.vue'
@@ -46,8 +47,7 @@ function onNavKey(ev: KeyboardEvent) {
   if (ev.key === 'Escape' && navOpen.value) navOpen.value = false
 }
 
-async function quickSubmit() {
-  const target = quickUrl.value.trim()
+async function quickSubmit(target: string) {
   if (!target) return
   quickErr.value = ''
   try {
@@ -58,10 +58,13 @@ async function quickSubmit() {
   }
 }
 
-/** QuickSubmit 组件抛来的提交意图（值已由组件去空白，这里直接提交）。 */
+/**
+ * QuickSubmit 组件抛来的提交意图。
+ * 组件已经做过格式校验 + 分享文案提取（value 是规范化后的纯链接），
+ * 直接用它提交，不要再读 quickUrl.value——那是原始输入，可能带着一整段分享文案。
+ */
 async function onQuickSubmit(value: string) {
-  quickUrl.value = value
-  await quickSubmit()
+  await quickSubmit(value)
 }
 
 // 会话进入 ready 是「开始拉数据 + 建 SSE」的唯一起点。
@@ -107,7 +110,11 @@ onUnmounted(() => {
 
 <template>
   <div class="app" :data-theme="ui.theme">
-    <Login v-if="auth.phase !== 'ready'" />
+    <!-- 会话 gate（后端 428/401 语义的前端落点）：
+         未初始化 → 初始化向导（方案 §3 /setup「向导表单」）；
+         未登录 → 登录页；就绪才渲染主界面。 -->
+    <Setup v-if="auth.phase === 'setup'" />
+    <Login v-else-if="auth.phase !== 'ready'" />
     <template v-else>
       <!-- 768–1023：侧导航收进抽屉，这里只放触发按钮（≥1024 隐藏） -->
       <button
@@ -292,7 +299,7 @@ onUnmounted(() => {
     box-shadow: var(--shadow-3);
   }
   .nav.open { transform: translateX(0); }
-  .nav-mask { position: fixed; inset: 0; z-index: 50; background: rgba(27, 33, 51, 0.32); }
+  .nav-mask { position: fixed; inset: 0; z-index: 50; background: var(--scrim); }
   .topbar { padding-left: 12px; }
 }
 

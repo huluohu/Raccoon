@@ -73,4 +73,38 @@ describe('QuickSubmit 组件', () => {
     expect(w.find('.custom-btn').exists()).toBe(true)
     expect(w.find('.qsubmit-btn').exists()).toBe(false)
   })
+
+  // ---- 格式闸（utils/link.ts）----
+  it('格式不对时不提交，并就地提示（不发请求）', async () => {
+    const w = mount(QuickSubmit, { props: { modelValue: 'www.example.com/v' } })
+    await w.find('input').trigger('keyup.enter')
+    expect(w.emitted('submit')).toBeUndefined()
+    expect(w.find('.qsubmit-err').text()).toContain('http://')
+  })
+
+  it('分享文案提交的是提取后的链接，不是整段文案', async () => {
+    const w = mount(QuickSubmit, {
+      props: { modelValue: '【标题】https://b23.tv/abc 复制打开bilibili' },
+    })
+    await w.find('input').trigger('keyup.enter')
+    expect(w.emitted('submit')?.[0]).toEqual(['https://b23.tv/abc'])
+  })
+
+  it('用户动过输入框才提示格式错误（页面刚加载不挂噪音提示）', async () => {
+    const w = mount(QuickSubmit, { props: { modelValue: 'www.example.com/v' } })
+    // 初始：模型值有内容但用户没动过 → 不提示
+    expect(w.find('.qsubmit-err').exists()).toBe(false)
+    // 动过 → 提示出现
+    await w.find('input').setValue('www.example.com/v')
+    expect(w.find('.qsubmit-err').exists()).toBe(true)
+  })
+
+  it('格式错误优先于接口错误位（格式错时根本发不出请求）', async () => {
+    const w = mount(QuickSubmit, {
+      props: { modelValue: 'www.example.com/v', error: '解析失败' },
+    })
+    await w.find('input').setValue('www.example.com/v')
+    expect(w.find('.qsubmit-err').text()).toContain('http://')
+    expect(w.find('.qsubmit-err').text()).not.toContain('解析失败')
+  })
 })

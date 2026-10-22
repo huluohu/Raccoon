@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   testQB: vi.fn(),
   testN115: vi.fn(),
   telegramStatus: vi.fn(),
+  diagPreview: vi.fn(),
+  diagExport: vi.fn(),
   authChangeUsername: vi.fn(),
   authChangePassword: vi.fn(),
 }))
@@ -125,6 +127,12 @@ beforeEach(() => {
   mocks.testQB.mockReset().mockResolvedValue({ ok: true, version: '4.6.0' })
   mocks.testN115.mockReset().mockResolvedValue({ ok: false })
   mocks.telegramStatus.mockReset().mockResolvedValue({ data: { enabled: false, allowlist: 0 } })
+  mocks.diagPreview.mockReset().mockResolvedValue({
+    preview: true,
+    manifest: { version: '0.9.0' },
+    log_sample: [],
+  })
+  mocks.diagExport.mockReset().mockResolvedValue(new Blob(['zip']))
   mocks.authChangeUsername.mockReset().mockResolvedValue({ user: { id: 'usr_1', username: 'renamed', created_at: 1 } })
   mocks.authChangePassword.mockReset().mockResolvedValue({ ok: true })
 })
@@ -391,6 +399,15 @@ describe('Settings 视图', () => {
     const empty = w.find('#history .stub-empty')
     expect(empty.exists()).toBe(true)
     expect(empty.text()).toContain('还没有配置历史')
+  })
+
+  it('诊断分组存在且提供查看/导出两个入口（§3「诊断入口在设置页」）', async () => {
+    const w = mountSettings()
+    await flushPromises()
+    expect(w.find('#diag').exists()).toBe(true)
+    expect(w.find('#diag').text()).toContain('诊断')
+    // 导航里也有诊断入口
+    expect(w.find('.side-nav').text()).toContain('诊断')
   })
 
   it('加载失败显示错误卡 + 重试入口', async () => {

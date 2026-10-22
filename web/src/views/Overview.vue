@@ -10,12 +10,10 @@ import { useTasksStore } from '@/stores/tasks'
 import { useToastStore } from '@/stores/toast'
 import { formatBytes } from '@/utils/format'
 import type { Credential, HealthCheck, QueueStats, SystemInfo } from '@/api/types'
-import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 import RButton from '@/components/base/RButton.vue'
-import StatusDot from '@/components/task/StatusDot.vue'
-import PlatformBadge from '@/components/task/PlatformBadge.vue'
-import TaskProgress from '@/components/task/TaskProgress.vue'
 import StatusStrip from '@/components/shell/StatusStrip.vue'
+import ActiveTasks from '@/components/overview/ActiveTasks.vue'
+import IssuesPanel from '@/components/overview/IssuesPanel.vue'
 import type { StatusStripItem } from '@/components/shell/StatusStrip.vue'
 
 const router = useRouter()
@@ -151,39 +149,13 @@ onMounted(load)
     </div>
 
     <template v-else>
-      <!-- 活跃任务 -->
-      <article class="card card--wide">
-        <header class="card-head">
-          <h2>正在搬的活</h2>
-          <RButton variant="ghost" size="sm" @click="router.push('/tasks')">查看全部 →</RButton>
-        </header>
-        <div v-if="loading" class="skeleton-rows">
-          <div v-for="n in 3" :key="n" class="skeleton-row" />
-        </div>
-        <div v-else-if="activeTasks.length === 0" class="inline-empty">
-          <!-- 表情按状态取用（方案 §5）：手上有活干完且有成功记录 → done（眨眼笑），
-               纯粹没活 → waiting（眼罩半搭，等着接单）。 -->
-          <RaccoonFace :face="hasDone ? 'done' : 'waiting'" :size="52" />
-          <div>
-            <p class="inline-empty-title">{{ hasDone ? '活都搬完了，眼罩可以摘' : '眼罩搁下了，眼下没活' }}</p>
-            <p class="inline-empty-hint">
-              {{ hasDone ? '干完的都在媒体库里躺着，新活随时可以开工。' : '粘贴链接到顶栏就能开工，或者去订阅页挂个自动追更。' }}
-            </p>
-          </div>
-        </div>
-        <ul v-else class="task-list">
-          <li v-for="t in activeTasks" :key="t.id" class="task-row">
-            <div class="task-row-main">
-              <div class="task-row-head">
-                <StatusDot :status="t.status" :wait-reason="t.wait_reason" />
-                <PlatformBadge :platform="t.platform" />
-                <span class="task-title">{{ t.title || t.url }}</span>
-              </div>
-              <TaskProgress :task="t" />
-            </div>
-          </li>
-        </ul>
-      </article>
+      <!-- 正在搬的活（方案 §3 视图级组件 ActiveTasks） -->
+      <ActiveTasks
+        :tasks="activeTasks"
+        :loading="loading"
+        :has-done="hasDone"
+        @more="router.push('/tasks')"
+      />
 
       <!-- 系统状态条（方案 §3 StatusStrip）：磁盘 / 数据库 / 实时连接 / 凭据健康。
            这些是「扫一眼」的指标，单独成条比塞在卡片里更容易被看到。 -->
@@ -238,26 +210,8 @@ onMounted(load)
         </article>
       </div>
 
-      <!-- 需要处理的问题 -->
-      <article v-if="failedTasks.length > 0" class="card card--wide issue-panel">
-        <header class="card-head">
-          <h2>有几单没成</h2>
-          <RButton variant="ghost" size="sm" @click="router.push('/tasks')">全部任务 →</RButton>
-        </header>
-        <ul class="issue-list">
-          <li v-for="t in failedTasks" :key="t.id" class="issue-row">
-            <RaccoonFace face="failed" :size="32" />
-            <div class="issue-main">
-              <div class="issue-title">{{ t.title || t.url }}</div>
-              <div class="issue-reason">
-                <code>{{ t.error_code }}</code>
-                <span>{{ t.error_message }}</span>
-              </div>
-            </div>
-            <RButton size="sm" @click="retryTask(t.id)">重试</RButton>
-          </li>
-        </ul>
-      </article>
+      <!-- 需要处理的问题（方案 §3 视图级组件 IssuesPanel） -->
+      <IssuesPanel :tasks="failedTasks" @retry="retryTask" @more="router.push('/tasks')" />
     </template>
   </section>
 </template>
@@ -284,21 +238,4 @@ onMounted(load)
 .muted { color: var(--text-3); font-size: var(--font-body); line-height: 1.7; }
 .warn-line { color: var(--warning); font-size: var(--font-body); margin: 4px 0; }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
-.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
-.task-row-main { display: flex; flex-direction: column; gap: 8px; }
-.task-row-head { display: flex; align-items: center; gap: 8px; }
-/* 任务标题是这一行的主角，正文档 16px。 */
-.task-title { font-size: var(--font-body); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inline-empty { display: flex; align-items: center; gap: 16px; padding: 16px 0; }
-.inline-empty-title { font-size: var(--font-title-3); color: var(--text-1); font-weight: var(--weight-strong); }
-.inline-empty-hint { font-size: var(--font-aux); color: var(--text-3); margin-top: 4px; }
-.skeleton-rows { display: flex; flex-direction: column; gap: 12px; }
-.skeleton-row { height: 40px; border-radius: var(--radius-ctrl); background: var(--surface-2); }
-.issue-panel { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
-.issue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.issue-row { display: flex; align-items: center; gap: 14px; }
-.issue-main { flex: 1; min-width: 0; }
-.issue-title { font-size: var(--font-body); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.issue-reason { display: flex; gap: 8px; font-size: var(--font-aux); color: var(--text-3); margin-top: 4px; }
-.issue-reason code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--danger); }
 </style>

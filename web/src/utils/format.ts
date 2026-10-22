@@ -93,7 +93,10 @@ export const STATUS_TONE: Record<string, 'neutral' | 'info' | 'active' | 'succes
   cancelled: 'muted',
 }
 
-/** 平台 → 品牌色（PlatformBadge；禁 emoji 冒充）。 */
+/** 平台 → 品牌色（PlatformBadge；禁 emoji 冒充）。
+ *  品牌色是外部客观事实（不是本项目的设计选择），所以不塞进 tokens.css。
+ *  但品牌色块上的文字色必须逐个配对——天蓝 (#1AB7EA)、青灰 (#629AA9) 这类
+ *  浅色压白字只有 2.4~2.9:1，达不到 WCAG AA 的 4.5:1。 */
 export const PLATFORM_TONE: Record<string, string> = {
   bilibili: '#FB7299',
   youtube: '#FF0000',
@@ -108,6 +111,16 @@ export const PLATFORM_TONE: Record<string, string> = {
   pornhub: '#E7462F',
   netease: '#C62F2F',
   generic: 'var(--text-3)',
+}
+
+/** 平台品牌色块上的文字色（与 PLATFORM_TONE 逐个配对）。
+ *  浅品牌（vimeo 天蓝、bandcamp 青灰、twitter 亮蓝）用深墨字，
+ *  深品牌（youtube 红、tiktok 黑）用白字。 */
+export const PLATFORM_TONE_FG: Record<string, string> = {
+  vimeo: '#08243A',
+  bandcamp: '#0D1F26',
+  twitter: '#08243A',
+  generic: '#FFFFFF',
 }
 
 /** 平台展示名。 */
@@ -139,6 +152,12 @@ export function platformText(p: string | undefined | null): string {
 export function platformTone(p: string | undefined | null): string {
   if (!p) return 'var(--text-3)'
   return PLATFORM_TONE[p] ?? 'var(--text-3)'
+}
+
+/** 平台品牌色块上的文字色（与 platformTone 配对，保证 WCAG AA）。 */
+export function platformToneFg(p: string | undefined | null): string {
+  if (!p) return '#FFFFFF'
+  return PLATFORM_TONE_FG[p] ?? '#FFFFFF'
 }
 
 /** 百分比（未知 → "—"）。 */

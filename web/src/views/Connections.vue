@@ -7,12 +7,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
-import { formatRelative } from '@/utils/format'
 import type { Credential, IntegrationChannelStatus, IntegrationStatus, TelegramStatus } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
-import PlatformBadge from '@/components/task/PlatformBadge.vue'
+import CredentialList from '@/components/conn/CredentialList.vue'
+import QbTestPanel from '@/components/conn/QbTestPanel.vue'
+import TelegramPanel from '@/components/conn/TelegramPanel.vue'
 
 const toast = useToastStore()
 
@@ -53,25 +54,6 @@ const KINDS = [
   { value: 'session', label: '会话串', hint: '服务端下发的会话标识' },
 ]
 
-const STATUS_TEXT: Record<string, string> = {
-  active: '可用',
-  expiring: '待确认',
-  expired: '已失效',
-  disabled: '已停用',
-}
-const STATUS_TONE: Record<string, string> = {
-  active: 'var(--success)',
-  expiring: 'var(--warning)',
-  expired: 'var(--danger)',
-  disabled: 'var(--neutral)',
-}
-const KIND_TEXT: Record<string, string> = {
-  cookie_file: 'Cookie',
-  account: '账号',
-  token: '令牌',
-  session: '会话',
-}
-
 const kindHint = computed(() => KINDS.find((k) => k.value === form.value.kind)?.hint ?? '')
 const isEditing = computed(() => editing.value !== null)
 /** 编辑态下 value 留空 = 不改内容。 */
@@ -102,51 +84,37 @@ const channelTest = ref<Record<string, { ok: boolean; text: string }>>({})
 type ChannelState = 'unconfigured' | 'unknown' | 'ok' | 'bad'
 
 interface ChannelView {
-  key: 'qb' | 'n115' | 'telegram'
-  name: string
-  desc: string
   state: ChannelState
   stateText: string
   detail: string
-  canTest: boolean
 }
 
-function channelView(key: 'qb' | 'n115' | 'telegram'): ChannelView {
-  const base: Omit<ChannelView, 'state' | 'stateText' | 'detail'> = {
-    key,
-    name: key === 'qb' ? 'qBittorrent' : key === 'n115' ? '115 网盘' : 'Telegram',
-    desc:
-      key === 'qb'
-        ? '把磁力/离线下载交给 qB 客户端执行'
-        : key === 'n115'
-          ? '把任务转存到 115 网盘'
-          : '通过 Telegram 机器人提交任务到同一队列',
-    canTest: key !== 'telegram',
-  }
-  // Telegram 的真实可用性来自 /integrations/telegram/status（enabled = token + 白名单都齐）。
-  if (key === 'telegram' && tgStatus.value) {
-    if (!tgStatus.value.enabled) {
-      return { ...base, state: 'unconfigured', stateText: '未启用', detail: '需配置 bot token 且白名单非空' }
-    }
-    return { ...base, state: 'ok', stateText: '可用', detail: `已启用 · 白名单 ${tgStatus.value.allowlist} 人` }
-  }
+/**
+ * 通道状态翻译。
+ *
+ * 四态必须分开，不能合并：
+ *   - 未配置：后端说 configured=false → 用户还没填参数
+ *   - 状态不明：configured=true 但没有实探结果（ok 缺省）
+ *     → 后端只在能构造客户端时实探，没探到就是「不知道」，
+ *       绝不能显示成「可用」——那是假装可用。
+ *   - 可用 / 不可用：后端实探过了。
+ */
+function channelView(key: 'qb' | 'n115'): ChannelView {
   const st: IntegrationChannelStatus | undefined = integrations.value?.[key]
   if (!st || !st.configured) {
-    return { ...base, state: 'unconfigured', stateText: '未配置', detail: '在设置页填写连接参数后启用' }
+    return { state: 'unconfigured', stateText: '未配置', detail: '在设置页填写连接参数后启用' }
   }
   if (st.ok === undefined) {
-    // 后端只在能构造客户端时实探；缺省即「状态不明」，不假装可用。
-    return { ...base, state: 'unknown', stateText: '状态不明', detail: '已配置，尚未探测到实探结果' }
+    return { state: 'unknown', stateText: '状态不明', detail: '已配置，尚未探测到实探结果' }
   }
   if (st.ok) {
-    return { ...base, state: 'ok', stateText: '可用', detail: st.message || '实探通过' }
+    return { state: 'ok', stateText: '可用', detail: st.message || '实探通过' }
   }
-  return { ...base, state: 'bad', stateText: '不可用', detail: st.message || '实探失败' }
+  return { state: 'bad', stateText: '不可用', detail: st.message || '实探失败' }
 }
 
-const channelViews = computed<ChannelView[]>(() =>
-  (['qb', 'n115', 'telegram'] as const).map(channelView),
-)
+const qbView = computed(() => channelView('qb'))
+const n115View = computed(() => channelView('n115'))
 
 async function loadIntegrations() {
   integrationsLoading.value = true
@@ -289,13 +257,6 @@ async function remove(c: Credential) {
   }
 }
 
-function expireText(c: Credential): string {
-  if (!c.expires_at) return '长期有效'
-  const left = c.expires_at - Date.now()
-  if (left <= 0) return '已过期 ' + formatRelative(c.expires_at)
-  return formatRelative(c.expires_at) + '过期'
-}
-
 onMounted(() => {
   void load()
   void loadIntegrations()
@@ -327,28 +288,33 @@ onMounted(() => {
       <p v-if="integrationsErr" class="alert alert--danger">{{ integrationsErr }}</p>
 
       <ul class="int-grid">
-        <li v-for="c in channelViews" :key="c.key" class="int-card" :data-state="c.state">
-          <header class="int-card-head">
-            <span class="int-name">{{ c.name }}</span>
-            <span class="int-state">
-              <span class="int-glyph" aria-hidden="true">
-                {{ c.state === 'ok' ? '✓' : c.state === 'bad' ? '✕' : c.state === 'unknown' ? '?' : '–' }}
-              </span>
-              {{ c.stateText }}
-            </span>
-          </header>
-          <p class="int-desc">{{ c.desc }}</p>
-          <p class="int-detail">{{ c.detail }}</p>
-          <p v-if="channelTest[c.key]" class="int-test" :class="channelTest[c.key].ok ? 'ok' : 'bad'">
-            {{ channelTest[c.key].ok ? '✓' : '✕' }} {{ channelTest[c.key].text }}
-          </p>
-          <footer class="int-foot">
-            <RButton size="sm" :disabled="testingChannel === c.key" @click="testChannel(c.key)">
-              {{ testingChannel === c.key ? '测试中…' : c.canTest ? '测试连接' : '刷新状态' }}
-            </RButton>
-            <RouterLink class="int-link" to="/settings">去设置页填写参数 →</RouterLink>
-          </footer>
-        </li>
+        <!-- qBittorrent 通道：主动探测（方案 §3 QbTestPanel） -->
+        <QbTestPanel
+          name="qBittorrent"
+          desc="把磁力/离线下载交给 qB 客户端执行"
+          :state="qbView.state"
+          :detail="qbView.detail"
+          :testing="testingChannel === 'qb'"
+          :result="channelTest.qb ?? null"
+          @test="testChannel('qb')"
+        />
+        <!-- 115 网盘通道：主动探测 -->
+        <QbTestPanel
+          name="115 网盘"
+          desc="把任务转存到 115 网盘"
+          :state="n115View.state"
+          :detail="n115View.detail"
+          :testing="testingChannel === 'n115'"
+          :result="channelTest.n115 ?? null"
+          @test="testChannel('n115')"
+        />
+        <!-- Telegram 通道：读配置状态，没有测试端点（方案 §3 TelegramPanel） -->
+        <TelegramPanel
+          :enabled="tgStatus?.enabled ?? false"
+          :allowlist="tgStatus?.allowlist ?? 0"
+          :loading="integrationsLoading"
+          @refresh="loadIntegrations"
+        />
       </ul>
     </section>
 
@@ -367,37 +333,16 @@ onMounted(() => {
       @action="resetForm"
     />
 
-    <div v-else class="cred-grid">
-      <article v-for="c in items" :key="c.id" class="card">
-        <header class="card-head">
-          <PlatformBadge :platform="c.platform" />
-          <span class="dot" :style="{ background: STATUS_TONE[c.status] || 'var(--neutral)' }" aria-hidden="true" />
-          <span class="status" :style="{ color: STATUS_TONE[c.status] }">{{ STATUS_TEXT[c.status] || c.status }}</span>
-          <span class="kind">{{ KIND_TEXT[c.kind] || c.kind }}</span>
-        </header>
-
-        <h3 class="card-label">{{ c.label }}</h3>
-
-        <dl class="meta">
-          <div><dt>内容预览</dt><dd class="mono">{{ c.preview || '—' }}</dd></div>
-          <div><dt>有效期</dt><dd>{{ expireText(c) }}</dd></div>
-          <div><dt>上次检查</dt><dd>{{ c.last_check_at ? formatRelative(c.last_check_at) : '未检查' }}</dd></div>
-        </dl>
-
-        <p v-if="c.note" class="note">{{ c.note }}</p>
-        <p v-if="checkResult[c.id]" class="check" :class="checkResult[c.id].ok ? 'ok' : 'bad'">
-          {{ checkResult[c.id].ok ? '✓' : '!' }} {{ checkResult[c.id].message }}
-        </p>
-
-        <footer class="card-foot">
-          <RButton size="sm" :disabled="checking === c.id" @click="check(c)">
-            {{ checking === c.id ? '检查中…' : '健康检查' }}
-          </RButton>
-          <RButton size="sm" variant="ghost" @click="openEdit(c)">编辑</RButton>
-          <RButton size="sm" variant="ghost" tone="danger" confirm="再点一次确认删除" @click="remove(c)">删除</RButton>
-        </footer>
-      </article>
-    </div>
+    <!-- 凭据列表（方案 §3 视图级组件 CredentialList：只回打码预览） -->
+    <CredentialList
+      v-else
+      :items="items"
+      :checking="checking"
+      :results="checkResult"
+      @check="check"
+      @edit="openEdit"
+      @remove="remove"
+    />
 
     <DetailDrawer :open="formOpen" :title="isEditing ? '编辑凭据' : '新建凭据'" @close="formOpen = false">
       <form class="form" @submit.prevent="save">
@@ -470,7 +415,6 @@ onMounted(() => {
 .alert--danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 
 /* 凭据网格：auto-fit 让空轨道塌陷（auto-fill 会给 1 个凭据也留 3 条轨道）。 */
-.cred-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
 
 /* 外部集成通道 */
 .integrations { margin-bottom: 20px; }
@@ -478,66 +422,15 @@ onMounted(() => {
 .int-title { margin: 0; font-size: var(--font-title-2); font-weight: var(--weight-strong); }
 .int-sub { margin: 6px 0 0; font-size: var(--font-body); color: var(--text-3); }
 .int-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
-.int-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
-  padding: 20px 22px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-1);
-}
-.int-card[data-state='ok'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
-.int-card[data-state='bad'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
-.int-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
 /* 通道状态：辅助档 13.5px（§2「12px 仅表头/徽章」；这是状态文字不是徽章）。 */
-.int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
-.int-glyph {
-  width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-  font-size: var(--font-caption); font-weight: var(--weight-strong); color: #fff; background: var(--neutral);
-}
-.int-card[data-state='ok'] .int-state { color: var(--success); }
-.int-card[data-state='ok'] .int-glyph { background: var(--success); }
-.int-card[data-state='bad'] .int-state { color: var(--danger); }
-.int-card[data-state='bad'] .int-glyph { background: var(--danger); }
-.int-card[data-state='unknown'] .int-state { color: var(--warning); }
-.int-card[data-state='unknown'] .int-glyph { background: var(--warning); }
-.int-desc { margin: 0; font-size: var(--font-body); color: var(--text-2); line-height: 1.7; }
-.int-detail { margin: 0; font-size: var(--font-aux); color: var(--text-3); word-break: break-word; }
-.int-test { margin: 0; font-size: var(--font-aux); }
 .int-test.ok { color: var(--success); }
 .int-test.bad { color: var(--danger); }
-.int-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
-.int-link { color: var(--text-3); font-size: var(--font-aux); text-decoration: none; }
 .int-link:hover { color: var(--accent); }
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: var(--shadow-1);
-}
-.card-head { display: flex; align-items: center; gap: 8px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; }
 /* 状态徽章是辅助信息，caption(12px) 合规。 */
-.status { font-size: var(--font-caption); font-weight: var(--weight-semibold); }
-.kind {
-  font-size: var(--font-caption);
-  color: var(--text-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 1px 8px;
-}
-.card-label { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
-.meta { display: flex; flex-direction: column; gap: 6px; }
-.meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
 .meta dt { color: var(--text-3); width: 72px; flex-shrink: 0; }
 .meta dd { color: var(--text-2); }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.note { font-size: var(--font-aux); color: var(--text-3); }
-.check { font-size: var(--font-aux); }
 .check.ok { color: var(--success); }
 .check.bad { color: var(--warning); }
-.card-foot { display: flex; gap: 6px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
 
 .form { display: flex; flex-direction: column; gap: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }

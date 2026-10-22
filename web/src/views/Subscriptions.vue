@@ -6,13 +6,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
-import { errorText, formatRelative } from '@/utils/format'
+import { errorText } from '@/utils/format'
 import type { ParsePreview, Subscription, SubscriptionItem } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
-import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
-import PlatformBadge from '@/components/task/PlatformBadge.vue'
+import SubList from '@/components/subs/SubList.vue'
+import SubForm from '@/components/subs/SubForm.vue'
+import type { SubFormValue } from '@/components/subs/SubForm.vue'
+import ItemsTable from '@/components/subs/ItemsTable.vue'
 
 const toast = useToastStore()
 
@@ -21,63 +23,20 @@ const loading = ref(true)
 const loadErr = ref('')
 const checkingId = ref('')
 
-/** 新建表单。 */
+/** 新建表单：抽屉开关 + 预览状态。表单值由 SubForm 组件内部持有（§3 SubForm）。 */
 const formOpen = ref(false)
 const saving = ref(false)
 const previewing = ref(false)
 const preview = ref<ParsePreview | null>(null)
-const form = ref({
-  source_url: '',
-  source_type: '',
-  mode: 'new_only',
-  quality: '',
-  save_rule: '',
-  interval_min: 30,
-  range_from: 1,
-  range_to: 20,
-  credential_id: '',
-})
+/** 传给 SubForm 的初始值（每次打开都重置成默认）。 */
+const formInitial = ref<Record<string, unknown>>({})
 
 /** 详情抽屉：某订阅的已发现内容。 */
 const detailId = ref('')
 const detailItems = ref<SubscriptionItem[]>([])
 const detailLoading = ref(false)
 
-const SOURCE_TYPES = [
-  { value: '', label: '自动识别' },
-  { value: 'favorite', label: '收藏夹' },
-  { value: 'uploader', label: 'UP 主投稿' },
-  { value: 'list', label: '播放列表' },
-]
-
-const MODES = [
-  { value: 'new_only', label: '只要新增', hint: '已下过的条目自动跳过，适合长期追更' },
-  { value: 'backfill', label: '全部补齐', hint: '把来源里没下过的内容都补下' },
-  { value: 'range', label: '指定区间', hint: '只抓第 N 到第 M 条（1 起，含两端）' },
-]
-
-const MODE_TEXT: Record<string, string> = {
-  new_only: '只要新增',
-  backfill: '全部补齐',
-  range: '指定区间',
-}
-const ITEM_STATUS: Record<string, string> = {
-  pending: '待入队',
-  queued: '已入队',
-  downloaded: '已下载',
-  skipped: '已跳过',
-  failed: '失败',
-}
-const ITEM_TONE: Record<string, string> = {
-  pending: 'var(--neutral)',
-  queued: 'var(--info)',
-  downloaded: 'var(--success)',
-  skipped: 'var(--text-3)',
-  failed: 'var(--danger)',
-}
-
 const detail = computed(() => items.value.find((s) => s.id === detailId.value) ?? null)
-const rangeVisible = computed(() => form.value.mode === 'range')
 const activeCount = computed(() => items.value.filter((s) => s.enabled).length)
 const totalQueued = computed(() =>
   items.value.reduce((sum, s) => sum + (s.item_counts?.queued ?? 0), 0),
@@ -98,22 +57,16 @@ async function load() {
 
 function resetForm() {
   preview.value = null
-  form.value = {
-    source_url: '',
-    source_type: '',
-    mode: 'new_only',
-    quality: '',
-    save_rule: '',
-    interval_min: 30,
-    range_from: 1,
-    range_to: 20,
-    credential_id: '',
-  }
+  // 换一个新对象引用 → SubForm 的 watch 会把表单重置成默认值。
+  formInitial.value = {}
   formOpen.value = true
 }
 
+/** SubForm 组件实例：解析预览需要读它内部的 source_url。 */
+const subFormRef = ref<InstanceType<typeof SubForm> | null>(null)
+
 async function doPreview() {
-  const url = form.value.source_url.trim()
+  const url = (subFormRef.value?.sourceUrl ?? '').trim()
   if (!url) {
     toast.error('先填来源链接')
     return
@@ -131,24 +84,24 @@ async function doPreview() {
   }
 }
 
-async function save() {
+async function save(value: SubFormValue) {
   saving.value = true
   try {
     const body: Record<string, unknown> = {
-      source_url: form.value.source_url.trim(),
-      mode: form.value.mode,
-      interval_min: form.value.interval_min,
+      source_url: value.source_url.trim(),
+      mode: value.mode,
+      interval_min: value.interval_min,
     }
-    if (form.value.source_type) body.source_type = form.value.source_type
-    if (form.value.quality) body.quality = form.value.quality
-    if (form.value.save_rule) body.save_rule = form.value.save_rule
-    if (form.value.credential_id) body.credential_id = form.value.credential_id
-    if (form.value.mode === 'range') {
-      body.range_from = form.value.range_from
-      body.range_to = form.value.range_to
+    if (value.source_type) body.source_type = value.source_type
+    if (value.quality) body.quality = value.quality
+    if (value.save_rule) body.save_rule = value.save_rule
+    if (value.credential_id) body.credential_id = value.credential_id
+    if (value.mode === 'range') {
+      body.range_from = value.range_from
+      body.range_to = value.range_to
     }
     await api.createSubscription(body as never)
-    toast.success('订阅已创建，后台每 ' + (form.value.interval_min || 30) + ' 分钟检查一次')
+    toast.success('订阅已创建，后台每 ' + (value.interval_min || 30) + ' 分钟检查一次')
     formOpen.value = false
     await load()
   } catch (e) {
@@ -211,14 +164,6 @@ async function openDetail(s: Subscription) {
   }
 }
 
-function nextCheckText(s: Subscription): string {
-  if (!s.enabled) return '已暂停'
-  if (!s.next_check_at) return '待调度'
-  const left = s.next_check_at - Date.now()
-  if (left <= 0) return '即将检查'
-  return Math.ceil(left / 60000) + ' 分钟后检查'
-}
-
 onMounted(load)
 </script>
 
@@ -245,120 +190,29 @@ onMounted(load)
       @action="resetForm"
     />
 
-    <div v-else class="sub-list">
-      <article v-for="s in items" :key="s.id" class="card" :class="{ off: !s.enabled }">
-        <header class="card-head">
-          <PlatformBadge :platform="s.platform" />
-          <span class="src-type">{{ SOURCE_TYPES.find((t) => t.value === s.source_type)?.label || s.source_type }}</span>
-          <span class="mode">{{ MODE_TEXT[s.mode] || s.mode }}</span>
-          <span v-if="s.error_note" class="warn-mark" :title="s.error_note">!</span>
-        </header>
+    <!-- 订阅列表（方案 §3 视图级组件 SubList） -->
+    <SubList
+      v-else
+      :items="items"
+      :checking-id="checkingId"
+      @check="checkNow"
+      @detail="openDetail"
+      @toggle="toggleEnabled"
+      @remove="remove"
+    />
 
-        <h3 class="card-title">{{ s.title || s.source_url }}</h3>
-        <p class="card-url mono" :title="s.source_url">{{ s.source_url }}</p>
-
-        <div class="counts">
-          <span class="cnt done">{{ s.item_counts?.downloaded ?? 0 }} 已下载</span>
-          <span class="cnt queued">{{ s.item_counts?.queued ?? 0 }} 待下载</span>
-          <span v-if="(s.item_counts?.failed ?? 0) > 0" class="cnt failed">{{ s.item_counts?.failed }} 失败</span>
-          <span v-if="(s.item_counts?.skipped ?? 0) > 0" class="cnt skip">{{ s.item_counts?.skipped }} 已跳过</span>
-        </div>
-
-        <dl class="meta">
-          <div><dt>上次检查</dt><dd>{{ s.last_checked_at ? formatRelative(s.last_checked_at) : '从未' }}</dd></div>
-          <div><dt>下次</dt><dd>{{ nextCheckText(s) }}</dd></div>
-          <div><dt>画质</dt><dd>{{ s.quality || '跟随全局' }}</dd></div>
-          <div><dt>周期</dt><dd>{{ s.interval_min }} 分钟</dd></div>
-        </dl>
-
-        <p v-if="s.error_note" class="err-note">{{ s.error_note }}</p>
-
-        <footer class="card-foot">
-          <RButton size="sm" variant="accent" :disabled="checkingId === s.id" @click="checkNow(s)">
-            {{ checkingId === s.id ? '检查中…' : '立即检查' }}
-          </RButton>
-          <RButton size="sm" variant="ghost" @click="openDetail(s)">已发现内容</RButton>
-          <RButton size="sm" variant="ghost" @click="toggleEnabled(s)">{{ s.enabled ? '暂停' : '启用' }}</RButton>
-          <RButton size="sm" variant="ghost" tone="danger" confirm="再点一次确认删除" @click="remove(s)">删除</RButton>
-        </footer>
-      </article>
-    </div>
-
-    <!-- 新建订阅 -->
+    <!-- 新建订阅（方案 §3 视图级组件 SubForm：先预览后创建） -->
     <DetailDrawer :open="formOpen" title="新建订阅" @close="formOpen = false">
-      <form class="form" @submit.prevent="save">
-        <label class="field">
-          <span class="field-label">来源链接</span>
-          <textarea
-            v-model="form.source_url"
-            rows="3"
-            spellcheck="false"
-            placeholder="https://space.bilibili.com/{mid}/favlist?fid=xxx 或 UP 主投稿页"
-          />
-        </label>
-
-        <div class="preview-row">
-          <RButton size="sm" :disabled="previewing" @click="doPreview">
-            {{ previewing ? '解析中…' : '解析预览' }}
-          </RButton>
-          <span class="field-hint">先解析确认来源能读到，再保存</span>
-        </div>
-
-        <div v-if="preview" class="preview-box">
-          <p class="pv-title">{{ preview.title || '（无标题）' }}</p>
-          <dl class="pv-meta">
-            <div><dt>平台</dt><dd>{{ preview.platform }}</dd></div>
-            <div>
-              <dt>类型</dt>
-              <dd>{{ preview.is_playlist ? '集合（' + (preview.formats?.length ?? 0) + ' 项）' : '单视频' }}</dd>
-            </div>
-            <div v-if="preview.uploader"><dt>作者</dt><dd>{{ preview.uploader }}</dd></div>
-          </dl>
-        </div>
-
-        <label class="field">
-          <span class="field-label">来源类型</span>
-          <select v-model="form.source_type">
-            <option v-for="t in SOURCE_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
-          </select>
-        </label>
-
-        <label class="field">
-          <span class="field-label">抓取模式</span>
-          <select v-model="form.mode">
-            <option v-for="m in MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
-          </select>
-          <span class="field-hint">{{ MODES.find((m) => m.value === form.mode)?.hint }}</span>
-        </label>
-
-        <div v-if="rangeVisible" class="range-row">
-          <label class="field">
-            <span class="field-label">起始条目</span>
-            <input v-model.number="form.range_from" type="number" min="1" />
-          </label>
-          <label class="field">
-            <span class="field-label">结束条目</span>
-            <input v-model.number="form.range_to" type="number" :min="form.range_from" />
-          </label>
-        </div>
-
-        <label class="field">
-          <span class="field-label">画质（可选）</span>
-          <input v-model="form.quality" type="text" placeholder="如 best / 1080p，留空跟随全局" />
-        </label>
-
-        <label class="field">
-          <span class="field-label">检查周期（分钟）</span>
-          <input v-model.number="form.interval_min" type="number" min="5" max="1440" />
-        </label>
-
-        <div class="form-foot">
-          <RButton variant="ghost" @click="formOpen = false">取消</RButton>
-          <RButton variant="accent" type="submit" :disabled="saving || !preview">
-            {{ saving ? '保存中…' : preview ? '创建订阅' : '请先解析预览' }}
-          </RButton>
-        </div>
-      </form>
+      <SubForm
+        ref="subFormRef"
+        :preview="preview"
+        :previewing="previewing"
+        :saving="saving"
+        :initial="formInitial"
+        @preview="doPreview"
+        @save="save"
+        @cancel="formOpen = false"
+      />
     </DetailDrawer>
 
     <!-- 已发现内容 -->
@@ -370,32 +224,8 @@ onMounted(load)
         title="还没发现内容"
         hint="点「立即检查」拉一次来源，有新片就能追。"
       />
-      <div v-else class="found-list">
-        <!-- 追更到货：方案 §5「surprise — 彩蛋、追更到货」。
-             到货时用惊喜表情 + 数字事实（比预期大几倍），这是浣熊人格最该出现的时刻。 -->
-        <div class="found-banner">
-          <RaccoonFace face="surprise" :size="44" />
-          <div>
-            <p class="found-title">追更到了！</p>
-            <p class="found-hint">
-              本次发现 {{ detailItems.length }} 条，其中待处理
-              {{ detailItems.filter((i) => i.status === 'pending' || i.status === 'queued').length }} 条。
-            </p>
-          </div>
-        </div>
-        <table class="tbl">
-          <thead>
-            <tr><th>标题</th><th>状态</th><th>发现时间</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="it in detailItems" :key="it.id">
-              <td class="ttl">{{ it.title || it.item_id }}</td>
-              <td><span class="st" :style="{ color: ITEM_TONE[it.status] }">{{ ITEM_STATUS[it.status] || it.status }}</span></td>
-              <td class="tnum">{{ formatRelative(it.discovered_at) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- 已发现内容（方案 §3 视图级组件 ItemsTable） -->
+      <ItemsTable v-else :items="detailItems" />
     </DetailDrawer>
   </section>
 </template>
@@ -408,59 +238,17 @@ onMounted(load)
 .alert { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-body); }
 .alert--danger { border-color: var(--danger); color: var(--danger); }
 
-.sub-list { display: flex; flex-direction: column; gap: 14px; }
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 18px 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-shadow: var(--shadow-1);
-}
-.card.off { opacity: 0.66; }
-.card-head { display: flex; align-items: center; gap: 8px; }
-.src-type, .mode {
-  font-size: var(--font-caption);
-  color: var(--text-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 1px 8px;
-}
-.warn-mark {
-  margin-left: auto;
-  width: 18px; height: 18px;
-  border-radius: 50%;
-  background: var(--gold-soft);
-  color: var(--gold-strong);
-  font-weight: var(--weight-strong);
-  font-size: var(--font-caption);
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--gold);
-}
-.card-title { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
 /* 订阅源 URL：辅助档 13.5px（URL 是路径原文，不是主信息）。 */
-.card-url { font-size: var(--font-aux); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.counts { display: flex; gap: 8px; flex-wrap: wrap; }
-.cnt { font-size: var(--font-caption); padding: 1px 8px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-2); }
 .cnt.done { color: var(--success); }
 .cnt.queued { color: var(--info); }
 .cnt.failed { color: var(--danger); }
 .cnt.skip { color: var(--text-3); }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 20px; }
 /* 元信息（上次检查/下次/画质/周期）：辅助档 13.5px。 */
 .meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
 .meta dt { color: var(--text-3); width: 60px; flex-shrink: 0; }
 .meta dd { color: var(--text-2); }
-.err-note { font-size: var(--font-aux); color: var(--danger); }
-.card-foot { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
 
-.form { display: flex; flex-direction: column; gap: 16px; }
-.field { display: flex; flex-direction: column; gap: 6px; }
 /* 表单字段名：正文档 16px。 */
-.field-label { font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select, .field textarea {
   padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
   background: var(--bg); color: var(--text-1); font-size: var(--font-body); font-family: inherit;
@@ -468,32 +256,13 @@ onMounted(load)
 }
 .field textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.field-hint { font-size: var(--font-aux); color: var(--text-3); }
-.preview-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.preview-box { padding: 12px 14px; border-radius: var(--radius-ctrl); background: var(--surface-2); border: 1px solid var(--border); }
-.pv-title { font-size: var(--font-body); font-weight: var(--weight-medium); margin-bottom: 8px; }
-.pv-meta { display: flex; flex-direction: column; gap: 4px; }
 .pv-meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
 .pv-meta dt { color: var(--text-3); width: 44px; }
-.range-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 
 /* 追更到货横幅：surprise 表情 + 数字事实（方案 §5）。 */
-.found-list { display: flex; flex-direction: column; gap: 14px; }
-.found-banner {
-  display: flex; align-items: center; gap: 14px;
-  padding: 14px 16px; border-radius: var(--radius-card);
-  background: var(--gold-soft); border: 1px solid var(--gold);
-}
-.found-title { margin: 0; font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
-.found-hint { margin: 4px 0 0; font-size: var(--font-body); color: var(--text-2); line-height: 1.6; }
 
 /* 表格：表头 caption(12px)，表体 body(16px)。
    原来整张表都是 12px，表格密密麻麻一坨，完全看不出是数据表。 */
-.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-body); }
 .tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); font-size: var(--font-caption); padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text-2); }
-.tbl .ttl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
-.tbl .tnum { white-space: nowrap; }
-.st { font-weight: var(--weight-semibold); }
 </style>
