@@ -12,6 +12,7 @@ import { useToastStore } from '@/stores/toast'
 import { formatRelative } from '@/utils/format'
 import type { ApiToken, ConfigHistoryEntry, ConfigItem, Effective } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import RSelect from '@/components/base/RSelect.vue'
 import REmpty from '@/components/base/REmpty.vue'
 
 const toast = useToastStore()
@@ -102,11 +103,6 @@ function onTextChange(item: ConfigItem, ev: Event) {
   } else {
     setDraft(item, raw)
   }
-}
-
-/** 枚举项（select）。值原样透传，值域由后端 validateSettingValue 兜底。 */
-function onSelectChange(item: ConfigItem, ev: Event) {
-  setDraft(item, (ev.target as HTMLSelectElement).value)
 }
 
 async function load() {
@@ -291,7 +287,12 @@ onMounted(load)
                   {{ EFFECTIVE_TEXT[item.effective] }}
                 </span>
                 <span v-if="item.locked" class="lock-badge" :title="`由环境变量 ${item.env_var} 锁定`">
-                  🔒 {{ item.env_var }}
+                  <!-- SVG 线稿锁：docs/07 §4/§5 禁 emoji 冒充图标 -->
+                  <svg class="lock-icon" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                    <rect x="3.5" y="7" width="9" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+                    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+                  </svg>
+                  {{ item.env_var }}
                 </span>
                 <span v-if="item.sensitive" class="sens-badge">敏感</span>
                 <span v-if="dirtyKeys.has(item.key)" class="dirty-pip" title="已修改未保存" />
@@ -345,9 +346,12 @@ onMounted(load)
                 </template>
                 <template v-else-if="item.choices && item.choices.length > 0">
                   <!-- 枚举项：值域由后端 choices 定义，用户不必猜合法值（前端绕过后端仍会拦） -->
-                  <select class="input" :value="String(draftOf(item) ?? '')" @change="onSelectChange(item, $event)">
-                    <option v-for="c in item.choices" :key="c" :value="c">{{ c }}</option>
-                  </select>
+                  <RSelect
+                    :model-value="String(draftOf(item) ?? '')"
+                    :label="item.desc"
+                    :options="item.choices.map((c) => ({ value: c, label: c }))"
+                    @update:model-value="(v) => setDraft(item, String(v))"
+                  />
                 </template>
                 <template v-else>
                   <input
@@ -392,11 +396,15 @@ onMounted(load)
             </p>
             <div class="token-form">
               <input v-model="newTokenName" class="input" placeholder="令牌名称，如 my-laptop" />
-              <select v-model="newTokenScope" class="input" aria-label="权限范围">
-                <option :value="1">只读</option>
-                <option :value="3">读写</option>
-                <option :value="7">管理（含配置与凭据）</option>
-              </select>
+              <RSelect
+                v-model="newTokenScope"
+                label="权限范围"
+                :options="[
+                  { value: 1, label: '只读' },
+                  { value: 3, label: '读写' },
+                  { value: 7, label: '管理（含配置与凭据）' },
+                ]"
+              />
               <RButton variant="accent" size="sm" @click="createToken">签发</RButton>
             </div>
             <div v-if="newTokenPlain" class="token-plain">
@@ -451,7 +459,7 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.page-title { font-size: var(--font-title-1); font-weight: 750; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .dirty-dot { color: var(--warning); font-size: var(--font-aux); }
 .layout { display: grid; grid-template-columns: 150px 1fr; gap: 20px; align-items: start; }
@@ -459,7 +467,7 @@ onMounted(load)
 .side-link { padding: 6px 10px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-aux); }
 .side-link:hover { background: var(--surface-2); color: var(--text-1); }
 .group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; margin-bottom: 16px; box-shadow: var(--shadow-1); }
-.group-title { font-size: var(--font-title-3); font-weight: 700; margin-bottom: 4px; }
+.group-title { font-size: var(--font-title-3); font-weight: var(--weight-strong); margin-bottom: 4px; }
 .group-desc { font-size: var(--font-aux); color: var(--text-3); margin-bottom: 12px; }
 .setting { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .setting:last-child { border-bottom: none; }
@@ -484,7 +492,8 @@ onMounted(load)
 .eff-badge--immediate { background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
 .eff-badge--next_task { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
 .eff-badge--restart { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
-.lock-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-3); color: var(--text-2); }
+.lock-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-3); color: var(--text-2); display: inline-flex; align-items: center; gap: 4px; }
+.lock-icon { flex-shrink: 0; }
 .sens-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--gold-soft); color: var(--gold-strong); }
 .sens-state { font-size: var(--font-caption); color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dirty-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
@@ -498,7 +507,7 @@ onMounted(load)
 .token-list, .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .token-row, .history-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-ctrl); }
 .token-main, .history-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--font-aux); }
-.token-name, .history-key { color: var(--text-1); font-weight: 500; }
+.token-name, .history-key { color: var(--text-1); font-weight: var(--weight-caption); }
 .token-scope, .history-val, .history-time, .history-by { font-size: var(--font-caption); color: var(--text-3); }
 .history-filter { display: flex; gap: 8px; margin-bottom: 12px; }
 .muted { font-size: var(--font-aux); color: var(--text-3); }

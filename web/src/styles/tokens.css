@@ -36,10 +36,27 @@
   --shadow-1: 0 1px 2px rgb(43 54 68 / 6%);
   --shadow-2: 0 8px 24px rgb(43 54 68 / 10%);
   --shadow-3: 0 16px 48px rgb(43 54 68 / 16%);
-  /* 字阶 */
+  /* 字阶（docs/07 §2「字阶（docs/§10.3）」）。
+     注意：方案原文写成 `--font-title-1:24px 750` 的 font 简写形式，但本仓组件
+     一律以 `font-size: var(--font-title-1)` + 单独 font-weight 使用，故按
+     「字号 / 字重 / 行高」拆成独立变量，保证 token 值可直接用于 font-size。 */
+  --font-display: 30px;
+  --font-title-1: 24px;
+  --font-title-2: 20px;
+  --font-title-3: 18px;
   --font-body: 16px;
   --font-aux: 13.5px;
   --font-caption: 12px;
+  /* 字重与行高（禁在组件里写死数值） */
+  --weight-display: 800;
+  --weight-title: 750;
+  --weight-strong: 700;
+  --weight-semibold: 600;
+  --weight-medium: 650;
+  --weight-body: 400;
+  --weight-caption: 500;
+  --line-height-display: 1.25;
+  --line-height-title: 1.25;
   --line-height-body: 1.75;
 }
 

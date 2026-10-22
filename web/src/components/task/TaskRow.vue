@@ -1,0 +1,277 @@
+<script setup lang="ts">
+// TaskRow：任务列表的紧凑行（docs/07 §4「状态徽章 + 迷你进度 + 速度/大小/平台徽章；父任务子计数」）。
+//
+// 为什么这么设计：
+// 1) 行里只留「扫一眼就能判断」的信息：状态、标题、平台、进度、速度、大小。
+//    取消/重试/删除这类动作交给 actions 插槽由上层决定显隐——行是数据，动作是次要信息，
+//    常驻会把每行的注意力都拉走（与 base/RTable 的行内操作区同一取舍）。
+// 2) 状态不自绘：复用 StatusDot（七态 = 色点 + 图标 + 文字三重编码，禁颜色唯一载体）。
+//    自己再实现一套状态色，色板一改就会和别处漂移。
+// 3) 父任务不显示速度：父没有自己的下载过程，它的 progress 是服务端下发的子项聚合值；
+//    把它当成下载速度展示会让人以为父还在下载，所以父行改显示子项计数（docs/05 §5）。
+// 4) 选中态由上层持有：多选是跨行的状态（Shift+Space / ↑↓ 维护选中集合），
+//    组件只接收 selected 并把意图 emit 出去，不自己存选择，避免出现第二份真相。
+import { computed } from 'vue'
+import StatusDot from './StatusDot.vue'
+import TaskProgress from './TaskProgress.vue'
+import PlatformBadge from './PlatformBadge.vue'
+import type { Task } from '@/api/types'
+import { formatBytes, formatRelative, formatSpeed, WAIT_REASON_TEXT } from '@/utils/format'
+import type { TaskChildStats } from './TaskCard.vue'
+
+const props = withDefaults(
+  defineProps<{
+    /** 任务本体（字段定义见 api/types.ts）。 */
+    task: Task
+    /** 多选选中态（由上层维护，组件不自持）。 */
+    selected?: boolean
+    /** 是否显示选择框：纯浏览场景关掉，多选场景打开。 */
+    selectable?: boolean
+    /** 父任务子项计数；不传时回退到 task.child_total / task.child_failed。 */
+    childStats?: TaskChildStats
+    /** 显式声明是父任务（后端建父任务时 platform 固定为 batch，也可由 childStats 推断）。 */
+    parent?: boolean
+  }>(),
+  { selected: false, selectable: true, parent: false },
+)
+
+const emit = defineEmits<{
+  /** 点选（上层负责 Shift 范围选择等策略）。 */
+  (e: 'select', task: Task, ev: MouseEvent): void
+  /** 打开详情。 */
+  (e: 'open', task: Task): void
+}>()
+
+defineSlots<{
+  /** 行尾操作区（取消 / 重试 / 删除等，由上层按任务状态给）。 */
+  actions(props: { task: Task }): unknown
+  /** 附加元信息（放在标题右侧）。 */
+  meta(props: { task: Task }): unknown
+}>()
+
+const title = computed(() => props.task.title || props.task.url)
+
+/** 是否父任务：显式声明、有子项计数、或服务端带了 child_total，任一成立即是。 */
+const isParent = computed(
+  () => props.parent || props.childStats !== undefined || props.task.child_total !== undefined,
+)
+
+/**
+ * 子项计数：优先用上层给的（能算出「已完成」，后端不下发这个数），
+ * 否则回退服务端上报的 child_total / child_failed。
+ * done 缺省时只说「共 N 项」，不谎报「已完成 0/N」——后端没有这个字段，编一个就是骗人。
+ */
+const child = computed<TaskChildStats | null>(() => {
+  if (props.childStats) return props.childStats
+  if (props.task.child_total === undefined) return null
+  return { total: props.task.child_total, failed: props.task.child_failed ?? 0 }
+})
+
+/** 等待原因（StatusDot 只表达状态，等待原因要单独讲清楚）。 */
+const waitReason = computed(() => {
+  if (props.task.status !== 'waiting' || !props.task.wait_reason) return ''
+  return WAIT_REASON_TEXT[props.task.wait_reason] ?? ''
+})
+</script>
+
+<template>
+  <li class="trow" :class="{ 'is-selected': selected }">
+    <!-- 选择框：独立按钮，点了只改选中不改当前详情，避免误触丢焦点。 -->
+    <button
+      v-if="selectable"
+      class="trow-pick"
+      type="button"
+      role="checkbox"
+      :aria-checked="selected"
+      :aria-label="`选择 ${title}`"
+      @click.stop="emit('select', task, $event)"
+    >
+      <span class="trow-pick-mark" aria-hidden="true">✓</span>
+    </button>
+
+    <img
+      v-if="task.thumbnail"
+      class="trow-thumb"
+      :src="task.thumbnail"
+      :alt="title"
+      loading="lazy"
+      referrerpolicy="no-referrer"
+    />
+    <div v-else class="trow-thumb trow-thumb--ph" aria-hidden="true" />
+
+    <div
+      class="trow-main"
+      role="button"
+      tabindex="0"
+      @click="emit('open', task)"
+      @keydown.enter="emit('open', task)"
+    >
+      <div class="trow-head">
+        <StatusDot :status="task.status" />
+        <span class="trow-title" :title="title">{{ title }}</span>
+        <PlatformBadge :platform="task.platform" />
+        <slot name="meta" :task="task" />
+      </div>
+
+      <p class="trow-meta">
+        <span class="tnum">{{ task.quality }}</span>
+        <span class="tnum trow-time">{{ formatRelative(task.created_at) }}</span>
+        <span v-if="task.attempt > 0" class="tnum">第 {{ task.attempt + 1 }}/{{ task.max_attempts }} 次</span>
+        <span v-if="waitReason" class="trow-wait">{{ waitReason }}</span>
+      </p>
+
+      <!-- 迷你进度：父任务画的是服务端聚合百分比，不是前端自己算的（docs/05 §5）。 -->
+      <TaskProgress :task="task" compact />
+
+      <p v-if="task.error_message" class="trow-err">
+        <span class="tnum">{{ task.error_code }}</span>：{{ task.error_message }}
+      </p>
+    </div>
+
+    <div class="trow-side">
+      <!-- 父任务：子项计数（已完成 X/Y、失败 N）代替速度/大小。 -->
+      <p v-if="isParent && child" class="trow-child tnum">
+        <span v-if="child.done !== undefined">已完成 {{ child.done }}/{{ child.total }}</span>
+        <span v-else>共 {{ child.total }} 项</span>
+        <span v-if="child.failed > 0" class="trow-child-failed">失败 {{ child.failed }}</span>
+      </p>
+      <template v-else>
+        <span class="tnum trow-speed">{{ formatSpeed(task.speed_bps) }}</span>
+        <span class="tnum trow-size">{{ formatBytes(task.downloaded_size) }}</span>
+      </template>
+      <slot name="actions" :task="task" />
+    </div>
+  </li>
+</template>
+
+<style scoped>
+.trow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-1);
+  /* 微反馈 120ms ease-out（docs/07 §6）：hover / 选中都是即时反馈，不该有拖影。 */
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+.trow:hover {
+  background: var(--surface-2);
+}
+.trow.is-selected {
+  background: var(--gold-soft);
+  border-color: var(--gold);
+  /* 左侧金条：选中态在深浅底色下都靠形状识别，不只靠颜色（禁颜色唯一载体）。 */
+  box-shadow: inset 3px 0 0 var(--gold);
+}
+
+/* 选择框：几何勾号，非 emoji（docs/07 §4 禁 emoji 冒充图标）。 */
+.trow-pick {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  background: var(--surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+.trow-pick:hover {
+  border-color: var(--accent);
+}
+.trow-pick-mark {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--surface);
+  opacity: 0;
+}
+.trow.is-selected .trow-pick {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.trow.is-selected .trow-pick-mark {
+  opacity: 1;
+}
+
+.trow-thumb {
+  width: 84px;
+  height: 48px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: var(--radius-ctrl);
+  background: var(--surface-3);
+}
+.trow-thumb--ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: var(--font-caption);
+}
+
+.trow-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+}
+.trow-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.trow-title {
+  font-size: var(--font-aux);
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trow-meta {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-caption);
+  color: var(--text-3);
+}
+.trow-wait {
+  color: var(--warning);
+}
+.trow-err {
+  margin: 0;
+  font-size: var(--font-caption);
+  color: var(--danger);
+}
+
+.trow-side {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: var(--font-caption);
+  color: var(--text-2);
+}
+.trow-child {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  color: var(--text-1);
+  font-weight: 600;
+}
+.trow-child-failed {
+  color: var(--danger);
+}
+</style>

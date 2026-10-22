@@ -6,11 +6,13 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import { formatBytes, formatDuration, formatRelative, platformText } from '@/utils/format'
-import type { MediaFile } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
+import RSelect from '@/components/base/RSelect.vue'
+import RTable from '@/components/base/RTable.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
+import type { MediaFile } from '@/api/types'
 
 const toast = useToastStore()
 
@@ -22,6 +24,8 @@ const errorMsg = ref('')
 const query = ref('')
 const kindFilter = ref('')
 const platformFilter = ref('')
+/** 展示形态：卡片网格（FileCard）或表格（FileTable），docs/07 §3 两者并列。 */
+const viewMode = ref<'card' | 'table'>('card')
 
 const selected = ref<MediaFile | null>(null)
 
@@ -32,6 +36,16 @@ const KINDS = [
   { value: 'image', label: '图片' },
   { value: 'subtitle', label: '字幕' },
   { value: 'other', label: '其他' },
+]
+
+/** 表格列定义（RTable columns）。 */
+const COLUMNS = [
+  { key: 'name', title: '文件名' },
+  { key: 'kind', title: '类型', width: '80px' },
+  { key: 'platform', title: '平台', width: '120px' },
+  { key: 'size', title: '大小', width: '96px', align: 'right' as const },
+  { key: 'duration', title: '时长', width: '88px', align: 'right' as const },
+  { key: 'created_at', title: '入库时间', width: '140px' },
 ]
 
 const isVideo = computed(() => selected.value?.kind === 'video')
@@ -85,13 +99,33 @@ onMounted(load)
 
     <div class="toolbar">
       <input v-model="query" class="search" type="search" placeholder="搜索文件名…" aria-label="搜索文件名" />
-      <select v-model="kindFilter" class="select" aria-label="按类型筛选">
-        <option v-for="k in KINDS" :key="k.value" :value="k.value">{{ k.label }}</option>
-      </select>
-      <select v-model="platformFilter" class="select" aria-label="按平台筛选">
-        <option value="">全部平台</option>
-        <option v-for="p in platforms" :key="p" :value="p">{{ platformText(p) }}</option>
-      </select>
+      <RSelect v-model="kindFilter" label="类型" :options="KINDS" />
+      <RSelect
+        v-model="platformFilter"
+        label="平台"
+        :options="[{ value: '', label: '全部平台' }, ...platforms.map((p) => ({ value: p, label: platformText(p) }))]"
+      />
+      <!-- 展示形态切换（FileCard / FileTable） -->
+      <div class="view-toggle" role="group" aria-label="展示形态">
+        <button
+          type="button"
+          class="vt-btn"
+          :class="{ on: viewMode === 'card' }"
+          :aria-pressed="viewMode === 'card'"
+          @click="viewMode = 'card'"
+        >
+          卡片
+        </button>
+        <button
+          type="button"
+          class="vt-btn"
+          :class="{ on: viewMode === 'table' }"
+          :aria-pressed="viewMode === 'table'"
+          @click="viewMode = 'table'"
+        >
+          表格
+        </button>
+      </div>
     </div>
 
     <div v-if="errorMsg" class="error-card" role="alert">
@@ -109,6 +143,36 @@ onMounted(load)
       title="媒体库还是空的"
       hint="下载完成的文件会自动入库；也可以在「下载」页提交链接。"
     />
+
+    <!-- 表格视图（FileTable，RTable：表头浅底 / 行高 44 / hover 行操作） -->
+    <RTable
+      v-else-if="viewMode === 'table'"
+      :rows="items"
+      :columns="COLUMNS"
+      row-key="id"
+      empty-text="没有匹配的文件"
+      @row-click="(f: MediaFile) => openDetail(f)"
+    >
+      <template #cell-name="{ row }">
+        <span class="cell-name" :title="(row as MediaFile).name">{{ (row as MediaFile).name }}</span>
+      </template>
+      <template #cell-kind="{ row }">{{ (row as MediaFile).kind }}</template>
+      <template #cell-platform="{ row }">
+        <PlatformBadge :platform="(row as MediaFile).platform" />
+      </template>
+      <template #cell-size="{ row }">
+        <span class="tnum">{{ formatBytes((row as MediaFile).size) }}</span>
+      </template>
+      <template #cell-duration="{ row }">
+        <span class="tnum">{{ formatDuration((row as MediaFile).duration) }}</span>
+      </template>
+      <template #cell-created_at="{ row }">
+        <span class="tnum">{{ formatRelative((row as MediaFile).created_at) }}</span>
+      </template>
+      <template #actions="{ row }">
+        <RButton size="sm" variant="ghost" @click.stop="download(row as MediaFile)">下载</RButton>
+      </template>
+    </RTable>
 
     <ul v-else class="grid">
       <li v-for="f in items" :key="f.id" class="file-card">
@@ -168,7 +232,7 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.page-title { font-size: var(--font-title-1); font-weight: 750; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .count { font-size: var(--font-aux); color: var(--text-3); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .search {
@@ -181,14 +245,15 @@ onMounted(load)
   color: var(--text-1);
   font-size: var(--font-aux);
 }
-.select {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-ctrl);
-  background: var(--surface);
-  color: var(--text-1);
-  font-size: var(--font-aux);
+/* 展示形态切换（卡片 / 表格） */
+.view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctrl); overflow: hidden; }
+.vt-btn {
+  padding: 8px 14px; border: none; background: var(--surface); color: var(--text-2);
+  font-size: var(--font-aux); cursor: pointer; transition: background 120ms ease-out, color 120ms ease-out;
 }
+.vt-btn + .vt-btn { border-left: 1px solid var(--border); }
+.vt-btn.on { background: var(--accent); color: #fff; }
+.cell-name { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
 .file-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow-1); display: flex; flex-direction: column; }
 .file-open { border: none; background: transparent; padding: 0; cursor: pointer; text-align: left; display: flex; flex-direction: column; }

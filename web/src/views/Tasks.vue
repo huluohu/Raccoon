@@ -6,18 +6,24 @@
 // 父卡只显示「已完成 X/Y」；展开后逐条列出子任务（状态点 + 进度条 + 标题）。
 // 「重试失败项」一次调用 POST /tasks/batch（action=retry），只传失败的子任务 ID。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useShortcuts } from '@/composables/useShortcuts'
 import { useTasksStore } from '@/stores/tasks'
 import { useToastStore } from '@/stores/toast'
-import type { ParsePreview, Task, TaskEvent, TaskStatus } from '@/api/types'
+import type { ParsePreview, Task, TaskEvent, TaskFile, TaskStatus } from '@/api/types'
 import { ApiError } from '@/api/types'
-import { formatBytes, formatDuration, formatRelative, formatTime, WAIT_REASON_TEXT } from '@/utils/format'
+import { formatBytes, formatDuration } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
+import RDialog from '@/components/base/RDialog.vue'
+import RInput from '@/components/base/RInput.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
-import StatusDot from '@/components/task/StatusDot.vue'
-import TaskProgress from '@/components/task/TaskProgress.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
+import TaskCard from '@/components/task/TaskCard.vue'
+import TaskRow from '@/components/task/TaskRow.vue'
+import TaskDetail from '@/components/task/TaskDetail.vue'
 
+const router = useRouter()
 const tasks = useTasksStore()
 const toast = useToastStore()
 
@@ -313,12 +319,6 @@ function statOf(id: string): ReturnType<typeof parentStat> {
   )
 }
 
-/** 等待原因（StatusDot 只表达状态，等待原因另行说明）。 */
-function waitReasonText(t: Task): string {
-  if (t.status !== 'waiting' || !t.wait_reason) return ''
-  return WAIT_REASON_TEXT[t.wait_reason] ?? ''
-}
-
 function countOf(key: FilterKey): number {
   const c = tasks.counts
   if (!c) return 0
@@ -335,7 +335,7 @@ function countOf(key: FilterKey): number {
 // ---- 详情抽屉 ----
 const detail = ref<Task | null>(null)
 const detailEvents = ref<TaskEvent[]>([])
-const detailFiles = ref<{ path: string; size: number }[]>([])
+const detailFiles = ref<TaskFile[]>([])
 
 async function openDetail(t: Task) {
   detail.value = t
@@ -353,10 +353,10 @@ async function openDetail(t: Task) {
   }
 }
 
-async function fetchDetailFiles(id: string) {
+async function fetchDetailFiles(id: string): Promise<TaskFile[]> {
   const { api } = await import('@/api/client')
   const res = await api.taskDetail(id)
-  return (res.files ?? []).map((f) => ({ path: f.path, size: f.size }))
+  return res.files ?? []
 }
 
 function closeDetail() {
@@ -403,6 +403,77 @@ async function retryFailedChildren(parent: Task) {
   }
 }
 
+// ---- 多选（docs/07 §7：Shift+Space 多选、↑↓ 移动，供批量重试/取消使用）----
+const selectedIds = ref<Set<string>>(new Set())
+/** 当前可聚焦的行索引（↑↓ 移动用）。 */
+const cursorIndex = ref(0)
+
+// ---- 删除确认（docs/07 §4：破坏性决策走 RDialog，默认焦点「取消」）----
+/** 待删除的任务；null = 对话框关闭。 */
+const pendingDelete = ref<Task | null>(null)
+
+function isSelected(id: string): boolean {
+  return selectedIds.value.has(id)
+}
+
+/** 行点击选中：Shift 表示追加多选，普通点击切换单选。 */
+function onSelect(t: Task, ev?: MouseEvent) {
+  const next = new Set(selectedIds.value)
+  if (ev?.shiftKey) next.add(t.id)
+  else if (next.has(t.id)) next.delete(t.id)
+  else next.add(t.id)
+  selectedIds.value = next
+}
+
+function toggleSelect(id: string) {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+
+function gotoConnections() {
+  detail.value = null
+  router.push('/connections')
+}
+
+// ---- 快捷键（docs/07 §7）----
+// `/` 优先聚焦本页提交框（下载主战场就在这），不在本页时退回顶栏快速提交框。
+useShortcuts({
+  focusSubmit: () => {
+    const local = document.getElementById('task-url-input')
+    ;(local ?? document.getElementById('quick-submit'))?.focus()
+  },
+  rows: () => visibleRoots.value.map((t) => ({ id: t.id, status: t.status })),
+  cursorIndex,
+  openRow: (id) => {
+    const t = visibleRoots.value.find((r) => r.id === id)
+    if (t) void openDetail(t)
+  },
+  toggleSelect,
+  // Esc：先关详情；详情已关时清空多选。返回 false 表示还有下一层要处理。
+  onEsc: () => {
+    if (detail.value) {
+      detail.value = null
+      return false
+    }
+    if (selectedIds.value.size) {
+      selectedIds.value = new Set()
+      return false
+    }
+    return false
+  },
+  retryRow: (id) => void runAction(id, tasks.retry),
+})
+
+/** 确认删除：仅在用户于 RDialog 中明确确认后才真正删除。 */
+async function confirmDelete() {
+  const t = pendingDelete.value
+  pendingDelete.value = null
+  if (!t) return
+  await runAction(t.id, tasks.remove)
+}
+
 const isActive = (t: Task) => ['waiting', 'parsing', 'downloading', 'post'].includes(t.status)
 
 onMounted(async () => {
@@ -430,11 +501,12 @@ onBeforeUnmount(() => tasks.disconnect())
 
     <!-- 提交区 -->
     <div class="submit">
-      <input
+      <RInput
         v-model="url"
+        id="task-url-input"
         type="url"
+        label="任务链接"
         placeholder="粘贴视频 / 音频 / 合集链接，支持 B 站、YouTube 等 yt-dlp 可解析站点"
-        aria-label="任务链接"
         @keyup.enter="onPreview"
       />
       <RButton :disabled="submitting || !url.trim()" @click="onPreview">解析预览</RButton>
@@ -589,202 +661,144 @@ onBeforeUnmount(() => tasks.disconnect())
       hint="粘贴链接开始第一次下载；合集或频道用「批量导入」一次建一个父子任务。"
     />
 
-    <ul v-else class="list">
-      <li v-for="t in visibleRoots" :key="t.id" class="card row" :class="{ on: detail?.id === t.id }">
-        <!-- 父任务卡（不显示自己的进度条：其进度是子项聚合值） -->
-        <template v-if="isParent(t)">
-          <div class="row-main" @click="openDetail(t)">
-            <div class="row-head">
-              <PlatformBadge platform="batch" />
-              <StatusDot :status="t.status" />
-              <span class="title">批量任务 · {{ statOf(t.id).total }} 项</span>
-              <span v-if="waitReasonText(t)" class="muted">{{ waitReasonText(t) }}</span>
-              <span class="muted tnum">{{ formatRelative(t.created_at) }}</span>
-            </div>
-            <p class="agg">
-              <span class="agg-done tnum">
-                已完成 {{ statOf(t.id).done }}/{{ statOf(t.id).total }}
-              </span>
-              <!-- 父卡不画进度条（其进度是子项聚合值）；只如实显示服务端下发的聚合百分比。 -->
-              <span v-if="t.progress > 0" class="agg-pct tnum">· 聚合 {{ t.progress.toFixed(0) }}%</span>
-              <span v-if="statOf(t.id).failed > 0" class="agg-failed tnum">
-                · {{ statOf(t.id).failed }} 项失败
-              </span>
-              <span v-if="statOf(t.id).truncated" class="agg-note">
-                （列表仅加载到 {{ statOf(t.id).loadedTotal }} 项子任务，失败数以服务端上报为准）
-              </span>
-            </p>
-            <p v-if="t.error_message" class="err-line">{{ t.error_code }}：{{ t.error_message }}</p>
-          </div>
-          <div class="row-side">
-            <RButton size="sm" variant="ghost" @click="toggleExpand(t.id)">
+    <!-- 列表（父 → 子）。父任务用 TaskCard（子项聚合计数 + 重试失败项插槽），
+         普通任务与子项用 TaskRow 紧凑行；选中态供 §7 键盘多选使用。 -->
+    <div v-else class="list">
+      <template v-for="t in visibleRoots" :key="t.id">
+        <TaskCard
+          v-if="isParent(t)"
+          class="root-card"
+          :class="{ on: detail?.id === t.id }"
+          :task="t"
+          parent
+          :child-stats="{
+            total: statOf(t.id).total,
+            failed: statOf(t.id).failed,
+            done: statOf(t.id).done,
+          }"
+          :selected="isSelected(t.id)"
+          @open="openDetail"
+          @select="onSelect"
+        >
+          <template #actions>
+            <RButton size="sm" variant="ghost" @click.stop="toggleExpand(t.id)">
               {{ isExpanded(t.id) ? '收起' : '展开子项' }}
-            </RButton>
-            <RButton
-              v-if="statOf(t.id).failed > 0"
-              size="sm"
-              :disabled="busyId === t.id"
-              @click="retryFailedChildren(t)"
-            >
-              重试失败项
             </RButton>
             <RButton
               size="sm"
               variant="ghost"
               tone="danger"
-              confirm="再点一次确认删除"
               :disabled="busyId === t.id"
-              @click="runAction(t.id, tasks.remove)"
+              @click.stop="pendingDelete = t"
             >
               删除
             </RButton>
-          </div>
+          </template>
+          <template #retry-failed>
+            <RButton size="sm" :disabled="busyId === t.id" @click.stop="retryFailedChildren(t)">
+              重试失败项
+            </RButton>
+          </template>
+        </TaskCard>
 
-          <!-- 子任务列表 -->
-          <ul v-if="isExpanded(t.id)" class="children">
-            <li v-for="c in shownChildren(t.id)" :key="c.id" class="child">
-              <StatusDot :status="c.status" />
-              <PlatformBadge :platform="c.platform" compact />
-              <span class="child-title" :title="c.title || c.url">{{ c.title || c.url }}</span>
-              <div class="child-prog">
-                <TaskProgress :task="c" compact />
-              </div>
-              <span class="child-size tnum">{{ formatBytes(c.downloaded_size) }}</span>
-              <div class="child-ops" @click.stop>
-                <RButton
-                  v-if="isActive(c)"
-                  size="sm"
-                  variant="ghost"
-                  :disabled="busyId === c.id"
-                  @click="runAction(c.id, tasks.cancel)"
-                >
-                  取消
-                </RButton>
-                <RButton
-                  v-if="c.status === 'failed' || c.status === 'cancelled'"
-                  size="sm"
-                  :disabled="busyId === c.id"
-                  @click="runAction(c.id, tasks.retry)"
-                >
-                  重试
-                </RButton>
-              </div>
-            </li>
-          </ul>
-        </template>
+        <TaskRow
+          v-else
+          :task="t"
+          :selected="isSelected(t.id)"
+          @open="openDetail"
+          @select="onSelect"
+        >
+          <template #actions>
+            <RButton
+              v-if="isActive(t)"
+              size="sm"
+              variant="ghost"
+              :disabled="busyId === t.id"
+              @click.stop="runAction(t.id, tasks.cancel)"
+            >
+              取消
+            </RButton>
+            <RButton
+              v-if="t.status === 'failed' || t.status === 'cancelled'"
+              size="sm"
+              :disabled="busyId === t.id"
+              @click.stop="runAction(t.id, tasks.retry)"
+            >
+              重试
+            </RButton>
+            <RButton
+              size="sm"
+              variant="ghost"
+              tone="danger"
+              :disabled="busyId === t.id"
+              @click.stop="pendingDelete = t"
+            >
+              删除
+            </RButton>
+          </template>
+        </TaskRow>
 
-        <!-- 普通任务卡 -->
-        <template v-else>
-          <img
-            v-if="t.thumbnail"
-            :src="t.thumbnail"
-            :alt="t.title || t.url"
-            class="thumb sm"
-            referrerpolicy="no-referrer"
-            loading="lazy"
-          />
-          <div v-else class="thumb sm ph" aria-hidden="true" />
-          <div class="row-main" @click="openDetail(t)">
-            <div class="row-head">
-              <StatusDot :status="t.status" />
-              <PlatformBadge :platform="t.platform" />
-              <span class="title" :title="t.title || t.url">{{ t.title || t.url }}</span>
-            </div>
-            <p class="row-meta">
-              <span class="tnum">{{ t.quality }}</span>
-              <span class="muted tnum">{{ formatRelative(t.created_at) }}</span>
-              <span v-if="t.attempt > 0" class="muted tnum">
-                第 {{ t.attempt + 1 }}/{{ t.max_attempts }} 次
-              </span>
-            </p>
-            <TaskProgress v-if="isActive(t)" :task="t" />
-            <p v-if="t.error_message" class="err-line">{{ t.error_code }}：{{ t.error_message }}</p>
-          </div>
-          <div class="row-side">
-            <span class="size tnum">{{ formatBytes(t.downloaded_size) }}</span>
-            <div class="row-ops">
+        <!-- 子任务列表：父卡展开后逐条列出（状态点 + 迷你进度 + 标题） -->
+        <ul v-if="isParent(t) && isExpanded(t.id)" class="children">
+          <TaskRow
+            v-for="c in shownChildren(t.id)"
+            :key="c.id"
+            :task="c"
+            size="sm"
+            :selected="isSelected(c.id)"
+            @open="openDetail"
+            @select="onSelect"
+          >
+            <template #actions>
               <RButton
-                v-if="isActive(t)"
+                v-if="isActive(c)"
                 size="sm"
                 variant="ghost"
-                :disabled="busyId === t.id"
-                @click="runAction(t.id, tasks.cancel)"
+                :disabled="busyId === c.id"
+                @click.stop="runAction(c.id, tasks.cancel)"
               >
                 取消
               </RButton>
               <RButton
-                v-if="t.status === 'failed' || t.status === 'cancelled'"
+                v-if="c.status === 'failed' || c.status === 'cancelled'"
                 size="sm"
-                :disabled="busyId === t.id"
-                @click="runAction(t.id, tasks.retry)"
+                :disabled="busyId === c.id"
+                @click.stop="runAction(c.id, tasks.retry)"
               >
                 重试
               </RButton>
-              <RButton
-                size="sm"
-                variant="ghost"
-                tone="danger"
-                confirm="再点一次确认删除"
-                :disabled="busyId === t.id"
-                @click="runAction(t.id, tasks.remove)"
-              >
-                删除
-              </RButton>
-            </div>
-          </div>
-        </template>
-      </li>
-    </ul>
-
-    <!-- 详情抽屉 -->
-    <DetailDrawer :open="detail !== null" title="任务详情" @close="closeDetail">
-      <template v-if="detail">
-        <p class="d-title">{{ detail.title || detail.url }}</p>
-        <dl class="kv">
-          <dt>状态</dt><dd><StatusDot :status="detail.status" /></dd>
-          <dt>平台</dt><dd><PlatformBadge :platform="detail.platform" /></dd>
-          <dt>清晰度</dt><dd>{{ detail.quality }}</dd>
-          <dt>引擎</dt><dd>{{ detail.engine || '—' }} {{ detail.engine_version || '' }}</dd>
-          <dt>已下载</dt><dd class="tnum">{{ formatBytes(detail.downloaded_size) }}</dd>
-          <dt>创建</dt><dd class="tnum">{{ formatTime(detail.created_at) }}</dd>
-          <template v-if="detail.finished_at">
-            <dt>完成</dt><dd class="tnum">{{ formatTime(detail.finished_at) }}</dd>
-          </template>
-          <dt>链接</dt>
-          <dd>
-            <a :href="detail.url" target="_blank" rel="noreferrer noopener" class="link">{{ detail.url }}</a>
-          </dd>
-        </dl>
-
-        <template v-if="childrenOf(detail.id).length">
-          <h3 class="d-sub">子任务（{{ childrenOf(detail.id).length }}）</h3>
-          <ul class="d-children">
-            <li v-for="c in childrenOf(detail.id)" :key="c.id">
-              <StatusDot :status="c.status" />
-              <span class="child-title" :title="c.title || c.url">{{ c.title || c.url }}</span>
-            </li>
-          </ul>
-        </template>
-
-        <h3 class="d-sub">事件</h3>
-        <ol class="timeline">
-          <li v-for="(e, i) in detailEvents" :key="i" :data-level="e.level">
-            <span class="ts tnum">{{ formatTime(e.ts) }}</span>
-            <span class="msg">{{ e.message }}</span>
-          </li>
-          <li v-if="!detailEvents.length" class="muted">暂无事件</li>
-        </ol>
-
-        <template v-if="detailFiles.length">
-          <h3 class="d-sub">产物</h3>
-          <ul class="files">
-            <li v-for="f in detailFiles" :key="f.path">
-              <span class="fname" :title="f.path">{{ f.path.split('/').pop() }}</span>
-              <span class="muted tnum">{{ formatBytes(f.size) }}</span>
-            </li>
-          </ul>
-        </template>
+            </template>
+          </TaskRow>
+        </ul>
       </template>
+    </div>
+
+    <!-- 删除确认框（docs/07 §4：破坏性决策走 RDialog；默认焦点在「取消」） -->
+    <RDialog
+      :open="pendingDelete !== null"
+      title="删除任务？"
+      danger
+      confirm-text="删除"
+      :description="pendingDelete ? `将删除「${pendingDelete.title || pendingDelete.url}」及其本地文件，此操作不可撤销。` : ''"
+      @update:open="(v) => !v && (pendingDelete = null)"
+      @confirm="confirmDelete"
+      @cancel="pendingDelete = null"
+    />
+
+    <!-- 详情抽屉：五区（概览 / 进度 / 日志 / 错误与建议 / 操作），Cookie 过期一键跳 connections -->
+    <DetailDrawer :open="detail !== null" title="任务详情" @close="closeDetail">
+      <TaskDetail
+        v-if="detail"
+        :task="detail"
+        :events="detailEvents"
+        :files="detailFiles"
+        :busy="busyId === detail.id"
+        @goto-connections="gotoConnections"
+        @goto-settings="router.push('/settings')"
+        @retry="(t) => runAction(t.id, tasks.retry)"
+        @cancel="(t) => runAction(t.id, tasks.cancel)"
+        @remove="(t) => runAction(t.id, tasks.remove)"
+      />
     </DetailDrawer>
   </section>
 </template>
@@ -816,13 +830,9 @@ onBeforeUnmount(() => tasks.disconnect())
 }
 .card-title { margin: 0; font-size: var(--font-aux); font-weight: 600; color: var(--text-1); }
 
-/* 提交区 */
-.submit { display: flex; gap: 8px; flex-wrap: wrap; }
-.submit input {
-  flex: 1; min-width: 260px; padding: 10px 14px; border: 1px solid var(--border);
-  border-radius: var(--radius-ctrl); background: var(--surface); color: var(--text-1); font-size: var(--font-body);
-}
-.submit input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+/* 提交区（RInput 自带标签常驻，按钮与输入框底对齐） */
+.submit { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+.submit .rinput { flex: 1; min-width: 260px; }
 
 /* 预览卡 */
 .preview { display: flex; gap: 14px; }
@@ -873,54 +883,15 @@ onBeforeUnmount(() => tasks.disconnect())
 .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .tab.on em { color: rgb(255 255 255 / 75%); }
 
-/* 列表 */
-.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
-.row.on { border-color: var(--gold); }
-.row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; cursor: pointer; }
-.row-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.title { font-weight: 600; font-size: var(--font-body); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-caption); color: var(--text-2); }
-.agg { margin: 0; font-size: var(--font-aux); color: var(--text-2); }
-.agg-done { color: var(--text-1); font-weight: 600; }
-.agg-pct { color: var(--text-3); }
-.agg-failed { color: var(--danger); }
-.agg-note { color: var(--text-3); font-size: var(--font-caption); }
-.err-line { margin: 0; font-size: var(--font-caption); color: var(--danger); }
-.row-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
-.row-ops { display: flex; gap: 6px; }
-.size { font-size: var(--font-aux); color: var(--text-2); }
+/* 列表（父卡 TaskCard + 行 TaskRow 由各自组件负责样式，这里只管间距） */
+.list { display: flex; flex-direction: column; gap: 8px; }
+.root-card { width: 100%; }
+.root-card.on { border-color: var(--gold); }
 
-/* 子任务 */
+/* 子任务容器（父卡展开后） */
 .children {
   list-style: none; margin: 0; padding: 8px 0 0 0; width: 100%;
   display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border);
 }
-.child {
-  display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 22px;
-  background: var(--surface-2); border-radius: var(--radius-ctrl);
-  border-left: 2px solid var(--border);
-}
-.child-title { flex: 1; min-width: 0; font-size: var(--font-aux); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.child-prog { width: 140px; flex-shrink: 0; }
-.child-size { font-size: var(--font-caption); color: var(--text-3); flex-shrink: 0; }
-.child-ops { display: flex; gap: 4px; flex-shrink: 0; }
 
-/* 抽屉 */
-.d-title { margin: 0 0 12px; font-weight: 650; }
-.d-sub { margin: 18px 0 8px; font-size: var(--font-aux); color: var(--text-2); }
-.kv { display: grid; grid-template-columns: 72px 1fr; gap: 6px 12px; margin: 0; font-size: var(--font-aux); }
-.kv dt { color: var(--text-3); }
-.kv dd { margin: 0; word-break: break-all; }
-.link { color: var(--info); }
-.d-children { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.d-children li { display: flex; gap: 8px; align-items: center; font-size: var(--font-caption); }
-.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: var(--font-caption); }
-.timeline li { display: flex; gap: 10px; align-items: baseline; }
-.timeline .ts { color: var(--text-3); flex-shrink: 0; }
-.timeline li[data-level='error'] .msg { color: var(--danger); }
-.timeline li[data-level='warn'] .msg { color: var(--warning); }
-.files { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: var(--font-caption); }
-.files li { display: flex; justify-content: space-between; gap: 10px; }
-.fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

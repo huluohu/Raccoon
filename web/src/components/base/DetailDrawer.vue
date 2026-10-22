@@ -58,7 +58,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
 }
-.dd-title { font-size: var(--font-title-3); font-weight: 700; }
+.dd-title { font-size: var(--font-title-3); font-weight: var(--weight-strong); }
 .dd-close {
   border: none;
   background: transparent;

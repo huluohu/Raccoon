@@ -455,7 +455,7 @@ onMounted(() => {
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.page-title { font-size: 24px; font-weight: 750; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: 24px; font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
 .alert {
   padding: 10px 14px;
@@ -473,7 +473,7 @@ onMounted(() => {
 /* 外部集成通道 */
 .integrations { margin-bottom: 18px; }
 .int-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.int-title { margin: 0; font-size: var(--font-title-3); font-weight: 700; }
+.int-title { margin: 0; font-size: var(--font-title-3); font-weight: var(--weight-strong); }
 .int-sub { margin: 4px 0 0; font-size: var(--font-caption); color: var(--text-3); }
 .int-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .int-card {
@@ -483,11 +483,11 @@ onMounted(() => {
 .int-card[data-state='ok'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
 .int-card[data-state='bad'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
 .int-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.int-name { font-size: var(--font-title-3); font-weight: 650; }
-.int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: 600; color: var(--text-2); }
+.int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
+.int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: var(--weight-semibold); color: var(--text-2); }
 .int-glyph {
   width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700; color: #fff; background: var(--neutral);
+  font-size: 11px; font-weight: var(--weight-strong); color: #fff; background: var(--neutral);
 }
 .int-card[data-state='ok'] .int-state { color: var(--success); }
 .int-card[data-state='ok'] .int-glyph { background: var(--success); }
@@ -515,7 +515,7 @@ onMounted(() => {
 }
 .card-head { display: flex; align-items: center; gap: 8px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; }
-.status { font-size: var(--font-caption); font-weight: 600; }
+.status { font-size: var(--font-caption); font-weight: var(--weight-semibold); }
 .kind {
   font-size: var(--font-caption);
   color: var(--text-3);
@@ -523,7 +523,7 @@ onMounted(() => {
   border-radius: var(--radius-pill);
   padding: 1px 8px;
 }
-.card-label { font-size: var(--font-title-3); font-weight: 650; }
+.card-label { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
 .meta { display: flex; flex-direction: column; gap: 4px; }
 .meta > div { display: flex; gap: 8px; font-size: var(--font-caption); }
 .meta dt { color: var(--text-3); width: 68px; flex-shrink: 0; }
@@ -537,7 +537,7 @@ onMounted(() => {
 
 .form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
-.field-label { font-size: var(--font-aux); font-weight: 600; color: var(--text-2); }
+.field-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select, .field textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);

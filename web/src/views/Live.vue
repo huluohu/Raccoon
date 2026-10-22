@@ -352,7 +352,7 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-.page-title { font-size: 24px; font-weight: 750; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: 24px; font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
 .platform-note {
   font-size: var(--font-caption);
@@ -388,7 +388,7 @@ onMounted(load)
 }
 .card.off { opacity: 0.66; }
 .card-head { display: flex; align-items: center; gap: 10px; }
-.status { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: 600; }
+.status { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: var(--weight-semibold); }
 .dot { width: 8px; height: 8px; border-radius: 50%; }
 .plan {
   margin-left: auto;
@@ -398,7 +398,7 @@ onMounted(load)
   border-radius: var(--radius-pill);
   padding: 1px 8px;
 }
-.card-title { font-size: var(--font-title-3); font-weight: 650; }
+.card-title { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
 .card-url { font-size: var(--font-caption); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 4px 16px; }
@@ -410,7 +410,7 @@ onMounted(load)
 
 .form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
-.field-label { font-size: var(--font-aux); font-weight: 600; color: var(--text-2); }
+.field-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select {
   padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
   background: var(--bg); color: var(--text-1); font-size: var(--font-aux); font-family: inherit;
@@ -423,7 +423,7 @@ onMounted(load)
 
 .hist-sum { font-size: var(--font-aux); color: var(--text-2); margin-bottom: 10px; }
 .tbl { width: 100%; border-collapse: collapse; font-size: var(--font-caption); }
-.tbl th { text-align: left; color: var(--text-3); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); }
 .tbl .tnum { white-space: nowrap; }
 </style>

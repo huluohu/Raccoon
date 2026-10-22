@@ -384,7 +384,7 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.page-title { font-size: 24px; font-weight: 750; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: 24px; font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
 .alert { padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-aux); }
 .alert--danger { border-color: var(--danger); color: var(--danger); }
@@ -415,12 +415,12 @@ onMounted(load)
   border-radius: 50%;
   background: var(--gold-soft);
   color: var(--gold-strong);
-  font-weight: 700;
+  font-weight: var(--weight-strong);
   font-size: 12px;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--gold);
 }
-.card-title { font-size: var(--font-title-3); font-weight: 650; }
+.card-title { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
 .card-url { font-size: var(--font-caption); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .counts { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -438,7 +438,7 @@ onMounted(load)
 
 .form { display: flex; flex-direction: column; gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
-.field-label { font-size: var(--font-aux); font-weight: 600; color: var(--text-2); }
+.field-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select, .field textarea {
   padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
   background: var(--bg); color: var(--text-1); font-size: var(--font-aux); font-family: inherit;
@@ -449,7 +449,7 @@ onMounted(load)
 .field-hint { font-size: var(--font-caption); color: var(--text-3); }
 .preview-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .preview-box { padding: 10px 12px; border-radius: var(--radius-ctrl); background: var(--surface-2); border: 1px solid var(--border); }
-.pv-title { font-size: var(--font-aux); font-weight: 650; margin-bottom: 6px; }
+.pv-title { font-size: var(--font-aux); font-weight: var(--weight-medium); margin-bottom: 6px; }
 .pv-meta { display: flex; flex-direction: column; gap: 3px; }
 .pv-meta > div { display: flex; gap: 8px; font-size: var(--font-caption); }
 .pv-meta dt { color: var(--text-3); width: 40px; }
@@ -457,9 +457,9 @@ onMounted(load)
 .form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 
 .tbl { width: 100%; border-collapse: collapse; font-size: var(--font-caption); }
-.tbl th { text-align: left; color: var(--text-3); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); }
 .tbl .ttl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
 .tbl .tnum { white-space: nowrap; }
-.st { font-weight: 600; }
+.st { font-weight: var(--weight-semibold); }
 </style>

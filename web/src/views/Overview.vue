@@ -204,17 +204,17 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-title { font-size: var(--font-title-1); font-weight: 750; margin-bottom: 16px; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); margin-bottom: 16px; border-left: 4px solid var(--gold); padding-left: 12px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 16px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; box-shadow: var(--shadow-1); }
 .card--wide { margin-bottom: 16px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.card h2 { font-size: var(--font-aux); font-weight: 600; color: var(--text-3); }
+.card h2 { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-3); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 8px; font-size: var(--font-aux); }
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; color: var(--text-1); }
 .metric { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
-.metric-num { font-size: 28px; font-weight: 750; color: var(--text-1); line-height: 1.1; }
+.metric-num { font-size: 28px; font-weight: var(--weight-title); color: var(--text-1); line-height: 1.1; }
 .metric-label { font-size: var(--font-aux); color: var(--text-3); }
 .muted { color: var(--text-3); font-size: var(--font-aux); }
 .warn-line { color: var(--warning); font-size: var(--font-aux); margin: 4px 0; }
@@ -224,7 +224,7 @@ onMounted(load)
 .task-row-head { display: flex; align-items: center; gap: 8px; }
 .task-title { font-size: var(--font-aux); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inline-empty { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
-.inline-empty-title { font-size: var(--font-aux); color: var(--text-1); font-weight: 500; }
+.inline-empty-title { font-size: var(--font-aux); color: var(--text-1); font-weight: var(--weight-caption); }
 .inline-empty-hint { font-size: var(--font-caption); color: var(--text-3); margin-top: 2px; }
 .skeleton-rows { display: flex; flex-direction: column; gap: 10px; }
 .skeleton-row { height: 34px; border-radius: var(--radius-ctrl); background: var(--surface-2); }

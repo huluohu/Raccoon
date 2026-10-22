@@ -1,8 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 
-// 七个一级页面（docs/07 §3）。Wave 1 先落 Overview；其余页面在 Wave 3 逐批落地。
+// 路由表与 docs/07 §3 逐条对应：/setup、/login + 七个一级页面。
+// setup/login 由 App.vue 的会话 gate 按 auth.phase 内联渲染；这里再注册同组件路由，
+// 是为了让用户直接输 /login、/setup（或书签/反代重定向）时不落到空白页。
 const routes: RouteRecordRaw[] = [
+  { path: '/setup', name: 'setup', component: () => import('@/views/Login.vue'), meta: { title: '初始化' } },
+  { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { title: '登录' } },
   { path: '/', name: 'overview', component: () => import('@/views/Overview.vue'), meta: { title: '总览' } },
   { path: '/tasks', name: 'tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '下载' } },
   { path: '/media', name: 'media', component: () => import('@/views/Media.vue'), meta: { title: '媒体库' } },

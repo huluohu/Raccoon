@@ -34,6 +34,6 @@ const emit = defineEmits<{ (e: 'action'): void }>()
   padding: 48px 20px;
   text-align: center;
 }
-.rempty-title { font-size: var(--font-title-3); font-weight: 600; color: var(--text-1); }
+.rempty-title { font-size: var(--font-title-3); font-weight: var(--weight-semibold); color: var(--text-1); }
 .rempty-hint { font-size: var(--font-aux); color: var(--text-3); max-width: 420px; }
 </style>

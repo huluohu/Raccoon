@@ -31,8 +31,11 @@ web-dev: ## 前端开发服务器 :5173
 web-build: ## 前端构建并拷贝到 backend/internal/web/dist（供 embed）
 	cd web && $(NPM) run build && rm -rf ../backend/internal/web/dist && cp -r dist ../backend/internal/web/dist
 
-verify: fmt vet backend-build web-build ## 一键验证：fmt/vet/编译/前端类型检查与构建
+verify: fmt vet backend-build web-build design-check ## 一键验证：fmt/vet/编译/前端类型检查与构建/设计方案符合度
 	@echo "== verify 完成 =="
+
+design-check: ## 设计方案符合度对账（docs/07 §2 Token / §3 路由 / §4 组件 / §5 表情 / §7 交互）
+	@python3 scripts/check-design-conformance.py
 
 fmt: ## gofmt 检查
 	cd backend && test -z "$$($(GO)fmt -l .)" || (echo "gofmt 未通过：" && $(GO)fmt -l . && exit 1)

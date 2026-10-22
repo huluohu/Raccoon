@@ -96,6 +96,7 @@ onUnmounted(() => notif.stop())
         <header class="topbar">
           <input
             v-model="quickUrl"
+            id="quick-submit"
             class="quick-submit"
             type="url"
             placeholder="粘贴链接下载（回车直接提交）"
