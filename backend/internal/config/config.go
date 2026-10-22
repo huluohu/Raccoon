@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Effective 生效时机（docs/06 §2）。
@@ -46,6 +47,21 @@ var Registry = []Setting{
 	{Key: "notify.task_failed", Desc: "任务失败通知", Default: true, Effective: Immediate},
 	{Key: "notify.disk_warn", Desc: "磁盘预警通知", Default: true, Effective: Immediate},
 	{Key: "log.level", Desc: "日志级别（debug/info/warn/error）", Default: "info", Effective: Immediate, EnvVar: "RACCOON_LOG_LEVEL"},
+	// ---- 外部集成通道（docs/08 W4.6–W4.8）----
+	// 这几项是「服务连接参数」，与凭据中心的「平台账号凭据」是两类东西：
+	// 前者指本服务要连到哪里（qB 地址、Bot Token），后者指用谁的账号去下载。
+	{Key: "qb.url", Desc: "qBittorrent WebUI 地址（如 http://127.0.0.1:8080）", Default: "", Effective: Immediate},
+	{Key: "qb.username", Desc: "qBittorrent 用户名", Default: "", Effective: Immediate},
+	{Key: "qb.password", Desc: "qBittorrent 密码", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "n115.access_token", Desc: "115 开放平台 access token", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "n115.refresh_token", Desc: "115 开放平台 refresh token", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "n115.client_id", Desc: "115 开放平台应用 ID", Default: "", Effective: Immediate},
+	{Key: "n115.base_url", Desc: "115 业务 API 地址", Default: "https://proapi.115.com", Effective: Immediate},
+	{Key: "n115.auth_base_url", Desc: "115 授权 API 地址", Default: "https://passportapi.115.com", Effective: Immediate},
+	{Key: "n115.qrcode_base_url", Desc: "115 扫码 API 地址", Default: "https://qrcodeapi.115.com", Effective: Immediate},
+	{Key: "telegram.bot_token", Desc: "Telegram Bot Token", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "telegram.allowed_users", Desc: "Telegram 允许的用户 ID（逗号分隔）", Default: "", Effective: Immediate},
+	{Key: "telegram.allowed_chats", Desc: "Telegram 允许的会话 ID（逗号分隔，留空不限制）", Default: "", Effective: Immediate},
 }
 
 // Config 是运行期配置快照。锁定项只来自环境变量（docs/06 §4）。
@@ -120,6 +136,26 @@ func (c *Config) GetBool(key string) bool {
 
 // LockedBy 返回锁定该键的环境变量名，未锁定返回空串。
 func (c *Config) LockedBy(key string) string { return c.locked[key] }
+
+// GetStringList 取列表型配置值（逗号分隔的字符串数组）。
+//
+// 为什么需要它：Telegram 白名单是「多个 ID」而不是「一个字符串」，
+// 但配置表的值是单值 JSON 字符串 —— 用逗号分隔是最省事的表达，
+// 也让用户在设置页直接填 "123,456" 而不必理解 JSON。
+func (c *Config) GetStringList(key string) []string {
+	raw := strings.TrimSpace(c.GetString(key))
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if v := strings.TrimSpace(p); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 // Set 更新值；锁定键拒绝（调用方转 409 LOCKED_BY_ENV）。
 func (c *Config) Set(key string, value any) error {

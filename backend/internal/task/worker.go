@@ -42,8 +42,14 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		return
 	}
 
+	// 凭据 → 临时 cookie 文件（引擎按 --cookies 读取）。
+	// 解密失败或凭据不存在都不阻断任务：无凭据时引擎照常跑，命中需要登录的内容时
+	// 会返回 AUTH_REQUIRED，届时 fix_hint 指向「连接」页 —— 比在此处直接失败更准确。
+	cookieFile := w.prepareCookieFile(t)
+	defer w.cleanupCookieFile(cookieFile)
+
 	// ---- parsing ----
-	res, err := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{})
+	res, err := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile})
 	if err != nil {
 		w.handleEngineErr(ctx, t, "parsing", err)
 		return
@@ -79,6 +85,7 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		Format:   w.formatSelector(t.Quality),
 		SaveDir:  saveDir,
 		NameTmpl: "%(title).120s [%(id)s].%(ext)s",
+		Cookies:  cookieFile,
 	}
 	var lastWrite time.Time
 	onProgress := func(p engine.Progress) {
@@ -287,6 +294,37 @@ func (w *Worker) startCancelWatcher(ctx context.Context, taskID string) {
 			}
 		}
 	}()
+}
+
+// prepareCookieFile 为任务准备临时 cookie 文件；无凭据/解密失败时返回空串（不阻断）。
+func (w *Worker) prepareCookieFile(t *store.Task) string {
+	resolver := w.mgr.Credentials()
+	if resolver == nil {
+		return ""
+	}
+	platform := t.Platform
+	if platform == "" {
+		platform = "web"
+	}
+	plain, err := resolver.PlatformCredential(context.Background(), platform)
+	if err != nil || plain == "" {
+		return ""
+	}
+	writer := w.mgr.cookieWriter()
+	path, err := writer.writeCookieFile(platform, plain)
+	if err != nil {
+		w.mgr.log.Warn("临时 cookie 文件写入失败", map[string]any{"task_id": t.ID, "err": err.Error()})
+		return ""
+	}
+	return path
+}
+
+// cleanupCookieFile 清理临时 cookie 文件（凭据明文不留在磁盘）。
+func (w *Worker) cleanupCookieFile(path string) {
+	if path == "" {
+		return
+	}
+	w.mgr.cookieWriter().removeCookieFile(path)
 }
 
 // saveDir 计算保存目录：save_path（相对数据根，SafeJoin 校验）或 download_dir/platform/。

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Raccoon 下载助手</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="head">
+    <img class="logo" src="../icons/icon48.png" alt="" width="28" height="28" />
+    <div class="head-text">
+      <h1>Raccoon 下载助手</h1>
+      <p class="sub" id="instanceLabel">未配置实例</p>
+    </div>
+  </header>
+
+  <!-- 一键提交 -->
+  <section class="card" id="submitCard">
+    <h2 class="card-title">当前页面</h2>
+    <p class="page-url" id="pageUrl" title="">正在读取当前标签页…</p>
+    <div class="row">
+      <button class="btn btn-primary" id="btnSubmit" disabled>用 Raccoon 下载</button>
+      <button class="btn" id="btnRefreshPage" title="重新读取当前标签页">刷新</button>
+    </div>
+    <p class="hint">提示：页面内右键也有「用 Raccoon 下载」。</p>
+    <p class="msg" id="submitMsg" hidden></p>
+  </section>
+
+  <!-- 任务状态 -->
+  <section class="card">
+    <div class="card-head">
+      <h2 class="card-title">任务状态</h2>
+      <div class="row row-tight">
+        <select id="statusFilter" class="select" title="按状态过滤">
+          <option value="">全部</option>
+          <option value="waiting">等待中</option>
+          <option value="parsing">解析中</option>
+          <option value="downloading">下载中</option>
+          <option value="post">后处理</option>
+          <option value="done">已完成</option>
+          <option value="failed">失败</option>
+          <option value="cancelled">已取消</option>
+        </select>
+        <button class="btn btn-ghost" id="btnReload">刷新</button>
+      </div>
+    </div>
+    <ul class="task-list" id="taskList">
+      <li class="empty" id="taskEmpty">加载中…</li>
+    </ul>
+    <p class="msg" id="taskMsg" hidden></p>
+  </section>
+
+  <!-- 配置 -->
+  <section class="card">
+    <div class="card-head">
+      <h2 class="card-title">配置</h2>
+      <button class="btn btn-ghost" id="btnToggleConfig" aria-expanded="true">收起</button>
+    </div>
+
+    <div id="configBody">
+      <label class="field">
+        <span class="field-label">实例地址</span>
+        <input class="input" id="cfgBaseUrl" type="text" placeholder="http://127.0.0.1:8530" spellcheck="false" />
+        <span class="field-hint">你的 Raccoon 服务地址（含端口）。</span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">API Token</span>
+        <input class="input" id="cfgToken" type="password" placeholder="rc_…" spellcheck="false" autocomplete="off" />
+        <span class="field-hint">在 Web 界面「设置 → API 令牌」签发，scope 需含 write。只保存在本机浏览器。</span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">默认质量（可选）</span>
+        <input class="input" id="cfgQuality" type="text" placeholder="留空 = 用服务端默认（如 best）" spellcheck="false" />
+      </label>
+
+      <label class="field">
+        <span class="field-label">默认保存目录（可选）</span>
+        <input class="input" id="cfgSavePath" type="text" placeholder="留空 = 用服务端命名规则" spellcheck="false" />
+      </label>
+
+      <div class="row">
+        <button class="btn btn-primary" id="btnSave">保存</button>
+        <button class="btn" id="btnTest">测试连接</button>
+      </div>
+      <p class="msg" id="cfgMsg" hidden></p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span id="footStatus">v0.1.0</span>
+    <a href="#" id="linkDocs" target="_blank" rel="noreferrer">使用说明</a>
+  </footer>
+
+  <script src="api.js"></script>
+  <script src="settings.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

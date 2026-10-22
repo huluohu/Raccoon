@@ -3,10 +3,12 @@ package server
 // notification_handler.go：通知中心路由（docs/04 §2.9）+ 通知写入助手。
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/store"
+	"github.com/huluohu/raccoon/internal/tgbot"
 )
 
 // setupNotifications 注册通知路由。
@@ -81,4 +83,30 @@ func (s *Server) notify(kind, severity, title, body, taskID string) {
 		return
 	}
 	s.hub.Broadcast("notif.new", n)
+	// Telegram 定向通知：只有从 TG 提交的任务才推回原会话（web 提交的不打扰）。
+	s.notifyTelegram(taskID, title, body, severity)
+}
+
+// notifyTelegram 向任务来源的 Telegram 会话推送终态通知。
+func (s *Server) notifyTelegram(taskID, title, body, severity string) {
+	if taskID == "" || s.tgClient == nil {
+		return
+	}
+	s.tgMu.Lock()
+	chatID, ok := s.tgChats[taskID]
+	if ok {
+		delete(s.tgChats, taskID) // 一次性通知，映射用完即清
+	}
+	s.tgMu.Unlock()
+	if !ok {
+		return
+	}
+	text := title
+	if body != "" {
+		text += "\n" + body
+	}
+	text += "\n任务 ID: " + taskID
+	if _, err := s.tgClient.SendMessage(context.Background(), chatID, text, tgbot.ParseModeNone); err != nil {
+		s.log.Warn("Telegram 通知发送失败", map[string]any{"task_id": taskID, "err": err.Error()})
+	}
 }

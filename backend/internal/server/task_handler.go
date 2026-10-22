@@ -29,6 +29,8 @@ func (s *Server) setupTasks() {
 	s.tasks = tm
 	// 通知出口注入（task → notify 单向依赖）。
 	tm.SetNotifier(notifierFunc(s.notify))
+	// 凭据解析器注入（凭据中心 → 引擎 cookie 文件桥接）。
+	tm.SetCredentialResolver(task.NewCookieResolver(s.store, s.vault))
 	if err := eng.CheckAll(); err != nil {
 		// 引擎不可用不阻断启动：/health 降级、任务提交 503（docs/04 §1.2）。
 		s.log.Warn("引擎自检未通过，下载能力降级", map[string]any{"err": err.Error()})

@@ -32,6 +32,8 @@ type Manager struct {
 	cancels map[string]context.CancelFunc // taskID → 运行中 worker 的 cancel
 	running map[string]bool
 	notifier Notifier // 通知出口（server 注入；nil=不通知）
+	creds    CredentialResolver // 凭据解析器（server 注入；nil=不取凭据）
+	external *ExternalExecutor  // qB/115 外部通道执行器（server 注入；nil=不支持）
 
 	done      chan struct{}
 	stopOnce  sync.Once
@@ -186,8 +188,37 @@ func (m *Manager) tick(ctx context.Context) {
 		}
 		byPlatform[p]++
 		total++
+		if m.external != nil && m.external.Supports(claimed.Kind) {
+			// qB/115 外部通道：不启动下载引擎 worker，改走外部执行器。
+			// 但仍占全局并发额度（byPlatform/total 已自增）——种子下载同样吃带宽与磁盘。
+			m.startExternal(ctx, claimed)
+			continue
+		}
 		m.startWorker(ctx, claimed)
 	}
+}
+
+// startExternal 启动 qB/115 外部任务执行器。
+func (m *Manager) startExternal(ctx context.Context, t *store.Task) {
+	wctx, cancel := context.WithCancel(m.workerCtx)
+	m.mu.Lock()
+	if m.running[t.ID] {
+		m.mu.Unlock()
+		cancel()
+		return
+	}
+	m.cancels[t.ID] = cancel
+	m.running[t.ID] = true
+	m.mu.Unlock()
+	go func() {
+		defer func() {
+			m.mu.Lock()
+			delete(m.cancels, t.ID)
+			delete(m.running, t.ID)
+			m.mu.Unlock()
+		}()
+		m.external.Run(wctx, t)
+	}()
 }
 
 // diskGate 磁盘水位闸门（docs/05 §3：剩余 <5% 或 <1GB 停领新任务）。
@@ -295,6 +326,7 @@ type SubmitItem struct {
 	URL      string         `json:"url"`
 	Quality  string         `json:"quality,omitempty"`
 	SavePath string         `json:"save_path,omitempty"`
+	Kind     string         `json:"kind,omitempty"`
 	Options  map[string]any `json:"options,omitempty"`
 }
 
@@ -305,6 +337,10 @@ type SubmitResult struct {
 }
 
 // Submit 批量创建（单条 dedupe 冲突不阻塞其余）。
+//
+// kind 允许显式指定任务类型（qb / n115 / download）；留空时按 URL 自动判定：
+// magnet 链接 → qb，其余 → download。n115 任务只能显式指定 —— 离线下载的目标 URL
+// 与普通直链在形态上无法区分，需由调用方明确表达意图。
 func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]SubmitResult, error) {
 	results := make([]SubmitResult, 0, len(items))
 	cfgVersion := m.cfg.Version()
@@ -314,19 +350,30 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 	}
 	for _, it := range items {
 		norm := store.NormalizeURL(it.URL)
+		kind := KindDownload
+		if it.Kind != "" {
+			kind = it.Kind
+		} else if engine.IsMagnet(norm) {
+			kind = KindQB
+		}
 		platform := engine.PlatformGuess(norm)
+		if kind == KindQB {
+			platform = "qb"
+		} else if kind == KindN115 {
+			platform = "115"
+		}
 		quality := it.Quality
 		if quality == "" {
 			quality = m.cfg.GetString("download.default_quality")
 		}
 		t := &store.Task{
 			ID:            store.NewTaskID(),
-			Kind:          KindDownload,
+			Kind:          kind,
 			Source:        source,
 			SourceRef:     sourceRef,
 			Platform:      platform,
 			URL:           norm,
-			DedupeKey:     store.DedupeKey(KindDownload, platform, norm),
+			DedupeKey:     store.DedupeKey(kind, platform, norm),
 			Status:        StatusWaiting, // 回填：CreateTask 固定落 'waiting'
 			Quality:       quality,
 			SavePath:      it.SavePath,
@@ -361,6 +408,23 @@ func (m *Manager) Hub() *sse.Hub { return m.hub }
 
 // Engines 暴露引擎集（handler 自检/503 语义用）。
 func (m *Manager) Engines() *engine.Set { return m.engines }
+
+// SetCredentialResolver 注入凭据解析器（server 在 vault 就绪后调用）。
+func (m *Manager) SetCredentialResolver(r CredentialResolver) { m.creds = r }
+
+// Credentials 暴露凭据解析器（worker 取 cookie 用）。
+func (m *Manager) Credentials() CredentialResolver { return m.creds }
+
+// cookieWriter 返回 cookie 临时文件写入器（数据根 tmp 子目录）。
+func (m *Manager) cookieWriter() cookieFileWriter {
+	return cookieFileWriter{dir: filepath.Join(m.cfg.GetString("storage.data_dir"), "tmp")}
+}
+
+// SetExternalExecutor 注入 qB/115 外部通道执行器。
+func (m *Manager) SetExternalExecutor(e *ExternalExecutor) { m.external = e }
+
+// External 暴露外部通道执行器（server 路由用它做提交前可用性检查）。
+func (m *Manager) External() *ExternalExecutor { return m.external }
 
 // Preview 解析预览（POST /parse 行动作，不落库）。
 func (m *Manager) Preview(ctx context.Context, url string) (*store.ParsePreview, error) {

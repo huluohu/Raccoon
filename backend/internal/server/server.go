@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/huluohu/raccoon/internal/store"
 	"github.com/huluohu/raccoon/internal/subscription"
 	"github.com/huluohu/raccoon/internal/task"
+	"github.com/huluohu/raccoon/internal/tgbot"
 	"github.com/huluohu/raccoon/internal/web"
 )
 
@@ -42,6 +44,12 @@ type Server struct {
 	loginLimiter   *Limiter           // 登录限流（docs/04 §5：5 次/分钟/IP）
 	parseLimiter   *Limiter           // 解析限流（20 次/分钟/IP）
 	restartFn      func()             // 让出重启回调（main 注入）
+
+	// Telegram 通道状态（docs/08 W4.8）。
+	tgClient *tgbot.Client
+	tgCancel context.CancelFunc
+	tgMu     sync.Mutex
+	tgChats  map[string]int64 // taskID → chatID（任务终态时定向通知）
 }
 
 // New 构建 Server：router + 中间件链 + 路由注册。
@@ -69,6 +77,7 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	s.setupLive()
 	s.setupNotifications()
 	s.setupTokens()
+	s.setupIntegrations()
 	s.setupSystem()
 	s.registerRoutes()
 	return s, nil
