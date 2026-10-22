@@ -285,7 +285,12 @@ function fileName(f: TaskFile): string {
     <section class="td-sec td-sec--error">
       <h3 class="td-sec-title">错误与建议</h3>
       <template v-if="showError">
-        <p v-if="conclusion" class="td-conclusion">{{ conclusion }}</p>
+        <!-- 表情按状态取用（方案 §5）：取消 → cancelled（平静省略号嘴），
+             失败 → failed（眼罩歪斜）。取消不是「出错」，表情不能带指责味。 -->
+        <div class="td-conclusion-row">
+          <RaccoonFace :face="task.status === 'cancelled' ? 'cancelled' : 'failed'" :size="36" />
+          <p v-if="conclusion" class="td-conclusion">{{ conclusion }}</p>
+        </div>
         <dl class="td-kv">
           <dt>错误码</dt>
           <dd class="tnum">{{ task.error_code || '—' }}</dd>
@@ -394,7 +399,7 @@ function fileName(f: TaskFile): string {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
 }
 .td-files li {
   display: flex;
@@ -422,7 +427,7 @@ function fileName(f: TaskFile): string {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
 }
 .td-log {
   display: flex;
@@ -448,17 +453,25 @@ function fileName(f: TaskFile): string {
   align-items: center;
   gap: 8px;
   color: var(--text-3);
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
 }
 
+/* 结论行：表情 + 人话结论并排，表情 36px 与结论基线对齐。 */
+.td-conclusion-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
 .td-sec--error .td-conclusion {
-  margin: 0 0 8px;
-  font-size: var(--font-aux);
+  margin: 0;
+  font-size: var(--font-body);
   color: var(--danger);
+  line-height: 1.6;
 }
 .td-noerr {
   margin: 0;
-  font-size: var(--font-caption);
+  font-size: var(--font-body);
   color: var(--text-3);
 }
 .td-fix {

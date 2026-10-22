@@ -454,37 +454,40 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
-.page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
+/* 页面副标题是正文档（16px）。 */
+.page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .alert {
-  padding: 10px 14px;
-  margin-bottom: 14px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
   border-radius: var(--radius-ctrl);
   background: var(--gold-soft);
   border: 1px solid var(--border);
-  font-size: var(--font-aux);
+  font-size: var(--font-body);
   color: var(--text-2);
 }
 .alert--danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 
-.cred-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+/* 凭据网格：auto-fit 让空轨道塌陷（auto-fill 会给 1 个凭据也留 3 条轨道）。 */
+.cred-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
 
 /* 外部集成通道 */
-.integrations { margin-bottom: 18px; }
-.int-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.int-title { margin: 0; font-size: var(--font-title-3); font-weight: var(--weight-strong); }
-.int-sub { margin: 4px 0 0; font-size: var(--font-caption); color: var(--text-3); }
-.int-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.integrations { margin-bottom: 20px; }
+.int-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.int-title { margin: 0; font-size: var(--font-title-2); font-weight: var(--weight-strong); }
+.int-sub { margin: 6px 0 0; font-size: var(--font-body); color: var(--text-3); }
+.int-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
 .int-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
-  padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow-1);
+  padding: 20px 22px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow-1);
 }
 .int-card[data-state='ok'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
 .int-card[data-state='bad'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
 .int-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
-.int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: var(--weight-semibold); color: var(--text-2); }
+/* 通道状态：辅助档 13.5px（§2「12px 仅表头/徽章」；这是状态文字不是徽章）。 */
+.int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
 .int-glyph {
   width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
   font-size: var(--font-caption); font-weight: var(--weight-strong); color: #fff; background: var(--neutral);
@@ -495,19 +498,19 @@ onMounted(() => {
 .int-card[data-state='bad'] .int-glyph { background: var(--danger); }
 .int-card[data-state='unknown'] .int-state { color: var(--warning); }
 .int-card[data-state='unknown'] .int-glyph { background: var(--warning); }
-.int-desc { margin: 0; font-size: var(--font-aux); color: var(--text-2); }
-.int-detail { margin: 0; font-size: var(--font-caption); color: var(--text-3); word-break: break-word; }
-.int-test { margin: 0; font-size: var(--font-caption); }
+.int-desc { margin: 0; font-size: var(--font-body); color: var(--text-2); line-height: 1.7; }
+.int-detail { margin: 0; font-size: var(--font-aux); color: var(--text-3); word-break: break-word; }
+.int-test { margin: 0; font-size: var(--font-aux); }
 .int-test.ok { color: var(--success); }
 .int-test.bad { color: var(--danger); }
 .int-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
-.int-link { color: var(--text-3); font-size: var(--font-caption); text-decoration: none; }
+.int-link { color: var(--text-3); font-size: var(--font-aux); text-decoration: none; }
 .int-link:hover { color: var(--accent); }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 14px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -515,6 +518,7 @@ onMounted(() => {
 }
 .card-head { display: flex; align-items: center; gap: 8px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; margin-left: auto; }
+/* 状态徽章是辅助信息，caption(12px) 合规。 */
 .status { font-size: var(--font-caption); font-weight: var(--weight-semibold); }
 .kind {
   font-size: var(--font-caption);
@@ -524,27 +528,28 @@ onMounted(() => {
   padding: 1px 8px;
 }
 .card-label { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
-.meta { display: flex; flex-direction: column; gap: 4px; }
-.meta > div { display: flex; gap: 8px; font-size: var(--font-caption); }
-.meta dt { color: var(--text-3); width: 68px; flex-shrink: 0; }
+.meta { display: flex; flex-direction: column; gap: 6px; }
+.meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
+.meta dt { color: var(--text-3); width: 72px; flex-shrink: 0; }
 .meta dd { color: var(--text-2); }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.note { font-size: var(--font-caption); color: var(--text-3); }
-.check { font-size: var(--font-caption); }
+.note { font-size: var(--font-aux); color: var(--text-3); }
+.check { font-size: var(--font-aux); }
 .check.ok { color: var(--success); }
 .check.bad { color: var(--warning); }
-.card-foot { display: flex; gap: 6px; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--border); }
+.card-foot { display: flex; gap: 6px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
 
-.form { display: flex; flex-direction: column; gap: 14px; }
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
+.form { display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+/* 表单字段名：正文档 16px。 */
+.field-label { font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select, .field textarea {
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-ctrl);
   background: var(--bg);
   color: var(--text-1);
-  font-size: var(--font-aux);
+  font-size: var(--font-body);
   font-family: inherit;
   width: 100%;
   box-sizing: border-box;
@@ -552,6 +557,6 @@ onMounted(() => {
 .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
 .field input:disabled, .field select:disabled { opacity: 0.6; }
-.field-hint { font-size: var(--font-caption); color: var(--text-3); }
+.field-hint { font-size: var(--font-aux); color: var(--text-3); }
 .form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
 </style>

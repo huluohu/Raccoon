@@ -261,7 +261,8 @@ const waitReason = computed(() => {
   min-width: 0;
 }
 .tcard-title {
-  font-size: var(--font-aux);
+  /* 与 TaskRow 同口径：标题是主角，正文档 16px。 */
+  font-size: var(--font-body);
   font-weight: var(--weight-semibold);
   color: var(--text-1);
   overflow: hidden;
@@ -273,8 +274,8 @@ const waitReason = computed(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  font-size: var(--font-caption);
+  gap: 12px;
+  font-size: var(--font-aux);
   color: var(--text-3);
 }
 .tcard-wait {
@@ -282,7 +283,7 @@ const waitReason = computed(() => {
 }
 .tcard-err {
   margin: 0;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--danger);
 }
 
@@ -310,7 +311,7 @@ const waitReason = computed(() => {
   margin: 0;
   display: flex;
   gap: 10px;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--text-2);
 }
 .tcard-ops {

@@ -266,38 +266,43 @@ onMounted(load)
   border-radius: var(--radius-ctrl);
   background: var(--surface);
   color: var(--text-1);
-  font-size: var(--font-aux);
+  font-size: var(--font-body);
 }
 /* 展示形态切换（卡片 / 表格） */
 .view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctrl); overflow: hidden; }
 .vt-btn {
   padding: 8px 14px; border: none; background: var(--surface); color: var(--text-2);
-  font-size: var(--font-aux); cursor: pointer; transition: background 120ms ease-out, color 120ms ease-out;
+  font-size: var(--font-body); cursor: pointer; transition: background 120ms ease-out, color 120ms ease-out;
 }
 .vt-btn + .vt-btn { border-left: 1px solid var(--border); }
 .vt-btn.on { background: var(--accent); color: #fff; }
 .cell-name { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+/* 卡片网格：auto-fit 让空轨道塌陷。
+   auto-fill 在 1184px 宽下排 4 条 285px 轨道，文件只有 2 个时右侧空出 570px，
+   整页看着「东西全挤在左边」——这是比例失衡最直接的来源。 */
+.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .file-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow-1); display: flex; flex-direction: column; }
 .file-open { border: none; background: transparent; padding: 0; cursor: pointer; text-align: left; display: flex; flex-direction: column; }
-.file-thumb { height: 120px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--font-caption); }
+.file-thumb { height: 140px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--font-caption); }
 .file-thumb--video { background: linear-gradient(135deg, var(--accent-soft), var(--surface-2)); }
 .file-thumb--audio { background: linear-gradient(135deg, var(--gold-soft), var(--surface-2)); }
 .file-thumb-img { width: 100%; height: 100%; }
 .file-thumb-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.file-body { padding: 10px 12px 6px; }
-.file-name { font-size: var(--font-aux); color: var(--text-1); line-height: 1.4; max-height: 2.8em; overflow: hidden; margin-bottom: 6px; }
-.file-meta { display: flex; align-items: center; gap: 8px; font-size: var(--font-caption); color: var(--text-3); }
-.file-actions { display: flex; gap: 6px; padding: 0 8px 8px; }
-.skeleton-card { height: 180px; border-radius: var(--radius-card); background: var(--surface-2); }
+.file-body { padding: 12px 14px 8px; }
+/* 文件名是卡片主角：正文档 16px。 */
+.file-name { font-size: var(--font-body); color: var(--text-1); line-height: 1.5; max-height: 3em; overflow: hidden; margin-bottom: 8px; }
+.file-meta { display: flex; align-items: center; gap: 10px; font-size: var(--font-aux); color: var(--text-3); }
+.file-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
+.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
 .detail { display: flex; flex-direction: column; gap: 14px; }
 .detail-preview { background: var(--surface-2); border-radius: var(--radius-ctrl); overflow: hidden; }
 .detail-preview img, .detail-preview video { width: 100%; display: block; }
 .detail-preview audio { width: 100%; display: block; padding: 8px; }
-.detail-unsupported { background: var(--gold-soft); border-radius: var(--radius-ctrl); padding: 12px; font-size: var(--font-aux); color: var(--text-2); }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: var(--font-aux); }
+.detail-unsupported { background: var(--gold-soft); border-radius: var(--radius-ctrl); padding: 12px; font-size: var(--font-body); color: var(--text-2); }
+/* 详情键值：正文档 16px。 */
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: var(--font-body); }
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; color: var(--text-1); word-break: break-all; }
-.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-caption); color: var(--text-2); }
+.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-aux); color: var(--text-2); }
 </style>

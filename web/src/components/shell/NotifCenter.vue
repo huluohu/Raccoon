@@ -9,6 +9,7 @@ import { formatRelative } from '@/utils/format'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
+import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 
 const notif = useNotificationsStore()
 const router = useRouter()
@@ -27,6 +28,31 @@ const SEV_TONE: Record<string, string> = {
   success: 'var(--success)',
   warning: 'var(--warning)',
   error: 'var(--danger)',
+}
+
+/**
+ * 通知类型 → 浣熊表情（方案 §5「空态/通知/加载按状态取用」）。
+ *
+ * 映射依据是通知的实际语义，不是 severity：
+ *   task_done   → done     下载成功入库，「洗完码好了」
+ *   sub_new     → surprise 追更到货，「本集比预期大 3 倍」的彩蛋感
+ *   task_failed → failed   失败，「这单没成」
+ *   live_start  → working  直播开录，正在忙
+ *   disk_warn   → surprise 意外告警，也值得瞪大眼
+ * 其余（system/info）→ working，中性忙碌。
+ */
+const KIND_FACE: Record<string, 'waiting' | 'working' | 'done' | 'failed' | 'cancelled' | 'surprise'> = {
+  task_done: 'done',
+  task_failed: 'failed',
+  sub_new: 'surprise',
+  live_start: 'working',
+  disk_warn: 'surprise',
+  system: 'working',
+}
+
+/** 取通知对应表情；未知类型回落到 waiting（平静等一等），不硬编。 */
+function faceOf(kind: string) {
+  return KIND_FACE[kind] ?? 'waiting'
 }
 
 async function toggle() {
@@ -75,7 +101,7 @@ function goTask(taskId?: string) {
 
       <REmpty
         v-if="!notif.loading && notif.items.length === 0"
-        face="cancelled"
+        face="waiting"
         title="没有通知"
         hint="下载完成、失败、订阅更新、磁盘告警会出现在这里。"
       />
@@ -89,6 +115,7 @@ function goTask(taskId?: string) {
           @click="n.read ? goTask(n.task_id) : markOne(n.id)"
         >
           <span class="nbar" :style="{ background: SEV_TONE[n.severity] || 'var(--info)' }" aria-hidden="true" />
+          <RaccoonFace :face="faceOf(n.kind)" :size="30" class="nface" />
           <div class="nbody">
             <div class="nrow">
               <span class="nkind">{{ KIND_TEXT[n.kind] || n.kind }}</span>
@@ -147,7 +174,7 @@ function goTask(taskId?: string) {
   border-bottom: 1px solid var(--border);
 }
 .ncount { font-size: var(--font-caption); color: var(--text-3); }
-.nerr { font-size: var(--font-caption); color: var(--danger); margin-bottom: 8px; }
+.nerr { font-size: var(--font-body); color: var(--danger); margin-bottom: 8px; }
 
 .nlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .nitem {
@@ -161,6 +188,8 @@ function goTask(taskId?: string) {
 .nitem:hover { background: var(--surface-3); }
 .nitem.unread { background: var(--accent-softer); }
 .nbar { width: 3px; border-radius: 2px; flex-shrink: 0; }
+/* 通知行的浣熊表情：按通知类型取表情（§5）。flex-shrink 0 保证不被压扁。 */
+.nface { flex-shrink: 0; align-self: flex-start; }
 .nbody { flex: 1; min-width: 0; }
 .nrow { display: flex; align-items: center; gap: 6px; }
 .nkind {
@@ -172,10 +201,11 @@ function goTask(taskId?: string) {
 }
 .ntime { font-size: var(--font-caption); color: var(--text-3); }
 .ndot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
-.ntitle { margin-top: 3px; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); }
+/* 通知标题：正文档 16px，它是这一条通知要讲的事。 */
+.ntitle { margin-top: 4px; font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-1); }
 .ndesc {
-  margin-top: 2px;
-  font-size: var(--font-caption);
+  margin-top: 4px;
+  font-size: var(--font-aux);
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -185,11 +215,11 @@ function goTask(taskId?: string) {
   -webkit-box-orient: vertical;
 }
 .nlink {
-  margin-top: 4px;
+  margin-top: 6px;
   border: none;
   background: transparent;
   color: var(--accent);
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   cursor: pointer;
   padding: 0;
 }

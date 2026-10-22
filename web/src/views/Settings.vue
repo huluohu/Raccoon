@@ -5,7 +5,7 @@
 // 脏状态拦截（路由离开提示）+ 测试连接 + 历史回滚 + API Token 管理。
 //
 // 铁律：保存结果按接口返回的 effective_summary 展示，不在前端猜生效时机。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { api } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
@@ -55,6 +55,138 @@ const grouped = computed(() =>
     items: items.value.filter((i) => i.key.startsWith(g.key + '.') || i.key === g.key),
   })).filter((g) => g.items.length > 0),
 )
+
+/**
+ * 左分组导航的「当前分组」高亮（方案 §3「SettingsNav（左分组）」）。
+ *
+ * 为什么需要：设置页有 14 个分组、5400+px 高，锚点跳过去之后用户不知道自己在哪一段。
+ *
+ * 为什么不用 IntersectionObserver：
+ * 「相交就高亮」在这页是错的——分组卡片高 200–400px，视口里可能同时
+ * 没有任何分组相交（正卡在两张卡之间的空隙），此时高亮会突然消失；
+ * 用零高度哨兵也一样有边界问题（向上滚时多个哨兵同时相交，取谁都不对）。
+ *
+ * 用经典 scrollspy：判定线固定在视口顶部往下 140px，
+ * 高亮「判定线上方最后一个分组」。这样：
+ *   - 两组之间的空隙 → 保持上一个分组（不会突然没高亮）
+ *   - 向下滚 → 下一个分组越过判定线时切换
+ *   - 向上滚 → 上一个分组越过判定线时切换，方向天然正确
+ * 性能：scroll 事件里只排一次 rAF，一帧只读一次布局，不写样式，不触发 layout thrash。
+ *
+ * 光有判定线还不够，两个边界必须额外兜住（否则高亮会「卡住」）：
+ *
+ *   ① 页面底部：最后一个分组的 docTop 永远在「最大 scrollY + 判定线」之下，
+ *      判定线永远越不过它 → 滚到底部时高亮会停在上一个分组。
+ *      兜底：已经滚到底（scrollY + innerHeight >= scrollHeight）→ 直接高亮最后一个。
+ *   ② 锚点点击被底部截断：点击「API 令牌」时目标 docTop=5564，
+ *      但页面最大只能滚到 scrollHeight - innerHeight，目标被顶到视口 235px 处，
+ *      判定线（140px）同样选不中它 → 高亮停在「通道测试」。
+ *      兜底：点击时锁定到被点项（lockedId），被点项一旦滚出视口就自动解锁。
+ *      用户主动滚动（滚轮/触摸/方向键）同样解锁，避免锁定僵死。
+ */
+const activeSection = ref('account')
+/** rAF 句柄：保证一帧内最多算一次。 */
+let scrollRaf = 0
+/** 判定线：视口顶部往下多少像素算「当前分组」。 */
+const SPY_LINE = 140
+/** 点击导航后的锁定目标：锚点被页面底部截断时判定线选不中被点项，用它兜住。 */
+let lockedId: string | null = null
+
+/** 页面上的全部分组 id（顺序 = 导航项顺序 = 文档顺序）。 */
+function sectionIds(): string[] {
+  return ['account', ...grouped.value.map((g) => g.key), 'conn', 'tokens', 'history']
+}
+
+/** 算当前分组：判定线上方最后一个分组；页面到底时兜底到最后一个。 */
+function updateActiveSection(): void {
+  scrollRaf = 0
+  const ids = sectionIds()
+  if (!ids.length) return
+
+  // 只认「已经在 DOM 里」的分组：grouped 是异步加载的，
+  // 拿还没渲染的 id 当兜底目标会高亮到一个看不见的分组上。
+  const present = ids.filter((id) => document.getElementById(id) !== null)
+  if (!present.length) return
+
+  // ① 点击锁定：被点项只要还在视口里，就以它为准（锚点被底部截断时判定线选不中它）
+  if (lockedId && present.includes(lockedId)) {
+    const el = document.getElementById(lockedId)!
+    const r = el.getBoundingClientRect()
+    if (r.top < window.innerHeight && r.bottom > 0) {
+      activeSection.value = lockedId
+      return
+    }
+    lockedId = null
+  }
+
+  // ② 页面底部兜底：最后一个分组永远越不过判定线，直接高亮最后一个
+  //    注意要排除「内容还没撑开」的情况：首帧 scrollHeight 可能还是 0，
+  //    此时 innerHeight + 0 >= 0 - 2 恒成立 → 会误高亮到最后一个分组。
+  const docH = document.documentElement.scrollHeight
+  const atBottom =
+    docH > window.innerHeight + 2 && window.innerHeight + window.scrollY >= docH - 2
+  if (atBottom) {
+    activeSection.value = present[present.length - 1]
+    return
+  }
+
+  // ③ 判定线：取「判定线上方最后一个分组」
+  let current = present[0]
+  for (const id of present) {
+    const el = document.getElementById(id)!
+    if (el.getBoundingClientRect().top <= SPY_LINE) {
+      current = id
+    } else {
+      // 文档顺序，越过判定线的第一个就是「线上方最后一个」；
+      // 后面的分组只会更靠下，不用再算。
+      break
+    }
+  }
+  if (current) activeSection.value = current
+}
+
+/** scroll 回调：只排 rAF，不直接算。 */
+function onScroll(): void {
+  if (scrollRaf) return
+  scrollRaf = window.requestAnimationFrame(updateActiveSection)
+}
+
+/** 用户主动滚动（滚轮/触摸/方向键）→ 解除点击锁定，让 scrollspy 重新接管。 */
+function releaseLock(): void {
+  if (!lockedId) return
+  lockedId = null
+  updateActiveSection()
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', ' '].includes(e.key)) {
+    releaseLock()
+  }
+}
+
+/** 点击导航项：锁定到被点项，并让浏览器执行锚点跳转。 */
+function pickSection(id: string): void {
+  lockedId = id
+  activeSection.value = id
+}
+
+watch(grouped, () => nextTick(updateActiveSection), { immediate: true })
+onMounted(() => {
+  window.addEventListener('scroll', onScroll, { passive: true })
+  window.addEventListener('resize', onScroll)
+  window.addEventListener('wheel', releaseLock, { passive: true })
+  window.addEventListener('touchmove', releaseLock, { passive: true })
+  window.addEventListener('keydown', onKeydown)
+  updateActiveSection()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onScroll)
+  window.removeEventListener('resize', onScroll)
+  window.removeEventListener('wheel', releaseLock)
+  window.removeEventListener('touchmove', releaseLock)
+  window.removeEventListener('keydown', onKeydown)
+  if (scrollRaf) window.cancelAnimationFrame(scrollRaf)
+})
 
 const isDirty = computed(() => dirtyKeys.value.size > 0)
 
@@ -358,11 +490,39 @@ onMounted(load)
 
     <template v-else>
       <div class="layout">
-        <nav class="side-nav">
-          <a href="#account" class="side-link">账号</a>
-          <a v-for="g in grouped" :key="g.key" :href="'#' + g.key" class="side-link">{{ g.label }}</a>
-          <a href="#tokens" class="side-link">API 令牌</a>
-          <a href="#history" class="side-link">配置历史</a>
+        <nav class="side-nav" aria-label="设置分组">
+          <a
+            href="#account"
+            class="side-link"
+            :class="{ on: activeSection === 'account' }"
+            @click="pickSection('account')"
+          >账号</a>
+          <a
+            v-for="g in grouped"
+            :key="g.key"
+            :href="'#' + g.key"
+            class="side-link"
+            :class="{ on: activeSection === g.key }"
+            @click="pickSection(g.key)"
+          >{{ g.label }}</a>
+          <a
+            href="#conn"
+            class="side-link"
+            :class="{ on: activeSection === 'conn' }"
+            @click="pickSection('conn')"
+          >通道测试</a>
+          <a
+            href="#tokens"
+            class="side-link"
+            :class="{ on: activeSection === 'tokens' }"
+            @click="pickSection('tokens')"
+          >API 令牌</a>
+          <a
+            href="#history"
+            class="side-link"
+            :class="{ on: activeSection === 'history' }"
+            @click="pickSection('history')"
+          >配置历史</a>
         </nav>
 
         <div class="content">
@@ -625,43 +785,56 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .dirty-dot { color: var(--warning); font-size: var(--font-aux); }
-.layout { display: grid; grid-template-columns: 150px 1fr; gap: 20px; align-items: start; }
-.side-nav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; }
-.side-link { padding: 6px 10px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-aux); }
+/* 左分组导航：方案 §3「SettingsNav（左分组）」。列宽抬到 180px，
+   条目字号提回 16px——原来 150px/13.5px，条目又窄又小，一眼看不出是导航。 */
+.layout { display: grid; grid-template-columns: 180px 1fr; gap: 28px; align-items: start; }
+.side-nav {
+  position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px;
+  max-height: calc(100vh - 32px); overflow-y: auto;
+}
+.side-link {
+  padding: 8px 12px; border-radius: var(--radius-ctrl); color: var(--text-2);
+  text-decoration: none; font-size: var(--font-body); line-height: 1.4;
+  border-left: 3px solid transparent; transition: background 120ms ease-out, color 120ms ease-out;
+}
 .side-link:hover { background: var(--surface-2); color: var(--text-1); }
+.side-link.on { background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-semibold); border-left-color: var(--gold); }
 
 /* 账号分组：左侧说明当前值，右侧表单；窄屏折成上下两行 */
 .acct-row {
   display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
-  padding: 12px 0; border-top: 1px solid var(--border);
+  padding: 14px 0; border-top: 1px solid var(--border);
 }
 .acct-row:first-of-type { border-top: none; }
-.acct-meta { flex: 0 0 180px; display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
-.acct-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); }
-.acct-cur { font-size: var(--font-caption); color: var(--text-3); }
-.acct-form { flex: 1; min-width: 260px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.acct-meta { flex: 0 0 180px; display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.acct-label { font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-1); }
+.acct-cur { font-size: var(--font-aux); color: var(--text-3); }
+.acct-form { flex: 1; min-width: 260px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .acct-field { flex: 1 1 180px; min-width: 0; }
-.group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; margin-bottom: 16px; box-shadow: var(--shadow-1); }
-.group-title { font-size: var(--font-title-3); font-weight: var(--weight-strong); margin-bottom: 4px; }
-.group-desc { font-size: var(--font-aux); color: var(--text-3); margin-bottom: 12px; }
-.setting { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px 24px; margin-bottom: 18px; box-shadow: var(--shadow-1); }
+.group-title { font-size: var(--font-title-2); font-weight: var(--weight-strong); margin-bottom: 6px; }
+/* 分组说明是正文档：它解释这组配置管什么，用户不看就改不了。 */
+.group-desc { font-size: var(--font-body); color: var(--text-3); margin-bottom: 16px; line-height: 1.7; }
+.setting { padding: 14px 0; border-bottom: 1px solid var(--border); }
 .setting:last-child { border-bottom: none; }
 .setting-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.setting-key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-aux); color: var(--text-1); }
-.setting-desc { font-size: var(--font-caption); color: var(--text-3); margin: 2px 0 8px; }
+/* 配置项名（等宽键名）：正文档 16px，它是这一行的主角。 */
+.setting-key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-body); color: var(--text-1); }
+/* 配置项说明：辅助档 13.5px。 */
+.setting-desc { font-size: var(--font-aux); color: var(--text-3); margin: 4px 0 10px; line-height: 1.6; }
 .setting-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.setting-default { font-size: var(--font-caption); color: var(--text-3); }
+.setting-default { font-size: var(--font-aux); color: var(--text-3); }
 .input {
-  padding: 7px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-ctrl);
   background: var(--surface);
   color: var(--text-1);
-  font-size: var(--font-aux);
+  font-size: var(--font-body);
   min-width: 180px;
 }
 .input:disabled { background: var(--surface-2); color: var(--text-3); }
@@ -682,7 +855,7 @@ onMounted(load)
 .conn-result.bad { color: var(--danger); }
 .token-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .token-plain { display: flex; align-items: center; gap: 8px; background: var(--gold-soft); padding: 8px 10px; border-radius: var(--radius-ctrl); margin-bottom: 12px; }
-.token-plain code { flex: 1; font-size: var(--font-caption); word-break: break-all; color: var(--text-1); }
+.token-plain code { flex: 1; font-size: var(--font-aux); word-break: break-all; color: var(--text-1); }
 .token-list, .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .token-row, .history-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; background: var(--surface-2); border-radius: var(--radius-ctrl); }
 .token-main, .history-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--font-aux); }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises } from '@vue/test-utils'
 import { mountView, mountViewWithRouter } from '@/test/mount'
 import Settings from '@/views/Settings.vue'
@@ -559,6 +559,120 @@ describe('Settings 账号', () => {
     expect(confirmSpy).toHaveBeenCalled()
     expect(router.currentRoute.value.path).toBe('/settings')
     confirmSpy.mockRestore()
+  })
+})
+
+// ---- 左分组导航 scrollspy（docs/07 §3 SettingsNav）----
+describe('Settings 左分组导航', () => {
+  /** jsdom 不做布局，getBoundingClientRect 全是 0，这里按 id 打桩。 */
+  function stubTops(tops: Record<string, number>): void {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const id = this.id
+      const top = tops[id] ?? 9999
+      return { top, bottom: top + 200, left: 0, right: 0, width: 0, height: 200, x: 0, y: top, toJSON: () => ({}) } as DOMRect
+    })
+  }
+
+  function activeLabel(w: any): string {
+    return w.find('.side-link.on').text().trim()
+  }
+
+  beforeEach(() => {
+    // 默认：不滚到底部（否则会命中「底部兜底」分支）
+    Object.defineProperty(document.documentElement, 'scrollHeight', { value: 10000, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true })
+    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true })
+    window.scrollTo = vi.fn() as any
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('默认高亮第一个分组（账号）', async () => {
+    stubTops({ account: 100, storage: 500, download: 1100, history: 5800 })
+    const w = mountSettings()
+    await flushPromises()
+    expect(activeLabel(w)).toBe('账号')
+  })
+
+  it('首帧内容还没撑开（scrollHeight=0）时不能误高亮到最后一个分组', async () => {
+    // 实测坑：首帧 documentElement.scrollHeight 还是 0，
+    // 「innerHeight + scrollY >= scrollHeight - 2」恒成立 → 误高亮「配置历史」。
+    Object.defineProperty(document.documentElement, 'scrollHeight', { value: 0, configurable: true })
+    stubTops({ account: 100, storage: 500, download: 1100, conn: 5000, tokens: 5200, history: 5800 })
+    const w = mountSettings()
+    await flushPromises()
+    expect(activeLabel(w)).toBe('账号')
+  })
+
+  it('滚到存储分组时，高亮跟着切到「存储」', async () => {
+    stubTops({ account: -800, storage: 100, download: 1100, history: 5800 })
+    const w = mountSettings()
+    await flushPromises()
+    window.dispatchEvent(new Event('scroll'))
+    await new Promise((r) => setTimeout(r, 40))
+    expect(activeLabel(w)).toBe('存储')
+  })
+
+  it('滚到底部时兜底高亮最后一个分组（配置历史）', async () => {
+    stubTops({ account: -5600, storage: -5400, download: -4600, history: 484 })
+    // 滚到底：scrollY + innerHeight >= scrollHeight
+    Object.defineProperty(window, 'scrollY', { value: 9100, configurable: true })
+    const w = mountSettings()
+    await flushPromises()
+    window.dispatchEvent(new Event('scroll'))
+    await new Promise((r) => setTimeout(r, 40))
+    expect(activeLabel(w)).toBe('配置历史')
+  })
+
+  it('点击导航项后即使锚点被页面底部截断，高亮也锁在被点项上', async () => {
+    // 模拟实测场景：tokens docTop=5564，但页面最大只能滚到 5329，
+    // 目标被顶到视口 235px 处，判定线（140px）选不中它 → 必须靠点击锁定兜住。
+    stubTops({ account: -5174, storage: -4820, download: -4206, conn: 60, tokens: 235, history: 484 })
+    Object.defineProperty(window, 'scrollY', { value: 5329, configurable: true })
+    const w = mountSettings()
+    await flushPromises()
+
+    const tokensLink = w.findAll('.side-link').find((a: any) => a.text().includes('API 令牌'))!
+    await tokensLink.trigger('click')
+    await flushPromises()
+
+    expect(activeLabel(w)).toBe('API 令牌')
+  })
+
+  it('用户主动滚动后解除点击锁定，高亮重新交给 scrollspy', async () => {
+    stubTops({ account: -800, storage: 100, download: 1100, conn: 3000, tokens: 3200, history: 3400 })
+    const w = mountSettings()
+    await flushPromises()
+
+    const tokensLink = w.findAll('.side-link').find((a: any) => a.text().includes('API 令牌'))!
+    await tokensLink.trigger('click')
+    await flushPromises()
+    expect(activeLabel(w)).toBe('API 令牌')
+
+    // 用户滚轮滚动 → 解锁 + scrollspy 接管（此时 storage 在判定线上方）
+    stubTops({ account: -800, storage: 100, download: 1100, conn: 3000, tokens: 3200, history: 3400 })
+    window.dispatchEvent(new Event('wheel'))
+    await new Promise((r) => setTimeout(r, 40))
+    expect(activeLabel(w)).toBe('存储')
+  })
+
+  it('点击锁定不会让被点项永久卡住：被点项滚出视口后自动解锁', async () => {
+    stubTops({ account: -800, storage: 100, download: 1100, conn: 3000, tokens: 3200, history: 3400 })
+    const w = mountSettings()
+    await flushPromises()
+
+    const tokensLink = w.findAll('.side-link').find((a: any) => a.text().includes('API 令牌'))!
+    await tokensLink.trigger('click')
+    await flushPromises()
+    expect(activeLabel(w)).toBe('API 令牌')
+
+    // tokens 已经滚出视口（top 远小于 0），判定线选中最新的 storage
+    stubTops({ account: -900, storage: 60, download: 1100, conn: 3000, tokens: -200, history: 3400 })
+    window.dispatchEvent(new Event('scroll'))
+    await new Promise((r) => setTimeout(r, 40))
+    expect(activeLabel(w)).toBe('存储')
   })
 })
 

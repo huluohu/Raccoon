@@ -139,7 +139,14 @@ const waitReason = computed(() => {
         <span class="tnum trow-speed">{{ formatSpeed(task.speed_bps) }}</span>
         <span class="tnum trow-size">{{ formatBytes(task.downloaded_size) }}</span>
       </template>
-      <slot name="actions" :task="task" />
+
+      <!-- 行内操作区：横排一行，不和数据叠成竖列。
+           竖排时「速度 / 大小 / 取消 / 重试 / 删除」挤成一摞，右侧栏宽被撑到
+           120px，主内容区反而被挤窄——一行任务的视觉重心全跑到了右边。
+           这里给操作区单独一行横排：数据在上，动作在下，各自成行。 -->
+      <div v-if="$slots.actions" class="trow-ops">
+        <slot name="actions" :task="task" />
+      </div>
     </div>
   </li>
 </template>
@@ -230,20 +237,25 @@ const waitReason = computed(() => {
   min-width: 0;
 }
 .trow-title {
-  font-size: var(--font-aux);
+  /* 任务标题是列表行的主角：正文档 16px。
+     原来用 aux(13.5px)，整列任务标题跟元信息大不了多少，
+     扫一眼分不清「标题」和「补充说明」——列表就没有主次。 */
+  font-size: var(--font-body);
   font-weight: var(--weight-semibold);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 元信息（清晰度 / 时间 / 重试次数）：辅助档 13.5px。
+   它是给标题做补充的，不该跟标题抢视线。 */
 .trow-meta {
   margin: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  font-size: var(--font-caption);
+  gap: 12px;
+  font-size: var(--font-aux);
   color: var(--text-3);
 }
 .trow-wait {
@@ -251,18 +263,30 @@ const waitReason = computed(() => {
 }
 .trow-err {
   margin: 0;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--danger);
 }
 
+/* 右侧列：数据（速度/大小/子项计数）在上，操作区在下，各占一行。
+   align-items: flex-end 让数字右对齐成一条竖线。 */
 .trow-side {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
-  font-size: var(--font-caption);
+  gap: 6px;
+  font-size: var(--font-aux);
   color: var(--text-2);
+}
+/* 行内操作区：横排。三个动作挤成一竖列会把右侧栏撑到 120px，
+   主内容区被挤窄，整行的视觉重心跑到右边去了。 */
+.trow-ops {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .trow-child {
   margin: 0;

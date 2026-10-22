@@ -10,6 +10,7 @@ import { errorText, formatRelative } from '@/utils/format'
 import type { ParsePreview, Subscription, SubscriptionItem } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
+import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 
@@ -363,41 +364,59 @@ onMounted(load)
     <!-- 已发现内容 -->
     <DetailDrawer :open="detailId !== ''" :title="detail?.title || '已发现内容'" @close="detailId = ''">
       <p v-if="detailLoading" class="field-hint">加载中…</p>
-      <p v-else-if="detailItems.length === 0" class="field-hint">
-        还没有发现内容。点「立即检查」拉一次来源。
-      </p>
-      <table v-else class="tbl">
-        <thead>
-          <tr><th>标题</th><th>状态</th><th>发现时间</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="it in detailItems" :key="it.id">
-            <td class="ttl">{{ it.title || it.item_id }}</td>
-            <td><span class="st" :style="{ color: ITEM_TONE[it.status] }">{{ ITEM_STATUS[it.status] || it.status }}</span></td>
-            <td class="tnum">{{ formatRelative(it.discovered_at) }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <REmpty
+        v-else-if="detailItems.length === 0"
+        face="waiting"
+        title="还没发现内容"
+        hint="点「立即检查」拉一次来源，有新片就能追。"
+      />
+      <div v-else class="found-list">
+        <!-- 追更到货：方案 §5「surprise — 彩蛋、追更到货」。
+             到货时用惊喜表情 + 数字事实（比预期大几倍），这是浣熊人格最该出现的时刻。 -->
+        <div class="found-banner">
+          <RaccoonFace face="surprise" :size="44" />
+          <div>
+            <p class="found-title">追更到了！</p>
+            <p class="found-hint">
+              本次发现 {{ detailItems.length }} 条，其中待处理
+              {{ detailItems.filter((i) => i.status === 'pending' || i.status === 'queued').length }} 条。
+            </p>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead>
+            <tr><th>标题</th><th>状态</th><th>发现时间</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="it in detailItems" :key="it.id">
+              <td class="ttl">{{ it.title || it.item_id }}</td>
+              <td><span class="st" :style="{ color: ITEM_TONE[it.status] }">{{ ITEM_STATUS[it.status] || it.status }}</span></td>
+              <td class="tnum">{{ formatRelative(it.discovered_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </DetailDrawer>
   </section>
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
-.page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
-.alert { padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-aux); }
+/* 页面副标题是正文档（16px），不是脚注。 */
+.page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
+.alert { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-body); }
 .alert--danger { border-color: var(--danger); color: var(--danger); }
 
-.sub-list { display: flex; flex-direction: column; gap: 12px; }
+.sub-list { display: flex; flex-direction: column; gap: 14px; }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 14px 16px;
+  padding: 18px 22px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   box-shadow: var(--shadow-1);
 }
 .card.off { opacity: 0.66; }
@@ -421,7 +440,8 @@ onMounted(load)
   border: 1px solid var(--gold);
 }
 .card-title { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
-.card-url { font-size: var(--font-caption); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 订阅源 URL：辅助档 13.5px（URL 是路径原文，不是主信息）。 */
+.card-url { font-size: var(--font-aux); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .counts { display: flex; gap: 8px; flex-wrap: wrap; }
 .cnt { font-size: var(--font-caption); padding: 1px 8px; border-radius: var(--radius-pill); background: var(--surface-2); color: var(--text-2); }
@@ -429,36 +449,50 @@ onMounted(load)
 .cnt.queued { color: var(--info); }
 .cnt.failed { color: var(--danger); }
 .cnt.skip { color: var(--text-3); }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 4px 16px; }
-.meta > div { display: flex; gap: 8px; font-size: var(--font-caption); }
-.meta dt { color: var(--text-3); width: 56px; flex-shrink: 0; }
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 20px; }
+/* 元信息（上次检查/下次/画质/周期）：辅助档 13.5px。 */
+.meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
+.meta dt { color: var(--text-3); width: 60px; flex-shrink: 0; }
 .meta dd { color: var(--text-2); }
-.err-note { font-size: var(--font-caption); color: var(--danger); }
-.card-foot { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--border); }
+.err-note { font-size: var(--font-aux); color: var(--danger); }
+.card-foot { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
 
-.form { display: flex; flex-direction: column; gap: 14px; }
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
+.form { display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+/* 表单字段名：正文档 16px。 */
+.field-label { font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select, .field textarea {
-  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
-  background: var(--bg); color: var(--text-1); font-size: var(--font-aux); font-family: inherit;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
+  background: var(--bg); color: var(--text-1); font-size: var(--font-body); font-family: inherit;
   width: 100%; box-sizing: border-box;
 }
 .field textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.field-hint { font-size: var(--font-caption); color: var(--text-3); }
+.field-hint { font-size: var(--font-aux); color: var(--text-3); }
 .preview-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.preview-box { padding: 10px 12px; border-radius: var(--radius-ctrl); background: var(--surface-2); border: 1px solid var(--border); }
-.pv-title { font-size: var(--font-aux); font-weight: var(--weight-medium); margin-bottom: 6px; }
-.pv-meta { display: flex; flex-direction: column; gap: 3px; }
-.pv-meta > div { display: flex; gap: 8px; font-size: var(--font-caption); }
-.pv-meta dt { color: var(--text-3); width: 40px; }
-.range-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.preview-box { padding: 12px 14px; border-radius: var(--radius-ctrl); background: var(--surface-2); border: 1px solid var(--border); }
+.pv-title { font-size: var(--font-body); font-weight: var(--weight-medium); margin-bottom: 8px; }
+.pv-meta { display: flex; flex-direction: column; gap: 4px; }
+.pv-meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
+.pv-meta dt { color: var(--text-3); width: 44px; }
+.range-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 
-.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-caption); }
-.tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); padding: 6px 8px; border-bottom: 1px solid var(--border); }
-.tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); }
+/* 追更到货横幅：surprise 表情 + 数字事实（方案 §5）。 */
+.found-list { display: flex; flex-direction: column; gap: 14px; }
+.found-banner {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: var(--radius-card);
+  background: var(--gold-soft); border: 1px solid var(--gold);
+}
+.found-title { margin: 0; font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
+.found-hint { margin: 4px 0 0; font-size: var(--font-body); color: var(--text-2); line-height: 1.6; }
+
+/* 表格：表头 caption(12px)，表体 body(16px)。
+   原来整张表都是 12px，表格密密麻麻一坨，完全看不出是数据表。 */
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-body); }
+.tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); font-size: var(--font-caption); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text-2); }
 .tbl .ttl { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
 .tbl .tnum { white-space: nowrap; }
 .st { font-weight: var(--weight-semibold); }

@@ -215,7 +215,7 @@ function onClear() {
 }
 .rinput-msg {
   margin: 0;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--text-3);
 }
 .rinput-msg--error {

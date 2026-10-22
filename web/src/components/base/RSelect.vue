@@ -219,7 +219,7 @@ function onClear() {
 }
 .rselect-msg {
   margin: 0;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--text-3);
 }
 .rselect-msg--error {

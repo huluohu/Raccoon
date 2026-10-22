@@ -351,16 +351,17 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
-.page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
+/* 页面副标题是正文档（16px）。 */
+.page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .platform-note {
-  font-size: var(--font-caption);
+  font-size: var(--font-body);
   color: var(--text-3);
-  margin-bottom: 14px;
+  margin-bottom: 16px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .chip {
@@ -372,18 +373,18 @@ onMounted(load)
   border: 1px solid var(--gold);
 }
 .chip--off { background: var(--surface-2); color: var(--text-3); border-color: var(--border); }
-.alert { padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-aux); }
+.alert { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-body); }
 .alert--danger { border-color: var(--danger); color: var(--danger); }
 
-.live-list { display: flex; flex-direction: column; gap: 12px; }
+.live-list { display: flex; flex-direction: column; gap: 14px; }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
-  padding: 14px 16px;
+  padding: 18px 22px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   box-shadow: var(--shadow-1);
 }
 .card.off { opacity: 0.66; }
@@ -399,31 +400,33 @@ onMounted(load)
   padding: 1px 8px;
 }
 .card-title { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
-.card-url { font-size: var(--font-caption); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-url { font-size: var(--font-aux); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 4px 16px; }
-.meta > div { display: flex; gap: 8px; font-size: var(--font-caption); }
-.meta dt { color: var(--text-3); width: 56px; flex-shrink: 0; }
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 20px; }
+.meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
+.meta dt { color: var(--text-3); width: 60px; flex-shrink: 0; }
 .meta dd { color: var(--text-2); }
-.err-note { font-size: var(--font-caption); color: var(--danger); }
-.card-foot { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid var(--border); }
+.err-note { font-size: var(--font-aux); color: var(--danger); }
+.card-foot { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--border); }
 
-.form { display: flex; flex-direction: column; gap: 14px; }
-.field { display: flex; flex-direction: column; gap: 5px; }
-.field-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-2); }
+.form { display: flex; flex-direction: column; gap: 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+/* 表单字段名：正文档 16px。 */
+.field-label { font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-2); }
 .field input, .field select {
-  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
-  background: var(--bg); color: var(--text-1); font-size: var(--font-aux); font-family: inherit;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
+  background: var(--bg); color: var(--text-1); font-size: var(--font-body); font-family: inherit;
   width: 100%; box-sizing: border-box;
 }
 .field input:focus, .field select:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.field-hint { font-size: var(--font-caption); color: var(--text-3); }
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.field-hint { font-size: var(--font-aux); color: var(--text-3); }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
 
-.hist-sum { font-size: var(--font-aux); color: var(--text-2); margin-bottom: 10px; }
-.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-caption); }
-.tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); padding: 6px 8px; border-bottom: 1px solid var(--border); }
-.tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border); color: var(--text-2); }
+.hist-sum { font-size: var(--font-body); color: var(--text-2); margin-bottom: 12px; }
+/* 表格：表头 caption(12px)，表体 body(16px)。 */
+.tbl { width: 100%; border-collapse: collapse; font-size: var(--font-body); }
+.tbl th { text-align: left; color: var(--text-3); font-weight: var(--weight-caption); font-size: var(--font-caption); padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.tbl td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text-2); }
 .tbl .tnum { white-space: nowrap; }
 </style>

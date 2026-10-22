@@ -15,9 +15,9 @@ import { ApiError } from '@/api/types'
 import { errorText, formatBytes, formatDuration } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
 import RDialog from '@/components/base/RDialog.vue'
-import RInput from '@/components/base/RInput.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
+import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import TaskCard from '@/components/task/TaskCard.vue'
 import TaskRow from '@/components/task/TaskRow.vue'
@@ -69,22 +69,6 @@ async function onAddToDownload() {
   }
 }
 
-async function onQuickSubmit() {
-  const target = url.value.trim()
-  if (!target || submitting.value) return
-  submitting.value = true
-  parseErr.value = ''
-  try {
-    await tasks.submit(target)
-    url.value = ''
-    preview.value = null
-    toast.success('已加入下载队列')
-  } catch (e) {
-    parseErr.value = errorText(e, '提交失败')
-  } finally {
-    submitting.value = false
-  }
-}
 
 // ---- 批量导入（多行链接 → 拆行去重 → 逐条解析预览 → 普通入队 / 建父子任务）----
 
@@ -538,21 +522,29 @@ onBeforeUnmount(() => {
 
     <p v-if="tasks.warning" class="alert">{{ tasks.warning }}</p>
 
-    <!-- 提交区 -->
+    <!-- 解析预览区（方案 §3：/tasks 的关键组件是 TaskList + TaskDetail，
+         提交入口是全局顶栏 QuickSubmit）。这里只放「先看看有什么清晰度再选」的
+         独有能力——一步到位的直接下载走顶栏，不在页面里重复一个同功能按钮，
+         否则用户会对着两个「下载」犹豫该点哪个。
+         错误分两类：解析/列表这类页面级错误走下方 .err 段落（带重试上下文），
+         提交框自身的校验错误交给 QuickSubmit 内联。 -->
     <div class="submit">
-      <RInput
+      <p class="submit-label">先解析看看清晰度（要直接下就把链接贴到顶栏）</p>
+      <QuickSubmit
         v-model="url"
-        id="task-url-input"
-        type="url"
-        label="任务链接"
+        input-id="task-url-input"
+        actions-layout="row"
         placeholder="粘贴视频 / 音频 / 合集链接，支持 B 站、YouTube 等 yt-dlp 可解析站点"
-        @keyup.enter="onPreview"
-      />
-      <RButton :disabled="submitting || !url.trim()" @click="onPreview">解析预览</RButton>
-      <RButton variant="accent" :disabled="submitting || !url.trim()" @click="onQuickSubmit">直接下载</RButton>
-      <RButton variant="ghost" @click="batchOpen = !batchOpen">
-        {{ batchOpen ? '收起批量导入' : '批量导入' }}
-      </RButton>
+        :submitting="submitting"
+        @submit="onPreview"
+      >
+        <template #actions="{ submit, disabled }">
+          <RButton variant="accent" :disabled="disabled" @click="submit">解析预览</RButton>
+          <RButton variant="ghost" @click="batchOpen = !batchOpen">
+            {{ batchOpen ? '收起批量导入' : '批量导入' }}
+          </RButton>
+        </template>
+      </QuickSubmit>
     </div>
     <p v-if="parseErr" class="err">{{ parseErr }}</p>
     <p v-else-if="tasks.error" class="err">{{ tasks.error }}</p>
@@ -845,10 +837,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 14px; }
+.page { display: flex; flex-direction: column; gap: 18px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .page-title { margin: 0; font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
-.page-sub { margin: 6px 0 0 16px; font-size: var(--font-aux); color: var(--text-2); }
+/* 页面副标题是正文档（16px）：它解释这页在干什么，不是脚注。 */
+.page-sub { margin: 6px 0 0 16px; font-size: var(--font-body); color: var(--text-2); }
 .conn {
   display: flex; align-items: center; gap: 6px; font-size: var(--font-caption); color: var(--text-2);
   padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface);
@@ -857,25 +850,27 @@ onBeforeUnmount(() => {
 .conn.ok .dot { background: var(--success); }
 .conn.off .dot { background: var(--danger); }
 .alert {
-  margin: 0; padding: 8px 12px; border-radius: var(--radius-ctrl);
-  background: var(--gold-soft); color: var(--gold-strong); font-size: var(--font-aux);
+  margin: 0; padding: 10px 14px; border-radius: var(--radius-ctrl);
+  background: var(--gold-soft); color: var(--gold-strong); font-size: var(--font-body);
 }
-.err { margin: 0; color: var(--danger); font-size: var(--font-aux); }
-.muted { color: var(--text-3); font-size: var(--font-caption); }
+.err { margin: 0; color: var(--danger); font-size: var(--font-body); }
+.muted { color: var(--text-3); font-size: var(--font-aux); }
 .tnum { font-variant-numeric: tabular-nums; }
 
 /* 卡片通用 */
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
-  box-shadow: var(--shadow-1); padding: 12px 14px;
+  box-shadow: var(--shadow-1); padding: 16px 20px;
 }
-.card-title { margin: 0; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); }
+/* 卡片标题 18px（--font-title-3）。原来 13.5px 和正文同级，标题没有层级。 */
+.card-title { margin: 0; font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
 
-/* 提交区（RInput 自带标签常驻，按钮与输入框底对齐）。
+/* 提交区：QuickSubmit 组件（标签/输入/按钮一体）。
    输入框不随内容区无限拉宽：URL 输入 640px 足够展示长链接，
    再宽只会把按钮挤到屏幕尽头、整行比例失衡。 */
-.submit { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
-.submit .rinput { flex: 1 1 420px; min-width: 260px; max-width: 640px; }
+.submit { display: flex; flex-direction: column; gap: 8px; }
+/* 区域说明：正文档 16px，一句话说清这块是干什么的（和顶栏的分工）。 */
+.submit-label { margin: 0; font-size: var(--font-body); color: var(--text-2); }
 
 /* 预览卡 */
 .preview { display: flex; gap: 14px; }
@@ -884,11 +879,12 @@ onBeforeUnmount(() => {
 .thumb.ph { display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--font-caption); }
 .pv-body { flex: 1; min-width: 0; }
 .pv-title { margin: 0 0 6px; font-weight: var(--weight-medium); font-size: var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pv-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-caption); color: var(--text-2); }
+.pv-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-aux); color: var(--text-2); }
 .qualities { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 清晰度选项：可点按钮，辅助档 13.5px（12px 是给不可点的表头/徽章的）。 */
 .q {
-  padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
-  background: var(--surface); font-size: var(--font-caption); color: var(--text-2); cursor: pointer;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
+  background: var(--surface); font-size: var(--font-aux); color: var(--text-2); cursor: pointer;
 }
 .q em { font-style: normal; margin-left: 6px; color: var(--text-3); }
 .q.on { border-color: var(--gold); background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-medium); }
@@ -912,8 +908,9 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-ctrl); border: 1px solid var(--border);
 }
 .bi-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.bi-title { margin: 0; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.bi-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--font-caption); color: var(--text-2); }
+/* 批量导入条目的链接是用户要读的主信息，正文档 16px。 */
+.bi-title { margin: 0; font-size: var(--font-body); font-weight: var(--weight-medium); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-aux); color: var(--text-2); }
 .bi-err { color: var(--danger); }
 
 /* 筛选 */
@@ -922,7 +919,7 @@ onBeforeUnmount(() => {
   padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-pill);
   background: var(--surface); color: var(--text-2); font-size: var(--font-aux); cursor: pointer;
 }
-.tab em { font-style: normal; margin-left: 6px; color: var(--text-3); font-size: var(--font-caption); }
+.tab em { font-style: normal; margin-left: 6px; color: var(--text-3); font-size: var(--font-aux); }
 .tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .tab.on em { color: rgb(255 255 255 / 75%); }
 

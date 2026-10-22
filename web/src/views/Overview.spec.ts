@@ -59,7 +59,22 @@ describe('Overview 视图', () => {
     const w = mountOverview()
     await flushPromises()
     expect(w.find('.inline-empty').exists()).toBe(true)
+    // mock 里 counts.done = 3 → 有成功记录 → 走 done 分支（§5「表情按状态取用」）
+    expect(w.find('.inline-empty-title').text()).toContain('活都搬完了')
+    expect(w.find('.inline-empty .stub-face').attributes('data-face')).toBe('done')
+  })
+
+  it('没有成功记录时空态用 waiting 表情（§5 表情按状态取用）', async () => {
+    const { api } = await import('@/api/client')
+    vi.mocked(api.queueStats).mockResolvedValueOnce({
+      counts: { waiting: 0, parsing: 0, downloading: 0, post: 0, done: 0, failed: 0, cancelled: 0 },
+      media_count: 0,
+      media_bytes: 0,
+    } as any)
+    const w = mountOverview()
+    await flushPromises()
     expect(w.find('.inline-empty-title').text()).toContain('眼罩搁下了')
+    expect(w.find('.inline-empty .stub-face').attributes('data-face')).toBe('waiting')
   })
 
   it('有进行中任务时逐行展示（状态点 + 进度 + 标题）', async () => {

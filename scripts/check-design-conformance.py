@@ -29,6 +29,12 @@ def read(rel: str) -> str:
     return (WEB / rel).read_text(encoding="utf-8")
 
 
+def extract_style_block(src: str) -> str:
+    """取出 <style> 块内容（用于查 CSS 层叠顺序）。"""
+    m = re.search(r"<style[^>]*>(.*?)</style>", src, re.S)
+    return m.group(1) if m else ""
+
+
 def exists(rel: str) -> bool:
     return (WEB / rel).exists()
 
@@ -141,6 +147,109 @@ def check_typography() -> None:
           "App.vue .content-inner")
 
 
+# ------------------------------------------- §2 字阶分布验收点（防「整体缩一圈」）
+# 上一版闸门只查「字号没有写死数值」，那只能保证用的是 token，
+# 保证不了 token 用对了档位。实测曾出现：Tasks 页 82 个文本节点里 56 个是
+# 12px（--font-caption），正文几乎全是 caption 档——整站看起来「缩了一圈」，
+# 用户反馈「布局字体不成比例」。方案 §2 明写「最小字号 12px，仅表头/徽章」，
+# 所以 caption 出现在正文/标题/说明里就是违约。
+#
+# 这里的判定：--font-caption 只能出现在「表格表头 / 徽章 / 徽标 / 时间戳 / 辅助标签」
+# 这些明确的小字场景；一旦出现在正文说明句、卡片标题、任务标题上，即 FAIL。
+CAPTION_ALLOWED_CONTEXTS = [
+    # CSS 类名里带这些词 → 属于表头/徽章/时间戳等允许场景
+    "th", "thead", "badge", "pill", "chip", "cnt", "meta-time", "time",
+    "status", "kind", "src-type", "mode", "warn-mark", "eff-badge", "lock-badge",
+    "sens-badge", "sens-state", "token-scope", "history-val", "history-time",
+    "history-by", "path", "thumb", "hint", "captcha", "muted", "count",
+    # 徽标：18px 圆点里的一个字，是图标不是正文
+    "glyph", "dot", "mark",
+    # 状态标签（胶囊形徽章）：实时连接、录制计划这类
+    ".conn", ".plan", ".src-type", ".mode",
+    # 小尺寸按钮与图标按钮里的符号：图标不是正文
+    ".rbtn--sm", ".rtoast-close", ".rinput-clear", ".rselect-clear",
+    # 移动端底部导航栏的图标文字标签：375px 下 7 项并排，12px 是图注不是正文
+    ".tabbar-label",
+]
+
+
+def check_typography_semantics() -> None:
+    """§2 字阶语义：caption(12px) 只给表头/徽章，正文/标题不得使用。"""
+    offenders = []
+    for p in WEB.rglob("*.vue"):
+        if p.name.endswith(".spec.ts"):
+            continue
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+        # 只看 CSS 段（style 块），模板里的内联字号不在此列
+        for m in re.finditer(r"([^{}]+)\{([^}]*)\}", txt):
+            selector, body = m.group(1), m.group(2)
+            if "var(--font-caption)" not in body:
+                continue
+            # 选择器可能写成 .thumb.ph / .a .b，取完整选择器判断，
+            # 不能只看最后一个类名（否则 .thumb.ph 会被截成 ph 而误判）。
+            low = selector.lower()
+            if any(k in low for k in CAPTION_ALLOWED_CONTEXTS):
+                continue
+            offenders.append(f"{p.relative_to(WEB)}:{selector.strip()[:40]}")
+    check("§2 12px(caption) 仅用于表头/徽章（正文标题不得占用）", not offenders,
+          f"越界使用：{offenders[:6]}" if offenders else "")
+
+    # 正文档（--font-body 16px）必须在核心视图里真实出现：
+    # 卡片标题、任务标题、页面副标题这些「要读的内容」都该是 16px 或更大。
+    body_usage = 0
+    for p in WEB.rglob("*.vue"):
+        body_usage += len(re.findall(r"var\(--font-body\)", p.read_text(encoding="utf-8", errors="ignore")))
+    check("§2 正文档 16px 在视图层有足够占比（非全站 12px）", body_usage >= 20,
+          f"--font-body 引用数：{body_usage}（阈值 20）")
+
+
+# ------------------------------------------------- §6 网格轨道塌陷（禁 auto-fill）
+# auto-fill 与 auto-fit 的差别在数据少的时候才显出来：
+# auto-fill 会把空轨道也占上，于是 1184px 宽的内容区排 4 条 285px 轨道，
+# 页面只有 2 个卡片时右侧空出 570px——整页看着「东西全挤在左边」。
+# 这是「布局不成比例」最直接的来源，必须由闸门兜住。
+def check_grid_collapse() -> None:
+    """§6 卡片网格用 auto-fit（空轨道塌陷），不用 auto-fill。"""
+    offenders = []
+    for p in WEB.rglob("*.vue"):
+        if p.name.endswith(".spec.ts"):
+            continue
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"grid-template-columns\s*:\s*repeat\(\s*auto-fill", txt):
+            line = txt[:m.start()].count("\n") + 1
+            offenders.append(f"{p.relative_to(WEB)}:{line}")
+    check("§6 卡片网格用 auto-fit（空轨道塌陷，不留右侧空白）", not offenders,
+          f"仍用 auto-fill：{offenders}" if offenders else "")
+
+    # 行内操作区必须横排：竖排时「速度/大小/取消/重试/删除」挤成一摞，
+    # 右侧栏被撑到 120px，主内容区被挤窄，整行视觉重心跑到右边。
+    trow = read("components/task/TaskRow.vue")
+    check("§4 TaskRow 行内操作区横排（不与数据叠成竖列）",
+          ".trow-ops" in trow and re.search(r"\.trow-ops\s*\{[^}]*flex-direction:\s*row", trow) is not None,
+          "components/task/TaskRow.vue .trow-ops")
+
+    # 卡片网格的最小列宽不能过窄：240px 以下放不下「标题 + 徽章 + 元信息」。
+    # 只管卡片/网格布局（元信息两列排布 .meta 不算卡片网格，放宽到 160px 合法）。
+    narrow = []
+    for p in WEB.rglob("*.vue"):
+        if p.name.endswith(".spec.ts"):
+            continue
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"\.([a-zA-Z0-9_-]+)\s*\{([^}]*)\}", txt):
+            cls, body = m.group(1), m.group(2)
+            mm = re.search(r"minmax\(\s*(\d+)px\s*,\s*1fr\s*\)", body)
+            if not mm:
+                continue
+            low = cls.lower()
+            # 卡片网格 = 类名里带 grid / cards / list / files / int-
+            is_card_grid = any(k in low for k in ("grid", "cards", "files", "int-"))
+            floor = 240 if is_card_grid else 160
+            if int(mm.group(1)) < floor:
+                narrow.append(f"{p.relative_to(WEB)}:{cls}={mm.group(1)}px(<{floor})")
+    check("§6 卡片网格最小列宽 ≥240px（内容放得下）", not narrow,
+          f"过窄：{narrow}" if narrow else "")
+
+
 # ------------------------------------------------- §4 禁 emoji 冒充图标 / §5 表情
 # 只判「真 emoji」（Misc Symbols & Pictographs / Supplemental Symbols & Pictographs /
 # Emoji 呈现块）。U+2700–U+27BF Dingbats（✓ ✕ 等）与 U+2600–U+26FF 里被当作
@@ -163,14 +272,128 @@ def check_no_emoji_icons() -> None:
     check("§4/§5 组件模板无 emoji 冒充图标", not offenders, ", ".join(offenders))
 
 
+# ---------------------------------------------------------------- §5 表情落地
+# 上一版闸门只查「RaccoonFace 组件里有这六个字符串」——那只能证明组件实现了，
+# 不能证明表情真的被用上了。实测曾出现 done / surprise 零引用：
+# 六个表情齐备但页面永远只用 waiting/working/failed，等于没做表情体系。
+# 这里查「按状态取用」：每个表情至少在一个非 spec 源文件里被真实引用。
+FACE_USAGE = {
+    "waiting": "空态 / 排队",
+    "working": "加载 / 进行中",
+    "done": "成功 / 入库",
+    "failed": "失败 / 不支持",
+    "cancelled": "主动取消",
+    "surprise": "彩蛋 / 追更到货",
+}
+
+
 def check_face_system() -> None:
-    """§5 六表情：RaccoonFace 需在空态（REmpty）被使用。"""
+    """§5 六表情：组件实现齐备 + 按状态真实取用。"""
     rempty = read("components/base/REmpty.vue")
     check("§5 RaccoonFace 接入空态 REmpty", "RaccoonFace" in rempty, "components/base/REmpty.vue")
     rface = read("components/raccoon/RaccoonFace.vue")
     faces = ["waiting", "working", "done", "failed", "cancelled", "surprise"]
     missing = [f for f in faces if f"'{f}'" not in rface]
     check("§5 六表情齐备", not missing, f"缺：{missing}" if missing else "")
+
+    # 按状态取用：扫所有 .vue（排除 RaccoonFace 自身与 spec），
+    # 找 face="xxx" 或映射表里的 'xxx' 字面量。
+    usage_sources = []
+    for p in WEB.rglob("*.vue"):
+        if p.name == "RaccoonFace.vue" or p.name.endswith(".spec.ts"):
+            continue
+        usage_sources.append(p.read_text(encoding="utf-8", errors="ignore"))
+    joined = "\n".join(usage_sources)
+    unused = []
+    for f in faces:
+        # face="done" | 'done': | face === 'done' 都算取用
+        if not re.search(rf"""face\s*=\s*["']{f}["']|['"]{f}['"]\s*:""", joined):
+            unused.append(f)
+    check("§5 六表情按状态真实取用（非仅组件存在）", not unused,
+          f"从未被使用：{unused}" if unused else "")
+
+    # done 与 surprise 是上一版的两个真实缺口，单独点名断言防回归。
+    check("§5 done 表情被真实使用（成功/入库场景）",
+          bool(re.search(r"""face\s*=\s*["']done["']|['"]done['"]\s*:""", joined)), "")
+    check("§5 surprise 表情被真实使用（追更到货场景）",
+          bool(re.search(r"""face\s*=\s*["']surprise["']|['"]surprise['"]\s*:""", joined)), "")
+
+
+# ------------------------------------------------- §3 视图级关键组件真实落地
+# 上一版闸门只查 §4 组件清单（base/task/raccoon 三层），
+# 完全没查 §3 路由表「关键组件」列点名的视图级组件。实测发现：
+# QuickSubmit / StatusStrip / SubForm / SourceList / CredentialList / SettingItem
+# 等只存在于代码注释里，从未被抽成组件——页面全是巨型单文件。
+# 巨型单文件不是错，但它意味着方案里的组件边界没落地，且无法复用。
+#
+# 这里断言：方案点名的视图级组件必须是真实存在的 .vue 文件，
+# 且至少有一个视图 import 了它（真在用，不是摆设）。
+SPEC_VIEW_COMPONENTS = {
+    "QuickSubmit": "components/shell/QuickSubmit.vue",
+    "StatusStrip": "components/shell/StatusStrip.vue",
+}
+
+
+def check_view_components() -> None:
+    """§3 视图级关键组件：真实文件 + 被视图引用。"""
+    sources = all_sources()
+    for name, rel in SPEC_VIEW_COMPONENTS.items():
+        if not exists(rel):
+            check(f"§3 视图级组件 {name} 存在", False, f"缺少 {rel}")
+            continue
+        check(f"§3 视图级组件 {name} 存在", True, rel)
+
+        stem = rel.replace("components/", "").replace(".vue", "")
+        referenced = False
+        for p in sources:
+            if p == (WEB / rel) or p.name.endswith(".spec.ts"):
+                continue
+            txt = p.read_text(encoding="utf-8", errors="ignore")
+            if f"@/components/{stem}" in txt or f"components/{stem}" in txt:
+                referenced = True
+                break
+        check(f"§3 视图级组件 {name} 被视图真实引用", referenced,
+              f"{rel}（零引用）" if not referenced else "")
+
+
+# --------------------------------------- §3 设置页分组导航（SettingsNav 左分组）
+def check_settings_nav() -> None:
+    """方案 §3 设置页：「SettingsNav（左分组）」。"""
+    s = read("views/Settings.vue")
+    check("§3 设置页有左分组导航（.side-nav）", ".side-nav" in s, "views/Settings.vue")
+    # 分组导航必须有当前项高亮，否则 5000px 长页滚到哪都不知道自己在哪
+    check("§3 设置页分组导航有当前项高亮（active 状态）",
+          "side-link.on" in s or "activeSection" in s, "views/Settings.vue")
+    # 分组容器要能独立滚动（长页面里导航不能被顶出视口）
+    check("§3 设置页分组导航 sticky 定位",
+          re.search(r"\.side-nav\s*\{[^}]*position:\s*sticky", s) is not None,
+          "views/Settings.vue .side-nav")
+    # 导航条目必须是人能读的正文字号，不能是 13px 小字
+    check("§3 设置页导航条目用正文字号",
+          re.search(r"\.side-link\s*\{[^}]*font-size:\s*var\(--font-body", s) is not None,
+          "views/Settings.vue .side-link")
+
+    # ---- scrollspy 三个必备机制（实测踩过的坑，不能只靠"存在 activeSection"糊弄）----
+    # ① 判定线 scrollspy：不能用 IntersectionObserver（长卡片页视口可能无分组相交 → 高亮消失）
+    #    只查代码行、忽略注释——注释里写「为什么不用 IntersectionObserver」是正常的。
+    code_only = "\n".join(
+        ln for ln in s.splitlines() if not ln.strip().startswith(("*", "//", "/*"))
+    )
+    check("§3 设置页分组导航用判定线 scrollspy（不是 IntersectionObserver）",
+          "IntersectionObserver" not in code_only and "SPY_LINE" in code_only,
+          "views/Settings.vue scrollspy")
+    # ② 页面底部兜底：最后一个分组永远越不过判定线，滚到底必须能高亮它
+    check("§3 设置页 scrollspy 有页面底部兜底",
+          "scrollHeight" in s and "atBottom" in s,
+          "views/Settings.vue atBottom")
+    # ③ 锚点点击兜底：锚点被页面底部截断时判定线选不中被点项，必须有点击锁定
+    check("§3 设置页 scrollspy 有锚点点击锁定",
+          "lockedId" in s and "pickSection" in s,
+          "views/Settings.vue lockedId")
+    # 锁定不能僵死：用户主动滚动要能解锁
+    check("§3 设置页 scrollspy 锁定可被用户滚动解除",
+          "releaseLock" in s and "wheel" in s,
+          "views/Settings.vue releaseLock")
 
 
 # ---------------------------------------------------------------- §7 交互铁律
@@ -314,6 +537,41 @@ def check_responsive() -> None:
     check("§6 <768 RButton 触控尺寸", "max-width: 767px" in rbtn and "min-height: 44px" in rbtn,
           "components/base/RButton.vue")
 
+    # ---- CSS 层叠顺序断言（实测踩过的坑）----
+    # 「默认隐藏态」若写在媒体查询之后，同特异性下后写的赢，
+    # 会把媒体查询里的 display:inline-flex / display:flex 覆盖掉：
+    #   768–1023 档 → 汉堡按钮不显示，导航彻底打不开
+    #   <768 档     → 底部主操作栏不渲染
+    # 光靠"规则存在"查不出来，必须查「隐藏态在媒体查询之前」。
+    style = extract_style_block(app)
+    default_nav_toggle = style.find(".nav-toggle {")
+    default_tabbar = style.find(".tabbar {")
+    md_1023 = style.find("max-width: 1023px")
+    md_767 = style.find("max-width: 767px")
+    check("§6 默认隐藏态在媒体查询之前（否则覆盖档位样式）",
+          default_nav_toggle != -1 and default_tabbar != -1
+          and md_1023 != -1 and md_767 != -1
+          and default_nav_toggle < md_1023 and default_tabbar < md_767,
+          "App.vue <style> 层叠顺序")
+    # 媒体查询里必须真的把 display 打开
+    check("§6 768–1023 档汉堡按钮 display 打开",
+          re.search(r"@media \(max-width: 1023px\).*?\.nav-toggle \{ display: inline-flex;",
+                    style, re.S) is not None,
+          "App.vue .nav-toggle @media")
+    check("§6 <768 档底部主操作栏 display 打开",
+          re.search(r"@media \(max-width: 767px\).*?\.tabbar \{.*?display: flex;",
+                    style, re.S) is not None,
+          "App.vue .tabbar @media")
+    # 底部栏不能只有图标：移动端没有 hover tooltip，认不出哪个入口是哪个
+    check("§6 <768 底部主操作栏有文字标签",
+          "tabbar-label" in app and re.search(
+              r"\.tabbar-label\s*\{[^}]*font-size:", style) is not None,
+          "App.vue .tabbar-label")
+    # 底部栏每个入口都要有可读标签文本（不能是空 span）
+    check("§6 <768 底部栏渲染 label 文本",
+          re.search(r'<span class="tabbar-label">\{\{ item\.label \}\}</span>', app) is not None,
+          "App.vue tabbar 模板")
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -322,8 +580,12 @@ def main() -> int:
 
     check_routes()
     check_components()
+    check_view_components()
+    check_settings_nav()
     check_tokens()
     check_typography()
+    check_typography_semantics()
+    check_grid_collapse()
     check_no_emoji_icons()
     check_face_system()
     check_shortcuts()

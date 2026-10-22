@@ -15,6 +15,8 @@ import RButton from '@/components/base/RButton.vue'
 import StatusDot from '@/components/task/StatusDot.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import TaskProgress from '@/components/task/TaskProgress.vue'
+import StatusStrip from '@/components/shell/StatusStrip.vue'
+import type { StatusStripItem } from '@/components/shell/StatusStrip.vue'
 
 const router = useRouter()
 const tasks = useTasksStore()
@@ -35,6 +37,11 @@ const activeTasks = computed(() =>
 /** 最近失败（供 Issues 面板）。 */
 const failedTasks = computed(() => tasks.items.filter((t) => t.status === 'failed').slice(0, 5))
 
+/** 是否有成功完成的记录：决定空态用 done（完成）还是 waiting（等待）表情。 */
+const hasDone = computed(
+  () => tasks.items.some((t) => t.status === 'done') || (stats.value?.counts.done ?? 0) > 0,
+)
+
 /** 凭据健康统计。 */
 const credSummary = computed(() => {
   const items = creds.value
@@ -43,6 +50,55 @@ const credSummary = computed(() => {
     active: items.filter((c) => c.status === 'active').length,
     problem: items.filter((c) => c.status === 'expired' || c.status === 'expiring').length,
   }
+})
+
+/**
+ * 系统状态条（方案 §3 StatusStrip）。
+ *
+ * 严重度判定规则写死在这里，不散落到模板：
+ *   磁盘 ≥90% → bad；≥75% → warn；否则 ok
+ *   数据库 ok → ok，其它 → bad
+ *   凭据有异常 → warn，全正常 → ok
+ * 阈值不在模板里算——模板里写 `pct >= 90 ? 'bad' : ...` 会让「什么算危险」
+ * 变成隐式知识，改阈值要翻模板。
+ */
+const stripItems = computed<StatusStripItem[]>(() => {
+  const out: StatusStripItem[] = []
+
+  const diskPct = health.value?.checks.disk_used_pct
+  if (diskPct !== undefined) {
+    out.push({
+      label: '磁盘',
+      value: `已用 ${diskPct}%`,
+      tone: diskPct >= 90 ? 'bad' : diskPct >= 75 ? 'warn' : 'ok',
+    })
+  }
+
+  const db = health.value?.checks.db
+  if (db) {
+    out.push({
+      label: '数据库',
+      value: db === 'ok' ? '正常' : String(db),
+      tone: db === 'ok' ? 'ok' : 'bad',
+    })
+  }
+
+  out.push({
+    label: '实时连接',
+    value: tasks.connected ? '已连接' : '重连中',
+    tone: tasks.connected ? 'ok' : 'warn',
+  })
+
+  if (credSummary.value.total > 0) {
+    out.push({
+      label: '凭据',
+      value: credSummary.value.problem > 0 ? `${credSummary.value.problem} 个需处理` : '正常',
+      tone: credSummary.value.problem > 0 ? 'warn' : 'ok',
+      hint: `${credSummary.value.active}/${credSummary.value.total} 可用`,
+    })
+  }
+
+  return out
 })
 
 function formatUptime(sec: number): string {
@@ -105,10 +161,14 @@ onMounted(load)
           <div v-for="n in 3" :key="n" class="skeleton-row" />
         </div>
         <div v-else-if="activeTasks.length === 0" class="inline-empty">
-          <RaccoonFace face="waiting" :size="48" />
+          <!-- 表情按状态取用（方案 §5）：手上有活干完且有成功记录 → done（眨眼笑），
+               纯粹没活 → waiting（眼罩半搭，等着接单）。 -->
+          <RaccoonFace :face="hasDone ? 'done' : 'waiting'" :size="52" />
           <div>
-            <p class="inline-empty-title">眼罩搁下了，眼下没活</p>
-            <p class="inline-empty-hint">粘贴链接到顶栏就能开工，或者去订阅页挂个自动追更。</p>
+            <p class="inline-empty-title">{{ hasDone ? '活都搬完了，眼罩可以摘' : '眼罩搁下了，眼下没活' }}</p>
+            <p class="inline-empty-hint">
+              {{ hasDone ? '干完的都在媒体库里躺着，新活随时可以开工。' : '粘贴链接到顶栏就能开工，或者去订阅页挂个自动追更。' }}
+            </p>
           </div>
         </div>
         <ul v-else class="task-list">
@@ -124,6 +184,10 @@ onMounted(load)
           </li>
         </ul>
       </article>
+
+      <!-- 系统状态条（方案 §3 StatusStrip）：磁盘 / 数据库 / 实时连接 / 凭据健康。
+           这些是「扫一眼」的指标，单独成条比塞在卡片里更容易被看到。 -->
+      <StatusStrip :items="stripItems" />
 
       <!-- 指标卡 -->
       <div class="cards">
@@ -170,12 +234,7 @@ onMounted(load)
             <dt>运行</dt><dd class="tnum">{{ formatUptime(info.uptime) }}</dd>
             <dt>架构</dt><dd class="tnum">{{ info.arch }}</dd>
           </dl>
-          <p v-if="health" class="muted">
-            数据库 {{ health.checks.db === 'ok' ? '正常' : health.checks.db }}
-            <template v-if="health.checks.disk_used_pct !== undefined">
-              · 磁盘已用 <span class="tnum">{{ health.checks.disk_used_pct }}%</span>
-            </template>
-          </p>
+          <p v-else class="muted">加载中…</p>
         </article>
       </div>
 
@@ -204,35 +263,42 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); margin-bottom: 16px; border-left: 4px solid var(--gold); padding-left: 12px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 16px; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; box-shadow: var(--shadow-1); }
-.card--wide { margin-bottom: 16px; }
-.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.card h2 { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-3); }
-.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 8px; font-size: var(--font-aux); }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); margin-bottom: 20px; border-left: 4px solid var(--gold); padding-left: 12px; }
+/* 卡片网格：minmax 抬到 280px（方案 §6「≥1280 双栏」的最小可读宽度），
+   auto-fit 让空轨道塌陷——auto-fill 会给 2 个卡片也留 4 条轨道，右侧空一大片。 */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-bottom: 18px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px 24px; box-shadow: var(--shadow-1); }
+.card--wide { margin-bottom: 18px; }
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+/* 卡片标题：18px（--font-title-3）。原来用 13.5px 的 aux，
+   和正文同级，标题就「塌」成了普通文字，卡片没有层级——这是「界面很懒」的直接观感来源。 */
+.card h2 { font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
+/* 键值对：正文档（16px）。dt 是字段名用次级色，dd 是值用主色。 */
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0 0 10px; font-size: var(--font-body); }
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; color: var(--text-1); }
-.metric { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+.metric { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
 .metric-num { font-size: var(--font-display); font-weight: var(--weight-title); color: var(--text-1); line-height: 1.1; }
 .metric-label { font-size: var(--font-aux); color: var(--text-3); }
-.muted { color: var(--text-3); font-size: var(--font-aux); }
-.warn-line { color: var(--warning); font-size: var(--font-aux); margin: 4px 0; }
+/* 说明句：正文档（16px）。aux 档留给真正的辅助信息（时间戳、计数徽章）。 */
+.muted { color: var(--text-3); font-size: var(--font-body); line-height: 1.7; }
+.warn-line { color: var(--warning); font-size: var(--font-body); margin: 4px 0; }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
-.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.task-row-main { display: flex; flex-direction: column; gap: 6px; }
+.task-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.task-row-main { display: flex; flex-direction: column; gap: 8px; }
 .task-row-head { display: flex; align-items: center; gap: 8px; }
-.task-title { font-size: var(--font-aux); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inline-empty { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
-.inline-empty-title { font-size: var(--font-aux); color: var(--text-1); font-weight: var(--weight-caption); }
-.inline-empty-hint { font-size: var(--font-caption); color: var(--text-3); margin-top: 2px; }
-.skeleton-rows { display: flex; flex-direction: column; gap: 10px; }
-.skeleton-row { height: 34px; border-radius: var(--radius-ctrl); background: var(--surface-2); }
+/* 任务标题是这一行的主角，正文档 16px。 */
+.task-title { font-size: var(--font-body); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inline-empty { display: flex; align-items: center; gap: 16px; padding: 16px 0; }
+.inline-empty-title { font-size: var(--font-title-3); color: var(--text-1); font-weight: var(--weight-strong); }
+.inline-empty-hint { font-size: var(--font-aux); color: var(--text-3); margin-top: 4px; }
+.skeleton-rows { display: flex; flex-direction: column; gap: 12px; }
+.skeleton-row { height: 40px; border-radius: var(--radius-ctrl); background: var(--surface-2); }
 .issue-panel { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
-.issue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.issue-row { display: flex; align-items: center; gap: 12px; }
+.issue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.issue-row { display: flex; align-items: center; gap: 14px; }
 .issue-main { flex: 1; min-width: 0; }
-.issue-title { font-size: var(--font-aux); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.issue-reason { display: flex; gap: 8px; font-size: var(--font-caption); color: var(--text-3); margin-top: 2px; }
+.issue-title { font-size: var(--font-body); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.issue-reason { display: flex; gap: 8px; font-size: var(--font-aux); color: var(--text-3); margin-top: 4px; }
 .issue-reason code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--danger); }
 </style>

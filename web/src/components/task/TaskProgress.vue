@@ -126,7 +126,7 @@ const sizeText = computed(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--text-3);
 }
 .tprog-size { color: var(--text-2); }

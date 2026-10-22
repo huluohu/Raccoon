@@ -15,6 +15,7 @@ import { useTasksStore } from '@/stores/tasks'
 import { useNotificationsStore } from '@/stores/notifications'
 import Login from '@/views/Login.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
+import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import RToast from '@/components/base/RToast.vue'
 import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 
@@ -55,6 +56,12 @@ async function quickSubmit() {
   } catch (e) {
     quickErr.value = e instanceof Error ? e.message : '提交失败'
   }
+}
+
+/** QuickSubmit 组件抛来的提交意图（值已由组件去空白，这里直接提交）。 */
+async function onQuickSubmit(value: string) {
+  quickUrl.value = value
+  await quickSubmit()
 }
 
 // 会话进入 ready 是「开始拉数据 + 建 SSE」的唯一起点。
@@ -153,17 +160,11 @@ onUnmounted(() => {
 
       <div class="main">
         <header class="topbar">
-          <input
+          <QuickSubmit
             v-model="quickUrl"
-            id="quick-submit"
-            class="quick-submit"
-            type="url"
-            placeholder="粘贴链接下载（回车直接提交）"
-            aria-label="粘贴链接下载"
-            @keyup.enter="quickSubmit"
+            :error="quickErr"
+            @submit="onQuickSubmit"
           />
-          <button class="quick-btn" type="button" :disabled="!quickUrl.trim()" @click="quickSubmit">下载</button>
-          <span v-if="quickErr" class="quick-err">{{ quickErr }}</span>
           <div class="topbar-right">
             <span v-if="tasks.warning" class="topbar-warn" :title="tasks.warning">{{ tasks.warning }}</span>
             <NotifCenter />
@@ -186,6 +187,7 @@ onUnmounted(() => {
           <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
             <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
+          <span class="tabbar-label">{{ item.label }}</span>
         </router-link>
       </nav>
     </template>
@@ -197,15 +199,18 @@ onUnmounted(() => {
 .app { display: flex; min-height: 100vh; background: var(--bg); color: var(--text-1); }
 .nav { width: 208px; flex-shrink: 0; padding: 16px 12px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: var(--font-title-3); font-weight: var(--weight-strong); }
-.brand-name em { font-style: normal; font-size: var(--font-caption); color: var(--text-3); margin-left: 2px; }
+.brand-name em { font-style: normal; font-size: var(--font-aux); color: var(--text-3); margin-left: 2px; }
 .nav nav { display: flex; flex-direction: column; gap: 2px; }
-.nav nav a { padding: 8px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-aux); }
+/* 导航条目：正文档 16px。导航是主操作路径，7 个入口都用 aux(13.5px) 会让
+   「当前在哪、点哪去」这条主路径看起来比次要说明还轻。 */
+.nav nav a { padding: 9px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-body); }
 .nav nav a:hover { background: var(--surface-2); }
-.nav nav a.router-link-active { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-caption); }
+.nav nav a.router-link-active { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-semibold); }
 .nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-.user { font-size: var(--font-caption); color: var(--text-3); padding-left: 12px; overflow: hidden; text-overflow: ellipsis; }
+.user { font-size: var(--font-aux); color: var(--text-3); padding-left: 12px; overflow: hidden; text-overflow: ellipsis; }
+/* 实时连接状态：辅助档 13.5px（§2「12px 仅表头/徽章」，这是状态提示不是徽章）。 */
 .conn {
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   margin-left: 12px;
   color: var(--text-3);
   display: inline-flex;
@@ -215,22 +220,18 @@ onUnmounted(() => {
 .conn::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--neutral); }
 .conn.on::before { background: var(--success); }
 .conn.off::before { background: var(--warning); }
-.theme-toggle, .logout { padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--surface); color: var(--text-2); cursor: pointer; font-size: var(--font-aux); text-align: left; }
+.theme-toggle, .logout { padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--surface); color: var(--text-2); cursor: pointer; font-size: var(--font-body); text-align: left; }
 .logout:hover { color: var(--danger); border-color: var(--danger); }
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.topbar { padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
-.quick-submit { flex: 1; max-width: 640px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
-.quick-submit:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.quick-btn { padding: 8px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: #fff; font-weight: var(--weight-semibold); cursor: pointer; }
-.quick-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-.quick-err { color: var(--danger); font-size: var(--font-caption); }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.topbar { padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 8px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; padding-top: 1px; }
+/* 顶栏告警条：辅助档 13.5px（这是要读的一句话，不是表头）。 */
 .topbar-warn {
-  max-width: 260px;
+  max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-caption);
+  font-size: var(--font-aux);
   color: var(--warning);
 }
 .content { padding: 24px; flex: 1; min-width: 0; }
@@ -238,6 +239,27 @@ onUnmounted(() => {
 .content-inner { width: 100%; max-width: 1440px; margin: 0 auto; }
 
 /* ============ §6 响应式四档 ============ */
+
+/* 默认隐藏态必须写在媒体查询【之前】。
+   CSS 同特异性下后写的赢：这两条若放在媒体查询后面，会把媒体查询里的
+   display:inline-flex / display:flex 覆盖掉，导致
+   768–1023 档汉堡按钮不显示（导航彻底打不开）、<768 档底部主操作栏不渲染。
+   实测踩过：四档截图里 .nav-toggle / .tabbar 全是 display:none。 */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.tabbar { display: none; }
 
 /* ≥1280：侧导航常驻 + 双栏 —— 即上方默认样式，无需覆盖 */
 
@@ -286,7 +308,7 @@ onUnmounted(() => {
     display: flex;
     justify-content: space-around;
     align-items: stretch;
-    /* 底部安全区：iPhone  Home 指示条 / 手势区不遮按钮 */
+    /* 底部安全区：iPhone Home 指示条 / 手势区不遮按钮 */
     padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
     background: var(--surface);
     border-top: 1px solid var(--border);
@@ -296,37 +318,29 @@ onUnmounted(() => {
     min-width: 0;
     min-height: 44px; /* §6 触控目标 */
     display: inline-flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 2px;
     color: var(--text-2);
     text-decoration: none;
     border-radius: var(--radius-ctrl);
+  }
+  /* 底部栏文字：纯图标在移动端认不出是哪个入口，7 项挤 375px 放得下 2 字标签 */
+  .tabbar-label {
+    font-size: var(--font-caption); /* 12px：底部栏标签是紧凑的图标注解 */
+    line-height: 1;
+    color: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   .tabbar a.router-link-active { color: var(--accent); background: var(--accent-soft); }
   /* 内容底部留出 tabbar 高度 + 间距，长页面最后一个按钮不会被挡住 */
   .content { padding: 16px 14px calc(16px + 52px + env(safe-area-inset-bottom, 0px)); }
   .topbar { padding: 10px 14px; }
-  .quick-submit { max-width: none; }
-  /* 顶栏与按钮进入触控尺寸 */
-  .quick-btn { min-height: 44px; padding: 8px 18px; }
 }
-
-/* 默认（≥1024）：汉堡与底部栏都不出现 */
-.nav-toggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-ctrl);
-  background: var(--surface);
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.tabbar { display: none; }
 
 .nav-icon { flex-shrink: 0; }
 
