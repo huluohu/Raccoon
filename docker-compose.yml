@@ -11,6 +11,9 @@ services:
         # 2026-10-21：旧版 2025.01.15 在 YouTube 改版后解析全部失败
         # （"The page needs to be reloaded."）。
         YTDLP_VERSION: "2026.10.21"
+        # TLS 指纹伪装库：PornHub 等站点对非浏览器指纹返回 410 Gone。
+        # 同样必须与 Dockerfile 的 ARG 默认值一致。
+        CURLCFFI_VERSION: "0.16.3"
     image: raccoon:0.1.0
     container_name: raccoon
     network_mode: bridge

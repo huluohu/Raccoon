@@ -395,6 +395,10 @@ func fixHintFor(code string) string {
 		return fixHintGotoSettings()
 	case "ENGINE_OUTDATED":
 		return `{"action":"none","label":"下载引擎版本过旧，需要升级 yt-dlp 后才能解析该平台"}`
+	case "IMPERSONATION_UNAVAILABLE":
+		return `{"action":"none","label":"该站点要求浏览器指纹伪装，当前运行环境缺少 curl_cffi 支持"}`
+	case "BLOCKED_BY_FINGERPRINT":
+		return `{"action":"none","label":"站点按请求指纹拒绝了访问（HTTP 410），需要启用浏览器指纹伪装"}`
 	}
 	return fixHintRetry()
 }

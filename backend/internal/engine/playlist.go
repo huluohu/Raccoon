@@ -40,6 +40,7 @@ type ytdlpPlaylistJSON struct {
 // ResolvePlaylist 解析播放列表/合集/收藏夹（订阅发现内容）。
 func (y *YTDLP) ResolvePlaylist(ctx context.Context, url string) (*PlaylistResult, error) {
 	args := []string{"--flat-playlist", "--dump-single-json", "--no-warnings", "--socket-timeout", "20"}
+	args = append(args, y.impersonateArgs()...)
 	args = append(args, url)
 	var raw strings.Builder
 	err := RunCmd(ctx, y.Bin, args, func(l string) {

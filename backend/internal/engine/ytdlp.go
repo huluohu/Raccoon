@@ -30,6 +30,28 @@ type YTDLP struct {
 // NewYTDLP 构造；二进制缺失不在此报错，由 Available() 统一自检（503 语义）。
 func NewYTDLP(bin, ffmpeg string) *YTDLP { return &YTDLP{Bin: bin, FFmpeg: ffmpeg} }
 
+// impersonateTarget TLS 指纹伪装目标。
+//
+// 部分站点（PornHub 等）会对非浏览器 TLS 指纹直接返回 410 Gone，yt-dlp 报
+// "The extractor is attempting impersonation, but no impersonate target is available"。
+// 装上 curl_cffi 只是解锁了这项能力——**不显式指定 --impersonate 就不生效**
+// （实测：仅装 curl_cffi 仍报 "No video formats found"，加上后正常）。
+//
+// 伪装只改 TLS 指纹，不改请求语义；对不支持的站点无副作用。
+const impersonateTarget = "chrome"
+
+// impersonateArgs 伪装参数组。
+//
+// 仅在运行环境具备 curl_cffi 时追加：curl_cffi 缺失时 yt-dlp 遇到 --impersonate
+// 会直接报错退出，反而让所有站点都不可用。缺失时降级为「不伪装」，
+// 由 classify 把「requires impersonation」归类成可读提示。
+func (y *YTDLP) impersonateArgs() []string {
+	if !hasCurlCffi(y.Bin) {
+		return nil
+	}
+	return []string{"--impersonate", impersonateTarget}
+}
+
 func (y *YTDLP) Name() string { return "yt-dlp" }
 
 // Version 返回 yt-dlp 版本（未自检触发一次探测）。
@@ -108,6 +130,7 @@ func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*Res
 	// 加上后同一链接降到 6 秒。解析预览只需要来源的标题/封面/条目数，
 	// 完整条目信息由下载阶段单独拉，不受影响。
 	args := []string{"--dump-single-json", "--no-warnings", "--no-playlist", "--playlist-items", "1", "--socket-timeout", "20"}
+	args = append(args, y.impersonateArgs()...)
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}
@@ -273,6 +296,7 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 		"--progress-template", progressPrefix + "%(progress.percent)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.speed)s|%(progress.eta)s",
 		"-o", opts.NameTmpl,
 	}
+	args = append(args, y.impersonateArgs()...)
 	if sel := formatSelector(opts.Format); sel != "" {
 		args = append(args, "-f", sel)
 	}
@@ -328,8 +352,24 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 }
 
 // formatSelector 内部质量值 → yt-dlp format 表达式（docs/06 默认 best）。
+//
 // 注意：内部默认值 "best" 不能透传给 yt-dlp —— 纯 DASH 站点（如 bilibili）
 // 没有 combined 流，`-f best` 必然 FORMAT_UNAVAILABLE，须展开为 视频+音频合并。
+//
+// 表达式必须**站点无关**。原先写的 `bv*[height<=720]+ba/...` 里的 bv* 是
+// Bilibili 专有 format id，只有 B 站认；其它站点（YouTube 的 137/398、
+// PornHub 的 hls-383）全匹配不上，只能靠末尾的 /b 兜底。
+//
+// 通用写法：`bv*[height<=N]+ba/b[height<=N]/b`
+//
+//	bv*+ba      → 优先取「视频流 + 音频流」合并（B 站/YouTube 等 DASH 站）
+//	b[height<=N] → 站点若直接提供 combined 流且高度达标，取它
+//	b           → 最后兜底取 best
+//
+// 为什么末尾必须有 `/b`：解析预览与下载是两次独立的引擎调用，站点的
+// 格式列表可能变化（PornHub 实测：同一视频解析时列 240p/480p/720p 三档，
+// 下载那次只剩 720p 的 hls-383）。若用户选了此时已不存在的档位，
+// 严格的高度匹配会直接 FORMAT_UNAVAILABLE —— 宁可降档下载，也不能让任务失败。
 func formatSelector(q string) string {
 	switch q {
 	case "audio":
@@ -501,6 +541,13 @@ func classify(err error, output string) error {
 	ue.Detail = engineDetail(output)
 	low := strings.ToLower(output)
 	switch {
+	// 缺 TLS 指纹伪装能力：站点对非浏览器指纹直接拒绝。
+	// yt-dlp 的原文是 "The extractor is attempting impersonation, but no
+	// impersonate target is available" —— 这句话只在没装 curl_cffi 时出现。
+	case strings.Contains(low, "no impersonate target is available"),
+		strings.Contains(low, "requires impersonation"):
+		ue.Code = "IMPERSONATION_UNAVAILABLE"
+		ue.Message = "该站点要求浏览器指纹伪装，运行环境缺少 curl_cffi 支持"
 	// 引擎版本落后于平台改版：YouTube 改内部实现后老版 yt-dlp 会稳定报
 	// "The page needs to be reloaded."。这是本机可修的确定性问题（升级引擎），
 	// 不该和普通网络抖动混在一起自动重试。
@@ -527,6 +574,12 @@ func classify(err error, output string) error {
 		strings.Contains(low, "removed by the uploader"):
 		ue.Code = "NOT_FOUND"
 		ue.Message = "视频不存在、已删除或链接有误"
+	// 410 Gone：部分站点（PornHub 等）对非浏览器 TLS 指纹返回 410。
+	// 这不是「内容已删除」——内容没了会返回 404。它意味着请求被站点按
+	// 指纹特征拒了，属于环境能力问题（缺 impersonation）。
+	case strings.Contains(low, "410: gone"), strings.Contains(low, "http error 410"):
+		ue.Code = "BLOCKED_BY_FINGERPRINT"
+		ue.Message = "站点拒绝了当前请求（HTTP 410），通常需要浏览器指纹伪装才能访问"
 	case strings.Contains(low, "429"), strings.Contains(low, "too many requests"), strings.Contains(low, "rate limit"):
 		ue.Code = "RATE_LIMITED"
 		ue.Message = "平台限流，稍后自动重试"
@@ -588,14 +641,26 @@ func platformOf(extractorKey, url string) string {
 		return "bilibili"
 	case strings.Contains(k, "tiktok"):
 		return "tiktok"
+	case strings.Contains(k, "douyin"):
+		return "douyin"
 	case strings.Contains(k, "twitter"), strings.Contains(k, "x"):
 		return "twitter"
 	case strings.Contains(k, "instagram"):
 		return "instagram"
 	case strings.Contains(k, "netease"):
 		return "netease"
-	case strings.Contains(k, "instagram"):
-		return "instagram"
+	case strings.Contains(k, "pornhub"):
+		return "pornhub"
+	case strings.Contains(k, "vimeo"):
+		return "vimeo"
+	case strings.Contains(k, "soundcloud"):
+		return "soundcloud"
+	case strings.Contains(k, "bandcamp"):
+		return "bandcamp"
+	case strings.Contains(k, "weibo"):
+		return "weibo"
+	case strings.Contains(k, "xiaohongshu"):
+		return "xiaohongshu"
 	}
 	host := strings.ToLower(url)
 	switch {
@@ -603,12 +668,28 @@ func platformOf(extractorKey, url string) string {
 		return "youtube"
 	case strings.Contains(host, "bilibili.com"), strings.Contains(host, "b23.tv"):
 		return "bilibili"
+	case strings.Contains(host, "douyin.com"):
+		return "douyin"
+	case strings.Contains(host, "tiktok.com"):
+		return "tiktok"
 	case strings.Contains(host, "music.163.com"):
 		return "netease"
 	case strings.Contains(host, "twitter.com"), strings.Contains(host, "x.com"):
 		return "twitter"
 	case strings.Contains(host, "instagram.com"):
 		return "instagram"
+	case strings.Contains(host, "pornhub.com"):
+		return "pornhub"
+	case strings.Contains(host, "vimeo.com"):
+		return "vimeo"
+	case strings.Contains(host, "soundcloud.com"):
+		return "soundcloud"
+	case strings.Contains(host, "bandcamp.com"):
+		return "bandcamp"
+	case strings.Contains(host, "weibo.com"):
+		return "weibo"
+	case strings.Contains(host, "xiaohongshu.com"):
+		return "xiaohongshu"
 	}
 	return "web"
 }

@@ -24,6 +24,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 FROM debian:bookworm-slim
 ARG YTDLP_VERSION=2026.10.21
 ARG GALLERYDL_VERSION=1.32.17
+ARG CURLCFFI_VERSION=0.16.3
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl ffmpeg tzdata python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* \
@@ -34,7 +35,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # gallery-dl 固定版本（图片/图集站点引擎；pip 装进系统 python3，
     # 构建期以 root 安装、运行期降级 raccoon 用户只读使用）
     && pip3 install --no-cache-dir --break-system-packages "gallery-dl==${GALLERYDL_VERSION}" \
-    && gallery-dl --version
+    && gallery-dl --version \
+    # curl_cffi：TLS 指纹伪装。部分站点（PornHub 等）对非浏览器 TLS 指纹直接
+    # 返回 410 Gone，yt-dlp 提示 "The extractor is attempting impersonation,
+    # but no impersonate target is available"。装上后 yt-dlp 会自动走 impersonation。
+    # 固定版本随镜像走，升级需重建镜像。
+    && pip3 install --no-cache-dir --break-system-packages "curl_cffi==${CURLCFFI_VERSION}" \
+    && python3 -c "import curl_cffi; print('curl_cffi', curl_cffi.__version__)"
 
 COPY --from=go-build /out/raccoon /usr/local/bin/raccoon
 # 非 root 运行（方案 §7.1）
