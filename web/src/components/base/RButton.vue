@@ -73,4 +73,9 @@ function onClick(ev: MouseEvent) {
 .rbtn--danger.rbtn--outline:hover:not(.rbtn--disabled) { border-color: var(--danger); }
 .rbtn--block { width: 100%; }
 .rbtn--disabled { opacity: 0.5; cursor: not-allowed; }
+/* <768 触控目标 ≥44px（docs/07 §6）：小屏上 sm 尺寸的 4px 内边距根本点不准。 */
+@media (max-width: 767px) {
+  .rbtn--sm { min-height: 36px; padding: 6px 12px; }
+  .rbtn--md { min-height: 44px; }
+}
 </style>

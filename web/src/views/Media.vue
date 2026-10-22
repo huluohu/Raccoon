@@ -2,7 +2,7 @@
 // 媒体库（docs/07 §3 / docs/04 §2.8）：文件视角浏览、搜索、预览、下载。
 //
 // 诚实原则：不支持浏览器播放的编码直接标「不支持预览」并给下载按钮，不假装能播。
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import { formatBytes, formatDuration, formatRelative, platformText } from '@/utils/format'
@@ -28,6 +28,27 @@ const platformFilter = ref('')
 const viewMode = ref<'card' | 'table'>('card')
 
 const selected = ref<MediaFile | null>(null)
+
+/** §6：768–1023 表格降级卡片。中屏宽度下六列表格挤到看不清，
+ *  该档位直接收回表格形态（不是隐藏内容，是换形态），切换按钮随之禁用并说明原因。 */
+const narrowTable = ref(false)
+let tableMql: MediaQueryList | null = null
+
+function syncNarrowTable() {
+  narrowTable.value = tableMql?.matches ?? false
+  if (narrowTable.value) viewMode.value = 'card'
+}
+
+onMounted(() => {
+  tableMql = window.matchMedia?.('(min-width: 768px) and (max-width: 1023px)') ?? null
+  syncNarrowTable()
+  tableMql?.addEventListener?.('change', syncNarrowTable)
+})
+
+onUnmounted(() => tableMql?.removeEventListener?.('change', syncNarrowTable))
+
+/** 实际生效形态：中屏档位恒定卡片。 */
+const effectiveViewMode = computed(() => (narrowTable.value ? 'card' : viewMode.value))
 
 const KINDS = [
   { value: '', label: '全部类型' },
@@ -110,8 +131,8 @@ onMounted(load)
         <button
           type="button"
           class="vt-btn"
-          :class="{ on: viewMode === 'card' }"
-          :aria-pressed="viewMode === 'card'"
+          :class="{ on: effectiveViewMode === 'card' }"
+          :aria-pressed="effectiveViewMode === 'card'"
           @click="viewMode = 'card'"
         >
           卡片
@@ -119,8 +140,10 @@ onMounted(load)
         <button
           type="button"
           class="vt-btn"
-          :class="{ on: viewMode === 'table' }"
-          :aria-pressed="viewMode === 'table'"
+          :class="{ on: effectiveViewMode === 'table' }"
+          :aria-pressed="effectiveViewMode === 'table'"
+          :disabled="narrowTable"
+          :title="narrowTable ? '当前宽度下表格已降级为卡片' : ''"
           @click="viewMode = 'table'"
         >
           表格
@@ -144,9 +167,9 @@ onMounted(load)
       hint="下载完成的文件会自动入库；也可以在「下载」页提交链接。"
     />
 
-    <!-- 表格视图（FileTable，RTable：表头浅底 / 行高 44 / hover 行操作） -->
+    <!-- 表格视图（FileTable，RTable：表头浅底 / 行高 44 / hover 行操作；768–1023 降级为卡片） -->
     <RTable
-      v-else-if="viewMode === 'table'"
+      v-else-if="effectiveViewMode === 'table'"
       :rows="items"
       :columns="COLUMNS"
       row-key="id"

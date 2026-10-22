@@ -1,6 +1,12 @@
 <script setup lang="ts">
 // 应用外壳：左侧导航（七个一级页面，方案 §8）+ 顶栏快速提交 + 通知中心。设计 Token 见 styles/tokens.css。
 // 会话 gate：未初始化 → setup；未登录 → Login；就绪才渲染主界面（后端 428/401 语义的前端落点）。
+//
+// 响应式四档（docs/07 §6）：
+//   ≥1280        侧导航常驻 + 双栏（默认）
+//   1024–1279    侧导航收图标栏（仅图标，文字隐藏）
+//   768–1023     侧导航收进抽屉，顶栏出汉堡按钮；表格降级卡片（各视图自行处理）
+//   <768         单栏 + 底部主操作栏，触控目标 ≥44px，内容留出底部安全区
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
@@ -18,6 +24,24 @@ const notif = useNotificationsStore()
 
 const quickUrl = ref('')
 const quickErr = ref('')
+/** 768–1023 抽屉态：侧导航收进抽屉时的开合。 */
+const navOpen = ref(false)
+
+/** 一级导航：图标用线稿 SVG（docs/07 §4 禁 emoji 冒充图标）。 */
+const NAV_ITEMS = [
+  { to: '/', label: '总览', icon: 'M2.6 7.3 8 2.9l5.4 4.4v5.4a.9.9 0 0 1-.9.9H3.5a.9.9 0 0 1-.9-.9z M6.2 13.6V9.4h3.6v4.2' },
+  { to: '/tasks', label: '下载', icon: 'M8 2.2v7.2m0 0 2.8-2.8M8 9.4 5.2 6.6M2.6 12.6h10.8' },
+  { to: '/media', label: '媒体库', icon: 'M2.4 4.4h3.9l1.2 1.6h6.1v6.9a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z M6.6 9.9l1.5 1.7 1.1-1.2 1.6 1.8' },
+  { to: '/subscriptions', label: '订阅', icon: 'M3.2 6.6a5.4 5.4 0 0 1 5.4 5.4M3.2 3.4a8.6 8.6 0 0 1 8.6 8.6M4.4 12a.9.9 0 1 0 0-.1' },
+  { to: '/live', label: '直播', icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
+  { to: '/connections', label: '连接', icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
+  { to: '/settings', label: '设置', icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
+]
+
+/** 768–1023 抽屉态：Esc 关闭（焦点即使跑出抽屉也能兜住）。 */
+function onNavKey(ev: KeyboardEvent) {
+  if (ev.key === 'Escape' && navOpen.value) navOpen.value = false
+}
 
 async function quickSubmit() {
   const target = quickUrl.value.trim()
@@ -51,6 +75,8 @@ watch(
 )
 
 onMounted(async () => {
+  // 抽屉态 Esc 兜底：遮罩可点，但键盘用户也要有一条零成本退出路径（§6/§7 一致原则）。
+  document.addEventListener('keydown', onNavKey)
   await auth.bootstrap()
   // bootstrap 可能已经把 phase 置为 ready（cookie 仍有效），watch 不会为「同值」触发，这里补一次。
   if (auth.phase === 'ready') {
@@ -60,26 +86,41 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => notif.stop())
+onUnmounted(() => {
+  document.removeEventListener('keydown', onNavKey)
+  notif.stop()
+})
 </script>
 
 <template>
   <div class="app" :data-theme="ui.theme">
     <Login v-if="auth.phase !== 'ready'" />
     <template v-else>
-      <aside class="nav">
+      <!-- 768–1023：侧导航收进抽屉，这里只放触发按钮（≥1024 隐藏） -->
+      <button
+        class="nav-toggle"
+        type="button"
+        aria-label="打开导航"
+        :aria-expanded="navOpen ? 'true' : 'false'"
+        @click="navOpen = true"
+      >
+        <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
+          <path d="M2.4 4.2h11.2M2.4 8h11.2M2.4 11.8h11.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+        </svg>
+      </button>
+
+      <aside class="nav" :class="{ open: navOpen }">
         <div class="brand">
           <RaccoonFace face="working" :size="22" />
           <span class="brand-name">浣熊 <em>Raccoon</em></span>
         </div>
-        <nav>
-          <router-link to="/">总览</router-link>
-          <router-link to="/tasks">下载</router-link>
-          <router-link to="/media">媒体库</router-link>
-          <router-link to="/subscriptions">订阅</router-link>
-          <router-link to="/live">直播</router-link>
-          <router-link to="/connections">连接</router-link>
-          <router-link to="/settings">设置</router-link>
+        <nav @click="navOpen = false">
+          <router-link v-for="item in NAV_ITEMS" :key="item.to" :to="item.to" :title="item.label">
+            <svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="nav-link-text">{{ item.label }}</span>
+          </router-link>
         </nav>
         <div class="nav-foot">
           <span class="user" :title="auth.user?.username">{{ auth.user?.username }}</span>
@@ -87,11 +128,23 @@ onUnmounted(() => notif.stop())
             {{ tasks.connected ? '实时' : '重连中' }}
           </span>
           <button class="theme-toggle" type="button" @click="ui.toggleTheme">
-            {{ ui.theme === 'dark' ? '浅色模式' : '深色模式' }}
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path v-if="ui.theme === 'dark'" d="M13 9.8A5.6 5.6 0 0 1 6.2 3a5.6 5.6 0 1 0 6.8 6.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+              <path v-else d="M8 3.2v1.6m0 6.4v1.6M3.2 8h1.6m6.4 0h1.6M4.8 4.8l1.1 1.1m4.2 4.2 1.1 1.1m0-6.4-1.1 1.1M5.9 10.1l-1.1 1.1M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+            </svg>
+            <span class="btn-text">{{ ui.theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
           </button>
-          <button class="logout" type="button" @click="auth.logout()">退出登录</button>
+          <button class="logout" type="button" @click="auth.logout()">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path d="M6.4 3.6H3.8a1 1 0 0 0-1 1v6.8a1 1 0 0 0 1 1h2.6M10.4 5.6 13 8l-2.6 2.4M13 8H6.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="btn-text">退出登录</span>
+          </button>
         </div>
       </aside>
+      <!-- 抽屉态遮罩：点它即关，Esc 也关（键盘兜底见下方 onKeydown） -->
+      <div v-if="navOpen" class="nav-mask" @click="navOpen = false" />
+
       <div class="main">
         <header class="topbar">
           <input
@@ -116,6 +169,15 @@ onUnmounted(() => notif.stop())
           </router-view>
         </main>
       </div>
+
+      <!-- <768：底部主操作栏（触控目标 ≥44px；内容区已留出底部安全区，关键按钮不被挡） -->
+      <nav class="tabbar" aria-label="主导航">
+        <router-link v-for="item in NAV_ITEMS" :key="item.to" :to="item.to" :title="item.label">
+          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
+            <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </router-link>
+      </nav>
     </template>
     <RToast />
   </div>
@@ -162,4 +224,98 @@ onUnmounted(() => notif.stop())
   color: var(--warning);
 }
 .content { padding: 24px; flex: 1; min-width: 0; }
+
+/* ============ §6 响应式四档 ============ */
+
+/* ≥1280：侧导航常驻 + 双栏 —— 即上方默认样式，无需覆盖 */
+
+/* 1024–1279：侧导航收图标栏（图标居中，文字与尾部文字按钮隐藏） */
+@media (max-width: 1279px) and (min-width: 1024px) {
+  .nav { width: 60px; padding: 16px 6px; align-items: center; }
+  .brand { justify-content: center; }
+  .brand-name { display: none; }
+  .nav nav { width: 100%; }
+  .nav nav a { justify-content: center; padding: 10px 0; }
+  .nav-link-text { display: none; }
+  .nav-foot { align-items: center; }
+  .nav-foot .user,
+  .nav-foot .conn { display: none; }
+  .nav-foot .btn-text { display: none; }
+  .theme-toggle,
+  .logout { padding: 10px; justify-content: center; }
+}
+
+/* 768–1023：侧导航收进抽屉 + 顶栏汉堡；表格降级卡片由各视图自行处理 */
+@media (max-width: 1023px) and (min-width: 768px) {
+  .nav-toggle { display: inline-flex; }
+  .nav {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: 232px;
+    transform: translateX(-100%);
+    transition: transform var(--motion-panel) var(--motion-panel-ease);
+    box-shadow: var(--shadow-3);
+  }
+  .nav.open { transform: translateX(0); }
+  .nav-mask { position: fixed; inset: 0; z-index: 50; background: rgba(27, 33, 51, 0.32); }
+  .topbar { padding-left: 12px; }
+}
+
+/* <768：单栏 + 底部主操作栏；触控目标 ≥44px；内容留出底部安全区（375px 关键按钮不被挡） */
+@media (max-width: 767px) {
+  .nav,
+  .nav-toggle,
+  .nav-mask { display: none; }
+  .tabbar {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 60;
+    display: flex;
+    justify-content: space-around;
+    align-items: stretch;
+    /* 底部安全区：iPhone  Home 指示条 / 手势区不遮按钮 */
+    padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+  .tabbar a {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px; /* §6 触控目标 */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-2);
+    text-decoration: none;
+    border-radius: var(--radius-ctrl);
+  }
+  .tabbar a.router-link-active { color: var(--accent); background: var(--accent-soft); }
+  /* 内容底部留出 tabbar 高度 + 间距，长页面最后一个按钮不会被挡住 */
+  .content { padding: 16px 14px calc(16px + 52px + env(safe-area-inset-bottom, 0px)); }
+  .topbar { padding: 10px 14px; }
+  .quick-submit { max-width: none; }
+  /* 顶栏与按钮进入触控尺寸 */
+  .quick-btn { min-height: 44px; padding: 8px 18px; }
+}
+
+/* 默认（≥1024）：汉堡与底部栏都不出现 */
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  background: var(--surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.tabbar { display: none; }
+
+.nav-icon { flex-shrink: 0; }
+
 </style>

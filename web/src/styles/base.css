@@ -44,12 +44,3 @@ button {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
-}

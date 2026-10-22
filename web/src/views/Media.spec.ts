@@ -94,4 +94,31 @@ describe('Media 视图', () => {
     const calls = vi.mocked(api.listFiles).mock.calls
     expect(calls[calls.length - 1]?.[0]).toMatchObject({ q: '测试' })
   })
+
+  it('768–1023 档位表格降级为卡片，「表格」按钮禁用并说明原因（docs/07 §6）', async () => {
+    // jsdom 的 matchMedia 恒返回 matches:false，这里按档位桩一个真的
+    const spy = vi.spyOn(window, 'matchMedia').mockImplementation((q: string) => ({
+      matches: q.includes('max-width: 1023px'),
+      media: q,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList)
+
+    const w = mountMedia()
+    await flushPromises()
+
+    // 该档位恒定卡片：不渲染表格
+    expect(w.find('.grid').exists()).toBe(true)
+    expect(w.find('.stub-table').exists()).toBe(false)
+    // 手动切表格也切不过去，且按钮说明原因
+    const tableBtn = w.findAll('.vt-btn')[1]
+    expect(tableBtn.attributes('disabled')).toBeDefined()
+    expect(tableBtn.attributes('title')).toContain('已降级为卡片')
+
+    spy.mockRestore()
+  })
 })

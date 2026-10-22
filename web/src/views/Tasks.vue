@@ -403,6 +403,41 @@ async function retryFailedChildren(parent: Task) {
   }
 }
 
+// ---- 新任务插入高亮（docs/07 §6 列表变更 180ms）----
+/** 本轮新出现的任务 ID：SSE 推送 / 提交成功后列表里多出来的那几条。
+ *  长列表里「刚进来的在哪」是最常遇到的眼力问题，用金色软底扫一遍指一下位置，
+ *  600ms 后自动撤（.row-flash 由 styles/motion.css 提供，不在组件里另写时长）。 */
+const flashIds = ref<Set<string>>(new Set())
+let flashTimers: number[] = []
+/** 首屏对账不算「新插入」：用户第一次打开页面时，整个列表都是「刚看到」而不是「刚到来」，
+ *  全部打高亮等于没有高亮。第一次变化只用来播种，之后多出来的才算新任务。 */
+let flashSeeded = false
+
+watch(
+  () => (tasks.items ?? []).map((t) => t.id).join(','),
+  (cur, prev) => {
+    const prevIds = new Set((prev ?? '').split(',').filter(Boolean))
+    const added = cur.split(',').filter((id) => id && !prevIds.has(id))
+    if (!flashSeeded) {
+      flashSeeded = true
+      return
+    }
+    if (!added.length) return
+    const next = new Set(flashIds.value)
+    added.forEach((id) => next.add(id))
+    flashIds.value = next
+    added.forEach((id) => {
+      flashTimers.push(
+        window.setTimeout(() => {
+          const clean = new Set(flashIds.value)
+          clean.delete(id)
+          flashIds.value = clean
+        }, 600),
+      )
+    })
+  },
+)
+
 // ---- 多选（docs/07 §7：Shift+Space 多选、↑↓ 移动，供批量重试/取消使用）----
 const selectedIds = ref<Set<string>>(new Set())
 /** 当前可聚焦的行索引（↑↓ 移动用）。 */
@@ -481,7 +516,11 @@ onMounted(async () => {
   tasks.connect()
 })
 
-onBeforeUnmount(() => tasks.disconnect())
+onBeforeUnmount(() => {
+  flashTimers.forEach((t) => window.clearTimeout(t))
+  flashTimers = []
+  tasks.disconnect()
+})
 </script>
 
 <template>
@@ -668,7 +707,7 @@ onBeforeUnmount(() => tasks.disconnect())
         <TaskCard
           v-if="isParent(t)"
           class="root-card"
-          :class="{ on: detail?.id === t.id }"
+          :class="{ on: detail?.id === t.id, 'row-flash': flashIds.has(t.id) }"
           :task="t"
           parent
           :child-stats="{
@@ -704,6 +743,7 @@ onBeforeUnmount(() => tasks.disconnect())
         <TaskRow
           v-else
           :task="t"
+          :class="{ 'row-flash': flashIds.has(t.id) }"
           :selected="isSelected(t.id)"
           @open="openDetail"
           @select="onSelect"
@@ -745,6 +785,7 @@ onBeforeUnmount(() => tasks.disconnect())
             :key="c.id"
             :task="c"
             size="sm"
+            :class="{ 'row-flash': flashIds.has(c.id) }"
             :selected="isSelected(c.id)"
             @open="openDetail"
             @select="onSelect"

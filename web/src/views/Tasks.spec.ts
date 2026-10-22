@@ -4,6 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import { mountView } from '@/test/mount'
 import Tasks from '@/views/Tasks.vue'
 import { makeTask } from '@/test/fixtures'
+import { useTasksStore } from '@/stores/tasks'
 import { ApiError } from '@/api/types'
 import {
   DetailDrawerStub,
@@ -379,5 +380,24 @@ describe('Tasks 视图', () => {
     const w = mountTasks()
     await flushPromises()
     expect(w.find('.err').text()).toContain('任务列表拉不到')
+  })
+
+  it('新插入的任务打上 row-flash 高亮，旧任务不打（docs/07 §6 列表变更）', async () => {
+    mocks.listTasks.mockResolvedValue({
+      items: [makeTask({ id: 'old-1', title: '老的' })],
+      counts: emptyCounts,
+      next_cursor: null,
+    })
+    const w = mountTasks()
+    await flushPromises()
+    expect(w.find('[data-task="old-1"]').classes()).not.toContain('row-flash')
+
+    // 模拟 SSE 推来一条新任务：从同一个 pinia 取 store 追加
+    const tasks = useTasksStore()
+    tasks.items = [...tasks.items, makeTask({ id: 'new-1', title: '新来的' })]
+    await flushPromises()
+
+    expect(w.find('[data-task="new-1"]').classes()).toContain('row-flash')
+    expect(w.find('[data-task="old-1"]').classes()).not.toContain('row-flash')
   })
 })

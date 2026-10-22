@@ -1,0 +1,75 @@
+/* §6 动效与响应式（docs/07 §6）。
+ *
+ * 为什么单独一个文件：动效参数是设计约束不是实现细节，散在各组件里就会漂移
+ * （有人写 300ms、有人写 ease-in-out）。这里集中定义四档时长/曲线 + 两个工具类，
+ * 组件只准引用变量，不准另起炉灶。
+ *
+ * 四档（超出即违规）：
+ *   微反馈   120ms ease-out                  hover / press / 开关
+ *   面板抽屉 180–240ms cubic-bezier(.2,.8,.2,1)  详情侧栏 / 对话框 / 通知中心
+ *   进度数字 240ms linear                    进度条 / 速度刷新
+ *   列表变更 180ms                           新任务插入高亮定位
+ *
+ * 明令禁用：>400ms 入场、循环装饰动画、大渐变、玻璃拟态。
+ * 尊重 prefers-reduced-motion：只保留透明度变化，其余时长归零。
+ */
+:root {
+  --motion-micro: 120ms;
+  --motion-micro-ease: ease-out;
+  /* 面板抽屉取 180–240ms 区间中值，两侧组件可在此范围内取 200/220ms */
+  --motion-panel: 200ms;
+  --motion-panel-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-progress: 240ms;
+  --motion-progress-ease: linear;
+  --motion-list: 180ms;
+}
+
+/* 新任务插入高亮定位（列表变更 180ms）：一次性，不是循环动画。
+ * 用金色软底扫一遍再淡出，让「新来的一条」在长列表里被看见，但不永久占注意力。 */
+@keyframes raccoon-row-in {
+  from {
+    background: var(--gold-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.row-flash {
+  animation: raccoon-row-in var(--motion-list) ease-out;
+}
+
+/* 面板抽屉的统一过渡类：详情侧栏 / 对话框 / 通知中心共用同一曲线。 */
+.motion-panel-enter-active,
+.motion-panel-leave-active {
+  transition:
+    opacity var(--motion-panel) var(--motion-panel-ease),
+    transform var(--motion-panel) var(--motion-panel-ease);
+}
+
+.motion-panel-enter-from,
+.motion-panel-leave-to {
+  opacity: 0;
+}
+
+.motion-panel-enter-from .dd-panel,
+.motion-panel-leave-to .dd-panel {
+  transform: translateX(24px);
+}
+
+/* 减少动效：只保留透明度变化，位移/尺寸/颜色过渡全部归零。
+ * 注意 !important——组件内的 transition 是局部样式，必须压得住。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-property: opacity !important;
+  }
+
+  .row-flash {
+    animation: none !important;
+  }
+}

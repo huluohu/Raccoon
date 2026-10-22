@@ -178,8 +178,14 @@ def check_layout_fixes() -> None:
     check("登录页居中（.auth 占满 flex 行）", "flex: 1" in login and "width: 100%" in login,
           "views/Login.vue")
     app = read("App.vue")
+    brand = re.search(r'<div class="brand">(.*?)</div>', app, re.S)
     check("侧栏 Logo 用 RaccoonFace（非内联 SVG/emoji）",
-          "RaccoonFace" in app and "<svg viewBox" not in app, "App.vue")
+          bool(brand) and "RaccoonFace" in brand.group(1) and "<svg" not in brand.group(1),
+          "App.vue .brand 块")
+    # 导航图标用 SVG 线稿是 §4 的正当要求，但整页仍不许出现 emoji 冒充图标
+    check("App.vue 模板无 emoji 冒充图标", not EMOJI_RE.search(
+        re.search(r"<template>(.*)</template>", app, re.S).group(1) if re.search(r"<template>(.*)</template>", app, re.S) else ""
+    ), "App.vue")
     # RDialog ≤480px（jsdom 不应用 scoped CSS，故在源码级断言）
     rdialog = read("components/base/RDialog.vue")
     check("§4 RDialog 宽度 ≤480px", bool(re.search(r"max-width:\s*480px", rdialog)),
@@ -204,6 +210,81 @@ def check_spec_files() -> None:
           f"现有：{comp_specs}")
 
 
+# ---------------------------------------------------------------- §6 动效与响应式
+def check_motion() -> None:
+    """方案 §6：动效四档 + 禁用项 + prefers-reduced-motion。"""
+    motion_path = WEB / "styles" / "motion.css"
+    if not motion_path.exists():
+        check("§6 motion.css 存在", False, "缺少 styles/motion.css")
+        return
+    motion = motion_path.read_text(encoding="utf-8")
+    main = read("main.ts")
+    check("§6 motion.css 被 main.ts 引入", "styles/motion.css" in main, "main.ts")
+
+    # 四档时长/曲线
+    check("§6 微反馈 120ms ease-out", "--motion-micro: 120ms" in motion and "ease-out" in motion)
+    check("§6 面板抽屉 180–240ms cubic-bezier(.2,.8,.2,1)",
+          "--motion-panel: 200ms" in motion and "cubic-bezier(0.2, 0.8, 0.2, 1)" in motion)
+    check("§6 进度数字 240ms linear",
+          "--motion-progress: 240ms" in motion and "linear" in motion)
+    check("§6 列表变更 180ms", "--motion-list: 180ms" in motion)
+    check("§6 prefers-reduced-motion 全局兜底", "prefers-reduced-motion: reduce" in motion)
+
+    # 禁用项：>400ms 入场一律不许（扫全部 vue/css 的 transition/animation 时长）
+    slow = []
+    for p in [q for q in WEB.rglob("*.vue")] + [q for q in WEB.rglob("*.css")]:
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+        for decl in re.finditer(r"(?:transition|animation)[^;{}]*", txt):
+            for d in re.finditer(r"(\d+(?:\.\d+)?)ms", decl.group(0)):
+                if float(d.group(1)) > 400:
+                    slow.append(f"{p.relative_to(ROOT)}:{d.group(0)}")
+    check("§6 无 >400ms 入场/过渡", not slow, ", ".join(slow[:3]))
+
+    # 循环动画：只允许「不确定进度条纹」这一处功能态（§4 要求条纹），且必须在减少动效下停掉
+    loops = []
+    for p in [q for q in WEB.rglob("*.vue")] + [q for q in WEB.rglob("*.css")]:
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+        if "infinite" in txt:
+            loops.append(str(p.relative_to(ROOT)))
+    allowed_loops = {"web/src/components/task/TaskProgress.vue"}
+    check("§6 循环动画仅剩不确定进度条纹（§4 功能态）",
+          set(loops) <= allowed_loops, f"多余循环动画：{sorted(set(loops) - allowed_loops)}")
+    if "web/src/components/task/TaskProgress.vue" in loops:
+        tp = read("components/task/TaskProgress.vue")
+        # 条纹必须有 reduced-motion 降级，否则就是纯装饰骚扰
+        check("§6 不确定进度条纹在减少动效下停止",
+              "prefers-reduced-motion" in tp and "animation: none" in tp,
+              "components/task/TaskProgress.vue")
+
+    # 列表变更高亮：motion.css 提供工具类，Tasks.vue 真的在用
+    check("§6 新任务插入高亮工具类 .row-flash", ".row-flash" in motion, "styles/motion.css")
+    check("§6 .row-flash 接入 Tasks 列表", "row-flash" in read("views/Tasks.vue"), "views/Tasks.vue")
+
+
+def check_responsive() -> None:
+    """方案 §6 响应式四档：≥1280 常驻 / 1024–1279 图标栏 / 768–1023 抽屉 / <768 底部栏。"""
+    app = read("App.vue")
+    check("§6 ≥1280 侧导航常驻（默认样式无覆盖）", ".nav {" in app)
+    check("§6 1024–1279 侧导航收图标栏", "max-width: 1279px" in app and "min-width: 1024px" in app
+          and ".nav-link-text { display: none; }" in app)
+    check("§6 768–1023 侧导航收进抽屉", "max-width: 1023px" in app and "min-width: 768px" in app
+          and "nav-toggle" in app and ".nav.open" in app)
+    check("§6 <768 单栏 + 底部主操作栏", "max-width: 767px" in app and ".tabbar" in app)
+    check("§6 <768 触控目标 ≥44px", "min-height: 44px" in app)
+    # 375px 关键按钮不遮挡：内容区必须给底部栏留出空间（含安全区）
+    check("§6 <768 内容留出底部安全区",
+          re.search(r"\.content \{[^}]*safe-area-inset-bottom", app, re.S) is not None,
+          "App.vue .content <768 档")
+    # 768–1023 表格降级卡片
+    media = read("views/Media.vue")
+    check("§6 768–1023 表格降级卡片", "narrowTable" in media and "max-width: 1023px" in media,
+          "views/Media.vue")
+    # 小屏按钮进入触控尺寸
+    rbtn = read("components/base/RButton.vue")
+    check("§6 <768 RButton 触控尺寸", "max-width: 767px" in rbtn and "min-height: 44px" in rbtn,
+          "components/base/RButton.vue")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", action="store_true")
@@ -217,6 +298,8 @@ def main() -> int:
     check_shortcuts()
     check_layout_fixes()
     check_spec_files()
+    check_motion()
+    check_responsive()
 
     passed = sum(1 for _, ok, _ in results if ok)
     failed = [(n, d) for n, ok, d in results if not ok]
@@ -237,7 +320,7 @@ def main() -> int:
             print(f"  ✗ {name}" + (f"  <- {detail}" if detail else ""))
         print("\n结论：不符合设计方案，需按 docs/07 补齐后重跑。")
         return 1
-    print("\n结论：符合设计方案（§2 Token / §3 路由 / §4 组件 / §5 表情 / §7 交互 全部对齐）。")
+    print("\n结论：符合设计方案（§2 Token / §3 路由 / §4 组件 / §5 表情 / §6 动效响应式 / §7 交互 / §8 工程约定 全部对齐）。")
     return 0
 
 
