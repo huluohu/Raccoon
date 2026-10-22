@@ -12,7 +12,7 @@ import { useTasksStore } from '@/stores/tasks'
 import { useToastStore } from '@/stores/toast'
 import type { ParsePreview, Task, TaskEvent, TaskFile, TaskStatus } from '@/api/types'
 import { ApiError } from '@/api/types'
-import { formatBytes, formatDuration } from '@/utils/format'
+import { errorText, formatBytes, formatDuration } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
 import RDialog from '@/components/base/RDialog.vue'
 import RInput from '@/components/base/RInput.vue'
@@ -47,7 +47,7 @@ async function onPreview() {
     const videoFormats = res.data.formats.filter((f) => f.quality !== 'audio')
     chosenQuality.value = videoFormats[0]?.quality ?? 'best'
   } catch (e) {
-    parseErr.value = e instanceof ApiError ? e.message : '解析失败'
+    parseErr.value = errorText(e, '解析失败')
   } finally {
     submitting.value = false
   }
@@ -63,7 +63,7 @@ async function onAddToDownload() {
     url.value = ''
     toast.success('已加入下载队列')
   } catch (e) {
-    parseErr.value = e instanceof ApiError ? e.message : '加入下载失败'
+    parseErr.value = errorText(e, '加入下载失败')
   } finally {
     submitting.value = false
   }
@@ -80,7 +80,7 @@ async function onQuickSubmit() {
     preview.value = null
     toast.success('已加入下载队列')
   } catch (e) {
-    parseErr.value = e instanceof ApiError ? e.message : '提交失败'
+    parseErr.value = errorText(e, '提交失败')
   } finally {
     submitting.value = false
   }
@@ -138,7 +138,7 @@ async function onBatchParse() {
       const videoFormats = res.data.formats.filter((f) => f.quality !== 'audio')
       item.quality = videoFormats[0]?.quality ?? 'best'
     } catch (e) {
-      item.error = e instanceof ApiError ? e.message : '解析失败'
+      item.error = errorText(e, '解析失败')
     }
   }
   batchItems.value = [...batchItems.value]
@@ -178,7 +178,7 @@ async function onBatchSubmit(mode: 'normal' | 'parent') {
     batchText.value = ''
     batchItems.value = []
   } catch (e) {
-    batchErr.value = e instanceof ApiError ? e.message : '批量提交失败'
+    batchErr.value = errorText(e, '批量提交失败')
   } finally {
     batchSubmitting.value = false
   }
@@ -847,7 +847,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 14px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.page-title { margin: 0; font-size: 24px; font-weight: 750; border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { margin: 0; font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin: 6px 0 0 16px; font-size: var(--font-aux); color: var(--text-2); }
 .conn {
   display: flex; align-items: center; gap: 6px; font-size: var(--font-caption); color: var(--text-2);
@@ -869,11 +869,13 @@ onBeforeUnmount(() => {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
   box-shadow: var(--shadow-1); padding: 12px 14px;
 }
-.card-title { margin: 0; font-size: var(--font-aux); font-weight: 600; color: var(--text-1); }
+.card-title { margin: 0; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); }
 
-/* 提交区（RInput 自带标签常驻，按钮与输入框底对齐） */
+/* 提交区（RInput 自带标签常驻，按钮与输入框底对齐）。
+   输入框不随内容区无限拉宽：URL 输入 640px 足够展示长链接，
+   再宽只会把按钮挤到屏幕尽头、整行比例失衡。 */
 .submit { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
-.submit .rinput { flex: 1; min-width: 260px; }
+.submit .rinput { flex: 1 1 420px; min-width: 260px; max-width: 640px; }
 
 /* 预览卡 */
 .preview { display: flex; gap: 14px; }
@@ -881,7 +883,7 @@ onBeforeUnmount(() => {
 .thumb.sm { width: 84px; height: 48px; }
 .thumb.ph { display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--font-caption); }
 .pv-body { flex: 1; min-width: 0; }
-.pv-title { margin: 0 0 6px; font-weight: 650; font-size: var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-title { margin: 0 0 6px; font-weight: var(--weight-medium); font-size: var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-caption); color: var(--text-2); }
 .qualities { display: flex; flex-wrap: wrap; gap: 6px; }
 .q {
@@ -889,7 +891,7 @@ onBeforeUnmount(() => {
   background: var(--surface); font-size: var(--font-caption); color: var(--text-2); cursor: pointer;
 }
 .q em { font-style: normal; margin-left: 6px; color: var(--text-3); }
-.q.on { border-color: var(--gold); background: var(--gold-soft); color: var(--text-1); font-weight: 650; }
+.q.on { border-color: var(--gold); background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-medium); }
 .pv-actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
 .pill { padding: 1px 8px; border-radius: var(--radius-pill); font-size: var(--font-caption); }
 .pill--warn { background: var(--gold-soft); color: var(--gold-strong); }
@@ -910,7 +912,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-ctrl); border: 1px solid var(--border);
 }
 .bi-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.bi-title { margin: 0; font-size: var(--font-aux); font-weight: 600; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-title { margin: 0; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bi-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: var(--font-caption); color: var(--text-2); }
 .bi-err { color: var(--danger); }
 

@@ -183,7 +183,7 @@ function onRowClick(row: T, index: number) {
   background: var(--surface-2);
   color: var(--text-2);
   font-size: var(--font-caption);
-  font-weight: 500;
+  font-weight: var(--weight-caption);
   text-align: left;
   white-space: nowrap;
   border-bottom: 1px solid var(--border);

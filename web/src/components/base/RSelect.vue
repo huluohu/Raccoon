@@ -160,7 +160,7 @@ function onClear() {
 }
 .rselect-label {
   font-size: var(--font-aux);
-  font-weight: 500;
+  font-weight: var(--weight-caption);
   color: var(--text-2);
 }
 .rselect-wrap {
@@ -208,7 +208,7 @@ function onClear() {
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-caption);
   line-height: 1;
   cursor: pointer;
   transition: background 120ms ease-out, color 120ms ease-out;

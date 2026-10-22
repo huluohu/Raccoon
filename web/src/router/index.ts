@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 // 路由表与 docs/07 §3 逐条对应：/setup、/login + 七个一级页面。
 // setup/login 由 App.vue 的会话 gate 按 auth.phase 内联渲染；这里再注册同组件路由，
@@ -19,6 +20,15 @@ const routes: RouteRecordRaw[] = [
 export const router = createRouter({
   history: createWebHistory(),
   routes,
+})
+
+// 已登录再进 /login、/setup 没有意义：这两个路径的页面只属于「未认证」状态。
+// 不拦的话登录成功后路由还停在 /login，外壳的 router-view 会把登录页再渲染一遍，
+// 变成「侧栏 + 顶栏 + 中间浮一张登录卡」的同屏重复（实测复现过）。
+router.beforeEach((to) => {
+  if ((to.name === 'login' || to.name === 'setup') && useAuthStore().phase === 'ready') {
+    return { name: 'overview' }
+  }
 })
 
 router.afterEach((to) => {

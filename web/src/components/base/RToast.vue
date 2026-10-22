@@ -57,8 +57,8 @@ const toast = useToastStore()
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-strong);
   color: #fff;
   background: var(--info);
 }
@@ -66,5 +66,5 @@ const toast = useToastStore()
 .rtoast--warning .rtoast-glyph { background: var(--warning); }
 .rtoast--error .rtoast-glyph { background: var(--danger); }
 .rtoast-text { flex: 1; line-height: 1.5; word-break: break-word; }
-.rtoast-close { border: none; background: transparent; color: var(--text-3); cursor: pointer; font-size: 12px; padding: 0 2px; }
+.rtoast-close { border: none; background: transparent; color: var(--text-3); cursor: pointer; font-size: var(--font-caption); padding: 0 2px; }
 </style>

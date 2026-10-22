@@ -354,13 +354,13 @@ function fileName(f: TaskFile): string {
 .td-sec-title {
   margin: 0 0 8px;
   font-size: var(--font-aux);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text-2);
 }
 .td-title {
   margin: 0 0 8px;
   font-size: var(--font-body);
-  font-weight: 650;
+  font-weight: var(--weight-medium);
   color: var(--text-1);
   word-break: break-all;
 }

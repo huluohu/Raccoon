@@ -22,7 +22,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 
 # ---- 阶段 3：运行镜像（非 root，内置引擎）----
 FROM debian:bookworm-slim
-ARG YTDLP_VERSION=2025.01.15
+ARG YTDLP_VERSION=2026.10.21
 ARG GALLERYDL_VERSION=1.32.17
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl ffmpeg tzdata python3 python3-pip \

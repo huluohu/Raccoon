@@ -455,7 +455,7 @@ onMounted(() => {
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.page-title { font-size: 24px; font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
 .alert {
   padding: 10px 14px;
@@ -487,7 +487,7 @@ onMounted(() => {
 .int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: var(--weight-semibold); color: var(--text-2); }
 .int-glyph {
   width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: var(--weight-strong); color: #fff; background: var(--neutral);
+  font-size: var(--font-caption); font-weight: var(--weight-strong); color: #fff; background: var(--neutral);
 }
 .int-card[data-state='ok'] .int-state { color: var(--success); }
 .int-card[data-state='ok'] .int-glyph { background: var(--success); }

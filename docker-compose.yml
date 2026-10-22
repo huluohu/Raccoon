@@ -5,7 +5,12 @@ services:
     build:
       context: .
       args:
-        YTDLP_VERSION: "2025.01.15"
+        # 引擎版本（docs/02 §8：升级引擎 = 升级镜像）。
+        # 必须与 Dockerfile 的 ARG 默认值保持一致，否则 compose 会覆盖掉
+        # Dockerfile 里已升级的版本，容器里仍是旧引擎。
+        # 2026-10-21：旧版 2025.01.15 在 YouTube 改版后解析全部失败
+        # （"The page needs to be reloaded."）。
+        YTDLP_VERSION: "2026.10.21"
     image: raccoon:0.1.0
     container_name: raccoon
     network_mode: bridge

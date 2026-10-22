@@ -5,6 +5,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -305,7 +306,18 @@ func taskErrToHTTP(err error) error {
 	}
 	var ee *engine.EngineError
 	if errors.As(err, &ee) {
-		return httpx.Validation(ee.Message)
+		he := httpx.Validation(ee.Message)
+		// 引擎真实原因随 detail 带出（如「The page needs to be reloaded.」），
+		// 用户才知道是链接问题、登录问题还是引擎版本问题。
+		if ee.Detail != "" {
+			he.WithDetail(ee.Detail)
+		}
+		// 引擎不可用（缺失/过旧）属于 503，与文档 §1.2 的 ENGINE_UNAVAILABLE 一致。
+		if ee.Code == "ENGINE_UNAVAILABLE" || ee.Code == "ENGINE_OUTDATED" {
+			he.HTTP = http.StatusServiceUnavailable
+			he.Code = httpx.CodeNoEngine
+		}
+		return he
 	}
 	return httpx.Internal("服务内部错误")
 }
@@ -329,7 +341,41 @@ func validateOutboundURL(raw string) error {
 	if isPrivateHost(host) {
 		return httpx.Validation("不允许访问内网地址（防 SSRF）")
 	}
+	if err := validateYouTubeID(raw); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateYouTubeID YouTube watch 链接的视频 ID 长度校验。
+//
+// YouTube 视频 ID 恒为 11 位（[A-Za-z0-9_-]）。粘贴时多带/少带一位是最常见的
+// 输错形式，而引擎对这种链接只会报一句「This video is unavailable」——
+// 用户看不出是自己链接敲错了。这里在提交前就拦下来并说清楚。
+func validateYouTubeID(raw string) error {
+	host := strings.ToLower(hostOf(raw))
+	if host != "youtube.com" && host != "www.youtube.com" && host != "m.youtube.com" {
+		return nil
+	}
+	// 只校验 watch?v= 形式（shorts / embed / playlist 的 ID 规则不同，不在此拦）。
+	idx := strings.Index(raw, "watch?v=")
+	if idx < 0 {
+		return nil
+	}
+	id := raw[idx+len("watch?v="):]
+	if i := strings.IndexAny(id, "&#"); i >= 0 {
+		id = id[:i]
+	}
+	// 11 位是唯一合法长度；其它长度一律提示，绝不放行到引擎。
+	if len(id) == 11 {
+		return nil
+	}
+	if id == "" {
+		return httpx.Validation("YouTube 链接缺少视频 ID（应形如 watch?v=XXXXXXXXXXX）")
+	}
+	return httpx.Validation(fmt.Sprintf(
+		"YouTube 视频 ID 应为 11 位，当前为 %d 位（%q）——请检查链接是否粘贴完整",
+		len(id), id))
 }
 
 // isPrivateHost 主机名（IP 字面量或常见保留名）私网判定。

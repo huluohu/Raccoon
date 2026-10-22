@@ -41,17 +41,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let code = 'HTTP_' + resp.status
     let message = resp.statusText
     let requestId = ''
+    let detail = ''
     try {
       const body = (await resp.json()) as ApiErrorBody
       if (body?.error) {
         code = body.error.code
         message = body.error.message
         requestId = body.error.request_id
+        detail = body.error.detail ?? ''
       }
     } catch {
       // 非 JSON 错误响应，保留 HTTP 级信息
     }
-    throw new ApiError(code, message, requestId)
+    throw new ApiError(code, message, requestId, detail)
   }
   if (resp.status === 204) return undefined as T
   return (await resp.json()) as T
@@ -76,6 +78,18 @@ export const api = {
   authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   // 后端 handleAuthMe 返回 {"user": {...}}（非 data 信封，docs/04 §2.1）。
   authMe: () => request<{ user: import('./types').AuthUser }>('/auth/me'),
+  /** 改密码（docs/04 §2.1）：旧口令 + 新口令，弱口令由后端策略拦（400）。 */
+  authChangePassword: (oldPassword: string, newPassword: string) =>
+    request<{ ok: boolean }>('/auth/password', {
+      method: 'PUT',
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    }),
+  /** 改用户名（docs/04 §2.1）：必须带当前口令；撞名 409、非法用户名 400。 */
+  authChangeUsername: (username: string, password: string) =>
+    request<{ user: import('./types').AuthUser }>('/auth/username', {
+      method: 'PUT',
+      body: JSON.stringify({ username, password }),
+    }),
 
   // ---- 任务（docs/04 §2.2/§2.3）----
   listTasks: (params: Record<string, string> = {}) => {

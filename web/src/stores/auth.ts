@@ -70,8 +70,36 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function logout(): Promise<void> {
+  /** 改用户名（PUT /auth/username）：带当前口令，成功后同步 store.user（侧栏用户名即时更新）。 */
+  async function changeUsername(username: string, password: string): Promise<void> {
+    busy.value = true
+    error.value = ''
     try {
+      const res = await api.authChangeUsername(username.trim(), password)
+      user.value = res.user
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '用户名更新失败'
+      throw e
+    } finally {
+      busy.value = false
+    }
+  }
+
+  /** 改密码（PUT /auth/password）：旧口令 + 新口令；不修改会话，当前登录态保持。 */
+  async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+    busy.value = true
+    error.value = ''
+    try {
+      await api.authChangePassword(oldPassword, newPassword)
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '密码更新失败'
+      throw e
+    } finally {
+      busy.value = false
+    }
+  }
+
+  async function logout(): Promise<void> {    try {
       await api.authLogout()
     } finally {
       setCsrfToken('')
@@ -87,5 +115,5 @@ export const useAuthStore = defineStore('auth', () => {
     phase.value = 'login'
   }
 
-  return { phase, user, busy, error, bootstrap, setup, login, logout, markUnauthenticated, hasCsrf: () => !!getCsrfToken() }
+  return { phase, user, busy, error, bootstrap, setup, login, logout, markUnauthenticated, changeUsername, changePassword, hasCsrf: () => !!getCsrfToken() }
 })

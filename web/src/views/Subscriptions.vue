@@ -6,7 +6,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
-import { formatRelative } from '@/utils/format'
+import { errorText, formatRelative } from '@/utils/format'
 import type { ParsePreview, Subscription, SubscriptionItem } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
@@ -89,7 +89,7 @@ async function load() {
     const res = await api.listSubscriptions()
     items.value = res.items ?? []
   } catch (e) {
-    loadErr.value = e instanceof Error ? e.message : '订阅加载失败'
+    loadErr.value = errorText(e, '订阅加载失败')
   } finally {
     loading.value = false
   }
@@ -124,7 +124,7 @@ async function doPreview() {
     preview.value = res.data as ParsePreview
     toast.success('来源解析成功，确认无误再保存')
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '来源解析失败')
+    toast.error(errorText(e, '来源解析失败'))
   } finally {
     previewing.value = false
   }
@@ -151,7 +151,7 @@ async function save() {
     formOpen.value = false
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '订阅创建失败')
+    toast.error(errorText(e, '订阅创建失败'))
   } finally {
     saving.value = false
   }
@@ -170,7 +170,7 @@ async function checkNow(s: Subscription) {
     }
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '检查失败')
+    toast.error(errorText(e, '检查失败'))
   } finally {
     checkingId.value = ''
   }
@@ -182,7 +182,7 @@ async function toggleEnabled(s: Subscription) {
     toast.success((s.enabled ? '已暂停 ' : '已启用 ') + (s.title || s.id))
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '操作失败')
+    toast.error(errorText(e, '操作失败'))
   }
 }
 
@@ -193,7 +193,7 @@ async function remove(s: Subscription) {
     if (detailId.value === s.id) detailId.value = ''
     await load()
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '删除失败')
+    toast.error(errorText(e, '删除失败'))
   }
 }
 
@@ -204,7 +204,7 @@ async function openDetail(s: Subscription) {
     const res = await api.listSubscriptionItems(s.id)
     detailItems.value = res.items ?? []
   } catch (e) {
-    toast.error(e instanceof Error ? e.message : '内容列表加载失败')
+    toast.error(errorText(e, '内容列表加载失败'))
   } finally {
     detailLoading.value = false
   }
@@ -384,7 +384,7 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.page-title { font-size: 24px; font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
 .alert { padding: 10px 14px; margin-bottom: 14px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-aux); }
 .alert--danger { border-color: var(--danger); color: var(--danger); }
@@ -416,7 +416,7 @@ onMounted(load)
   background: var(--gold-soft);
   color: var(--gold-strong);
   font-weight: var(--weight-strong);
-  font-size: 12px;
+  font-size: var(--font-caption);
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--gold);
 }

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 // 登录 / 首次初始化（后端 428 setup_required 语义的前端落点）。
 import { ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 
 const auth = useAuthStore()
+const router = useRouter()
+const route = useRoute()
 const username = ref('')
 const password = ref('')
 const confirm = ref('')
@@ -20,6 +23,14 @@ async function submit() {
   try {
     if (isSetup()) await auth.setup(username.value.trim(), password.value)
     else await auth.login(username.value.trim(), password.value)
+    // 认证成功：只有在 auth 路由上才需要跳走。
+    // /login、/setup 的路由组件除了会话 gate 还会被外壳的 router-view 渲染一次，
+    // 停在这儿不放就是「外壳 + 登录卡」同屏重复；停在别的页面（如会话过期后
+    // 在 /tasks 重新登录）则原地恢复，不强行拽回总览。
+    // 用 path 而不是 name：name 依赖路由表命名，反代/书签跳进来时路径才是事实。
+    if (route.path === '/login' || route.path === '/setup') {
+      await router.replace('/')
+    }
   } catch {
     // 错误信息已在 store.error，页面直接展示
   }
@@ -68,14 +79,14 @@ async function submit() {
 .auth { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 24px; }
 .card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-modal); padding: 32px; box-shadow: var(--shadow-2); }
 .brand { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
-h1 { margin: 0; font-size: 22px; font-weight: 750; }
-h1 em { font-style: normal; font-size: 13px; color: var(--text-3); margin-left: 4px; }
+h1 { margin: 0; font-size: var(--font-title-2); font-weight: var(--weight-title); }
+h1 em { font-style: normal; font-size: var(--font-aux); color: var(--text-3); margin-left: 4px; }
 .sub { margin: 4px 0 0; font-size: var(--font-aux); color: var(--text-2); }
 form { display: flex; flex-direction: column; gap: 14px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-aux); color: var(--text-2); }
 input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
 input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: #fff; font-size: var(--font-body); font-weight: 600; cursor: pointer; }
+button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: #fff; font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
 button:disabled { opacity: 0.6; cursor: progress; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-aux); }
 .hint { margin: 18px 0 0; font-size: var(--font-caption); color: var(--text-3); }

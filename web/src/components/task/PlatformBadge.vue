@@ -38,8 +38,8 @@ const mark = computed(() => {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-strong);
 }
 .pbadge-text { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 </style>

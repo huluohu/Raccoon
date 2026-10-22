@@ -214,7 +214,7 @@ onMounted(load)
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; color: var(--text-1); }
 .metric { display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
-.metric-num { font-size: 28px; font-weight: var(--weight-title); color: var(--text-1); line-height: 1.1; }
+.metric-num { font-size: var(--font-display); font-weight: var(--weight-title); color: var(--text-1); line-height: 1.1; }
 .metric-label { font-size: var(--font-aux); color: var(--text-3); }
 .muted { color: var(--text-3); font-size: var(--font-aux); }
 .warn-line { color: var(--warning); font-size: var(--font-aux); margin: 4px 0; }

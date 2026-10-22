@@ -140,3 +140,21 @@ export function formatPercent(p: number | null | undefined): string {
   if (p === null || p === undefined || Number.isNaN(p)) return '—'
   return `${p.toFixed(0)}%`
 }
+
+/**
+ * 错误 → 展示文案。
+ *
+ * 后端错误信封带三段信息：code（业务码）/ message（可展示文案）/ detail（引擎原始原因）。
+ * 只显示 message 时，引擎问题会退化成一句「引擎退出码 1」——用户看不出该升级引擎、
+ * 换链接还是补凭据。这里把 detail 拼进文案，detail 本身是英文原句，
+ * 追加在中文提示后面，帮助判断又不喧宾夺主。
+ */
+export function errorText(e: unknown, fallback: string): string {
+  if (!(e instanceof Error)) return fallback
+  const base = e.message || fallback
+  const detail = (e as { detail?: string }).detail
+  if (!detail) return base
+  // detail 已被 message 覆盖时不重复展示。
+  if (base.includes(detail)) return base
+  return `${base}（引擎原始信息：${detail}）`
+}

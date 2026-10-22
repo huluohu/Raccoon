@@ -8,14 +8,17 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { api } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import { formatRelative } from '@/utils/format'
 import type { ApiToken, ConfigHistoryEntry, ConfigItem, Effective } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import RInput from '@/components/base/RInput.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import REmpty from '@/components/base/REmpty.vue'
 
 const toast = useToastStore()
+const auth = useAuthStore()
 
 const items = ref<ConfigItem[]>([])
 const loading = ref(true)
@@ -235,10 +238,94 @@ async function copyToken() {
   }
 }
 
+// ---- 账号（用户名 / 密码修改，docs/04 §2.1）----
+// 与配置分组相互独立：各自带保存按钮，不进 drafts/dirtyKeys 那套对账。
+// 前端校验只做即时反馈，规则以后端为准（用户名 2–32 位字母数字/_-/中文；口令 ≥8 位）。
+const newUsername = ref('')
+const usernamePw = ref('')
+const oldPw = ref('')
+const newPw = ref('')
+const confirmPw = ref('')
+const savingName = ref(false)
+const savingPw = ref(false)
+
+/** 账号表单是否有未提交的输入（用于离开路由时的提示，与配置脏状态同一拦截）。 */
+const accountDirty = computed(
+  () => !!(newUsername.value || usernamePw.value || oldPw.value || newPw.value || confirmPw.value),
+)
+
+/** 用户名前端校验：与后端 validateUsername 同规则（错误文案也一致，避免两套说法）。 */
+function usernameError(name: string): string {
+  const v = name.trim()
+  if (v.length < 2 || v.length > 32) return '用户名长度需在 2–32 之间'
+  if (!/^[a-zA-Z0-9_\-\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]+$/.test(v)) {
+    return '用户名仅限字母/数字/_/-/中文'
+  }
+  return ''
+}
+
+function passwordError(pw: string): string {
+  if (pw && pw.length < 8) return '口令至少 8 位'
+  return ''
+}
+
+async function saveUsername() {
+  const name = newUsername.value.trim()
+  const err = usernameError(name)
+  if (err) {
+    toast.error(err)
+    return
+  }
+  if (!usernamePw.value) {
+    toast.error('请输入当前口令')
+    return
+  }
+  savingName.value = true
+  try {
+    await auth.changeUsername(name, usernamePw.value)
+    toast.success(`用户名已改为 ${name}`)
+    newUsername.value = ''
+    usernamePw.value = ''
+  } catch {
+    // 后端文案（口令不正确/用户名已存在/非法用户名）经 store.error 上抛，这里透传
+    toast.error(auth.error || '用户名更新失败')
+  } finally {
+    savingName.value = false
+  }
+}
+
+async function savePassword() {
+  if (!oldPw.value) {
+    toast.error('请输入当前口令')
+    return
+  }
+  const err = passwordError(newPw.value)
+  if (err) {
+    toast.error(err)
+    return
+  }
+  if (newPw.value !== confirmPw.value) {
+    toast.error('两次输入的新口令不一致')
+    return
+  }
+  savingPw.value = true
+  try {
+    await auth.changePassword(oldPw.value, newPw.value)
+    toast.success('密码已修改，当前登录态保持')
+    oldPw.value = ''
+    newPw.value = ''
+    confirmPw.value = ''
+  } catch {
+    toast.error(auth.error || '密码更新失败')
+  } finally {
+    savingPw.value = false
+  }
+}
+
 // 脏状态拦截（仅表单脏时拦路由离开）。
 onBeforeRouteLeave(() => {
-  if (isDirty.value) {
-    return window.confirm('有未保存的设置改动，确定离开吗？')
+  if (isDirty.value || accountDirty.value) {
+    return window.confirm('有未保存的改动，确定离开吗？')
   }
   return true
 })
@@ -272,12 +359,92 @@ onMounted(load)
     <template v-else>
       <div class="layout">
         <nav class="side-nav">
+          <a href="#account" class="side-link">账号</a>
           <a v-for="g in grouped" :key="g.key" :href="'#' + g.key" class="side-link">{{ g.label }}</a>
           <a href="#tokens" class="side-link">API 令牌</a>
           <a href="#history" class="side-link">配置历史</a>
         </nav>
 
         <div class="content">
+          <!-- 账号（用户名 / 密码）：与配置分组相互独立，各自即时保存 -->
+          <article id="account" class="group">
+            <h2 class="group-title">账号</h2>
+            <p class="group-desc">
+              本机单管理员账号。修改用户名或密码都需要验证当前口令；改密码不会踢掉当前登录。
+            </p>
+
+            <div class="acct-row">
+              <div class="acct-meta">
+                <span class="acct-label">用户名</span>
+                <span class="acct-cur">{{ auth.user?.username || '—' }}</span>
+              </div>
+              <div class="acct-form">
+                <RInput
+                  v-model="newUsername"
+                  class="acct-field"
+                  label="新用户名"
+                  placeholder="2–32 位，字母/数字/_/-/中文"
+                  autocomplete="username"
+                />
+                <RInput
+                  v-model="usernamePw"
+                  class="acct-field"
+                  type="password"
+                  label="当前口令"
+                  placeholder="验证身份"
+                  autocomplete="current-password"
+                />
+                <RButton
+                  variant="accent"
+                  size="sm"
+                  :disabled="savingName || !newUsername.trim() || !usernamePw"
+                  @click="saveUsername"
+                >
+                  {{ savingName ? '保存中…' : '修改用户名' }}
+                </RButton>
+              </div>
+            </div>
+
+            <div class="acct-row">
+              <div class="acct-meta">
+                <span class="acct-label">密码</span>
+                <span class="acct-cur">已设置（Argon2id 散列存储，不可查看）</span>
+              </div>
+              <div class="acct-form">
+                <RInput
+                  v-model="oldPw"
+                  class="acct-field"
+                  type="password"
+                  label="当前口令"
+                  autocomplete="current-password"
+                />
+                <RInput
+                  v-model="newPw"
+                  class="acct-field"
+                  type="password"
+                  label="新口令"
+                  placeholder="至少 8 位"
+                  autocomplete="new-password"
+                />
+                <RInput
+                  v-model="confirmPw"
+                  class="acct-field"
+                  type="password"
+                  label="确认新口令"
+                  autocomplete="new-password"
+                />
+                <RButton
+                  variant="accent"
+                  size="sm"
+                  :disabled="savingPw || !oldPw || !newPw || !confirmPw"
+                  @click="savePassword"
+                >
+                  {{ savingPw ? '保存中…' : '修改密码' }}
+                </RButton>
+              </div>
+            </div>
+          </article>
+
           <article v-for="g in grouped" :id="g.key" :key="g.key" class="group">
             <h2 class="group-title">{{ g.label }}</h2>
             <div v-for="item in g.items" :key="item.key" class="setting">
@@ -466,6 +633,18 @@ onMounted(load)
 .side-nav { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 2px; }
 .side-link { padding: 6px 10px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-aux); }
 .side-link:hover { background: var(--surface-2); color: var(--text-1); }
+
+/* 账号分组：左侧说明当前值，右侧表单；窄屏折成上下两行 */
+.acct-row {
+  display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+  padding: 12px 0; border-top: 1px solid var(--border);
+}
+.acct-row:first-of-type { border-top: none; }
+.acct-meta { flex: 0 0 180px; display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
+.acct-label { font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); }
+.acct-cur { font-size: var(--font-caption); color: var(--text-3); }
+.acct-form { flex: 1; min-width: 260px; display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+.acct-field { flex: 1 1 180px; min-width: 0; }
 .group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px 20px; margin-bottom: 16px; box-shadow: var(--shadow-1); }
 .group-title { font-size: var(--font-title-3); font-weight: var(--weight-strong); margin-bottom: 4px; }
 .group-desc { font-size: var(--font-aux); color: var(--text-3); margin-bottom: 12px; }

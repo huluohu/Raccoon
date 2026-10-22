@@ -8,6 +8,7 @@
 //   768–1023     侧导航收进抽屉，顶栏出汉堡按钮；表格降级卡片（各视图自行处理）
 //   <768         单栏 + 底部主操作栏，触控目标 ≥44px，内容留出底部安全区
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
@@ -21,6 +22,7 @@ const ui = useUiStore()
 const auth = useAuthStore()
 const tasks = useTasksStore()
 const notif = useNotificationsStore()
+const router = useRouter()
 
 const quickUrl = ref('')
 const quickErr = ref('')
@@ -68,6 +70,10 @@ watch(
       }
       return
     }
+    // 带着有效 cookie 直接开在 /login、/setup：bootstrap 结束后会话 gate 会放行外壳，
+    // 而 router-view 还会把登录页渲染一遍（同屏重复）。这里一并跳回总览。
+    const name = router.currentRoute.value.name
+    if (name === 'login' || name === 'setup') router.replace('/')
     await tasks.refresh()
     tasks.connect()
     notif.start()
@@ -164,9 +170,13 @@ onUnmounted(() => {
           </div>
         </header>
         <main class="content">
-          <router-view v-slot="{ Component }">
-            <component :is="Component" />
-          </router-view>
+          <!-- 内容宽度约束：超宽屏下不把为 ~1200px 设计的版面硬拉满。
+               1440 是阅读/表格的舒适上限，居中后两侧留白对称，布局比例不随窗口漂移。 -->
+          <div class="content-inner">
+            <router-view v-slot="{ Component }">
+              <component :is="Component" />
+            </router-view>
+          </div>
         </main>
       </div>
 
@@ -186,16 +196,16 @@ onUnmounted(() => {
 <style scoped>
 .app { display: flex; min-height: 100vh; background: var(--bg); color: var(--text-1); }
 .nav { width: 208px; flex-shrink: 0; padding: 16px 12px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; }
-.brand { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; }
-.brand-name em { font-style: normal; font-size: 12px; color: var(--text-3); margin-left: 2px; }
+.brand { display: flex; align-items: center; gap: 8px; font-size: var(--font-title-3); font-weight: var(--weight-strong); }
+.brand-name em { font-style: normal; font-size: var(--font-caption); color: var(--text-3); margin-left: 2px; }
 .nav nav { display: flex; flex-direction: column; gap: 2px; }
-.nav nav a { padding: 8px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: 14px; }
+.nav nav a { padding: 8px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-aux); }
 .nav nav a:hover { background: var(--surface-2); }
-.nav nav a.router-link-active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.nav nav a.router-link-active { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-caption); }
 .nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
 .user { font-size: var(--font-caption); color: var(--text-3); padding-left: 12px; overflow: hidden; text-overflow: ellipsis; }
 .conn {
-  font-size: 10px;
+  font-size: var(--font-caption);
   margin-left: 12px;
   color: var(--text-3);
   display: inline-flex;
@@ -211,7 +221,7 @@ onUnmounted(() => {
 .topbar { padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
 .quick-submit { flex: 1; max-width: 640px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
 .quick-submit:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.quick-btn { padding: 8px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
+.quick-btn { padding: 8px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: #fff; font-weight: var(--weight-semibold); cursor: pointer; }
 .quick-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .quick-err { color: var(--danger); font-size: var(--font-caption); }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
@@ -224,6 +234,8 @@ onUnmounted(() => {
   color: var(--warning);
 }
 .content { padding: 24px; flex: 1; min-width: 0; }
+/* 超宽屏内容区上限：桌面阅读与六列表格的舒适宽度，居中留白对称。 */
+.content-inner { width: 100%; max-width: 1440px; margin: 0 auto; }
 
 /* ============ §6 响应式四档 ============ */
 

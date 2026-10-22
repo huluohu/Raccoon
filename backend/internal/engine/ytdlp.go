@@ -469,6 +469,10 @@ func newFilesSince(dir string, before map[string]bool) []DownloadedFile {
 type EngineError struct {
 	Code    string
 	Message string
+	// Detail 引擎原始报错摘要（stderr 里的 ERROR 行）。
+	// 前端不直接展示（避免泄内部信息），但 worker 落库到任务 detail，
+	// 排障时能看到「到底是哪个链接、引擎报了什么」，不再只有一句退出码。
+	Detail string
 }
 
 func (e *EngineError) Error() string { return e.Code + ": " + e.Message }
@@ -482,8 +486,18 @@ func classify(err error, output string) error {
 	if ee, ok := err.(*ExitError); ok {
 		ue.Message = fmt.Sprintf("引擎退出码 %d", ee.Code)
 	}
+	ue.Detail = engineDetail(output)
 	low := strings.ToLower(output)
 	switch {
+	// 引擎版本落后于平台改版：YouTube 改内部实现后老版 yt-dlp 会稳定报
+	// "The page needs to be reloaded."。这是本机可修的确定性问题（升级引擎），
+	// 不该和普通网络抖动混在一起自动重试。
+	case strings.Contains(low, "the page needs to be reloaded"),
+		strings.Contains(low, "player_client"),
+		strings.Contains(low, "unable to extract"),
+		strings.Contains(low, "nsig extraction failed"):
+		ue.Code = "ENGINE_OUTDATED"
+		ue.Message = "下载引擎版本过旧，平台已改版；升级 yt-dlp 后重试"
 	case strings.Contains(low, "requested format is not available"),
 		strings.Contains(low, "requested format not available"):
 		ue.Code = "FORMAT_UNAVAILABLE"
@@ -492,8 +506,13 @@ func classify(err error, output string) error {
 		strings.Contains(low, "cookies"), strings.Contains(low, "authentication"), strings.Contains(low, "private video"):
 		ue.Code = "AUTH_REQUIRED"
 		ue.Message = "需要登录或 Cookie 已失效，请到「连接」页更新平台凭据"
-	case strings.Contains(low, "video unavailable"), strings.Contains(low, "404"), strings.Contains(low, "not found"),
-		strings.Contains(low, "does not exist"), strings.Contains(low, "removed by the uploader"):
+	// "video unavailable" 是 yt-dlp 的英文原文；平台与本地化版本会写成
+	// "video is unavailable" / "this video is unavailable"，只匹配前者会漏判，
+	// 导致「视频不存在」被误报成「引擎退出码 1」。
+	case strings.Contains(low, "video unavailable"), strings.Contains(low, "video is unavailable"),
+		strings.Contains(low, "this video has been removed"), strings.Contains(low, "404"),
+		strings.Contains(low, "not found"), strings.Contains(low, "does not exist"),
+		strings.Contains(low, "removed by the uploader"):
 		ue.Code = "NOT_FOUND"
 		ue.Message = "视频不存在、已删除或链接有误"
 	case strings.Contains(low, "429"), strings.Contains(low, "too many requests"), strings.Contains(low, "rate limit"):
@@ -512,6 +531,39 @@ func classify(err error, output string) error {
 		ue.Message = "平台返回客户端错误，请检查链接与权限"
 	}
 	return ue
+}
+
+// engineDetail 从引擎输出里抽出最有信息量的一行报错摘要。
+//
+// 引擎退出时 stdout/stderr 混在一起，可能有几十行 WARNING 和进度噪声。
+// 取最后一条 ERROR: 行（yt-dlp / gallery-dl 的错误都走这个前缀），
+// 找不到就退而取最后一条非空行。超长截断到 200 字符。
+func engineDetail(output string) string {
+	lines := strings.Split(output, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if l == "" {
+			continue
+		}
+		if u := strings.ToUpper(l); strings.HasPrefix(u, "ERROR:") {
+			return truncate(strings.TrimSpace(l[len("ERROR:"):]), 200)
+		}
+	}
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(lines[i])
+		if l == "" {
+			continue
+		}
+		return truncate(l, 200)
+	}
+	return ""
+}
+
+func truncate(s string, n int) string {
+	if len([]rune(s)) <= n {
+		return s
+	}
+	return string([]rune(s)[:n]) + "…"
 }
 
 // platformOf 平台标识：extractor_key 优先，URL 域名兜底。

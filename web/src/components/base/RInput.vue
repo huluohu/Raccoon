@@ -153,7 +153,7 @@ function onClear() {
 /* label 常驻：填完值也保留字段语义，读屏软件也能把 label 与输入框绑定。 */
 .rinput-label {
   font-size: var(--font-aux);
-  font-weight: 500;
+  font-weight: var(--weight-caption);
   color: var(--text-2);
 }
 .rinput-wrap {
@@ -204,7 +204,7 @@ function onClear() {
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-caption);
   line-height: 1;
   cursor: pointer;
   transition: background 120ms ease-out, color 120ms ease-out;

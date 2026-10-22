@@ -352,7 +352,7 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-.page-title { font-size: 24px; font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
+.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .page-sub { margin-top: 6px; font-size: var(--font-aux); color: var(--text-3); }
 .platform-note {
   font-size: var(--font-caption);

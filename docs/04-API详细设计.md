@@ -63,6 +63,7 @@
 | POST | /auth/logout | 销毁会话 | 会话 |
 | GET | /auth/me | 当前用户信息 | 任一 |
 | PUT | /auth/password | 修改密码（旧密码 + 新密码） | 会话 |
+| PUT | /auth/username | 修改用户名（新用户名 + 当前口令） | 会话 |
 
 ### 2.2 任务 `tasks`
 

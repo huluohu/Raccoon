@@ -131,8 +131,8 @@ function goTask(taskId?: string) {
   border-radius: var(--radius-pill);
   background: var(--danger);
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-strong);
   line-height: 17px;
   text-align: center;
 }
@@ -164,15 +164,15 @@ function goTask(taskId?: string) {
 .nbody { flex: 1; min-width: 0; }
 .nrow { display: flex; align-items: center; gap: 6px; }
 .nkind {
-  font-size: 10px;
+  font-size: var(--font-caption);
   color: var(--text-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   padding: 0 6px;
 }
-.ntime { font-size: 10px; color: var(--text-3); }
+.ntime { font-size: var(--font-caption); color: var(--text-3); }
 .ndot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); }
-.ntitle { margin-top: 3px; font-size: var(--font-aux); font-weight: 600; color: var(--text-1); }
+.ntitle { margin-top: 3px; font-size: var(--font-aux); font-weight: var(--weight-semibold); color: var(--text-1); }
 .ndesc {
   margin-top: 2px;
   font-size: var(--font-caption);

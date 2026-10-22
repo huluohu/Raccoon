@@ -200,8 +200,10 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 	}
 	var ee *engine.EngineError
 	code, msg := "ENGINE_ERROR", err.Error()
+	detail := ""
 	if errors.As(err, &ee) {
 		code, msg = ee.Code, ee.Message
+		detail = ee.Detail
 	}
 	if code == "CANCELLED" {
 		w.markCancelled(t.ID, from)
@@ -225,6 +227,11 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 			fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, t.Attempt+2, t.MaxAttempts), "")
 		w.mgr.hub.Broadcast("task.status", map[string]any{"task_id": t.ID, "status": "waiting", "wait_reason": "auto_retry"})
 		return
+	}
+	// 引擎原始报错写进事件 detail：任务详情里能看到「引擎到底报了什么」，
+	// 而不只是「引擎退出码 1」。detail 独立字段，不污染 error_message 的展示文案。
+	if detail != "" {
+		_ = w.mgr.st.AppendEvent(t.ID, "error", "engine_error", detail, "")
 	}
 	w.fail(t.ID, code, msg, fixHintFor(code))
 }
@@ -384,6 +391,8 @@ func fixHintFor(code string) string {
 		return fixHintRetry()
 	case "ENGINE_UNAVAILABLE":
 		return fixHintGotoSettings()
+	case "ENGINE_OUTDATED":
+		return `{"action":"none","label":"下载引擎版本过旧，需要升级 yt-dlp 后才能解析该平台"}`
 	}
 	return fixHintRetry()
 }

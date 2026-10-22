@@ -89,6 +89,23 @@ func (s *Store) UpdatePassword(userID, passwordHash string) error {
 	return nil
 }
 
+// UpdateUsername 改用户名（PUT /auth/username）。用户名冲突 → ErrUserExists。
+func (s *Store) UpdateUsername(userID, username string) error {
+	res, err := s.RW.Exec(`UPDATE users SET username=?, updated_at=? WHERE id=?`,
+		username, time.Now().UnixMilli(), userID)
+	if err != nil {
+		if isUniqueErr(err) {
+			return ErrUserExists
+		}
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNoSuchUser
+	}
+	return nil
+}
+
 // TouchLogin 更新最后登录时间。
 func (s *Store) TouchLogin(userID string) error {
 	_, err := s.RW.Exec(`UPDATE users SET last_login_at=?, updated_at=? WHERE id=?`,

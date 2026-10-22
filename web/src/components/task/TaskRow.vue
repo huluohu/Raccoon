@@ -186,7 +186,7 @@ const waitReason = computed(() => {
   border-color: var(--accent);
 }
 .trow-pick-mark {
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1;
   color: var(--surface);
   opacity: 0;
@@ -231,7 +231,7 @@ const waitReason = computed(() => {
 }
 .trow-title {
   font-size: var(--font-aux);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -269,7 +269,7 @@ const waitReason = computed(() => {
   display: flex;
   gap: 8px;
   color: var(--text-1);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 .trow-child-failed {
   color: var(--danger);

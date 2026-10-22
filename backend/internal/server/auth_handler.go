@@ -37,6 +37,7 @@ func (s *Server) setupAuth() {
 	// 需认证入口（requireAuth 在注册包装层统一截取）。
 	s.router.GET("/api/v1/auth/me", s.requireAuth(s.handleAuthMe))
 	s.router.PUT("/api/v1/auth/password", s.requireAuth(s.csrfForSession(s.handleAuthPassword)))
+	s.router.PUT("/api/v1/auth/username", s.requireAuth(s.csrfForSession(s.handleAuthUsername)))
 
 	// 会话 GC。
 	go func() {
@@ -196,17 +197,73 @@ func (s *Server) handleAuthPassword(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
+// changeNameReq 改用户名：必须带当前口令。
+// 单管理员自托管场景下会话有效期 30 天，改账户名这类敏感操作要求当场验证口令，
+// 避免会话被借用时账户名被静默改掉（与 qBittorrent WebUI 同一策略）。
+type changeNameReq struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) handleAuthUsername(w http.ResponseWriter, r *http.Request) error {
+	u := userFrom(r)
+	var req changeNameReq
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	if req.Password == "" {
+		return httpx.Validation("当前口令必填")
+	}
+	if !auth.VerifyPassword(req.Password, u.PasswordHash) {
+		return httpx.Unauthorized("当前口令不正确")
+	}
+	if err := validateUsername(req.Username); err != nil {
+		return httpx.Validation(err.Error())
+	}
+	// 改成同名视为成功（幂等），不进唯一索引报错分支。
+	if strings.TrimSpace(req.Username) == u.Username {
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"user": u})
+		return nil
+	}
+	if err := s.store.UpdateUsername(u.ID, strings.TrimSpace(req.Username)); err != nil {
+		if errors.Is(err, store.ErrUserExists) {
+			return httpx.Conflict("用户名已存在")
+		}
+		return httpx.Internal("用户名更新失败")
+	}
+	updated, err := s.store.GetUserByID(u.ID)
+	if err != nil {
+		return httpx.Internal("读取用户失败")
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"user": updated})
+	return nil
+}
+
 // ---- 辅助 ----
 
-func validateUserFields(username, password string) error {
+// isCJK 汉字区段（统一表意 + 扩展 A + 兼容表意）。
+// 不能图省事写 `c >= 0x4e00`：那样 emoji（U+1F600 起）也会被当成"中文"放过去。
+func isCJK(c rune) bool {
+	return c >= 0x3400 && c <= 0x4DBF || c >= 0x4E00 && c <= 0x9FFF || c >= 0xF900 && c <= 0xFAFF
+}
+
+// validateUsername 用户名校验（setup 与改用户名共用）。
+func validateUsername(username string) error {
 	username = strings.TrimSpace(username)
 	if len([]rune(username)) < 2 || len([]rune(username)) > 32 {
 		return errors.New("用户名长度需在 2–32 之间")
 	}
 	for _, c := range username {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c >= 0x4e00) {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || isCJK(c)) {
 			return errors.New("用户名仅限字母/数字/_/-/中文")
 		}
+	}
+	return nil
+}
+
+func validateUserFields(username, password string) error {
+	if err := validateUsername(username); err != nil {
+		return err
 	}
 	return auth.CheckPasswordPolicy(password)
 }

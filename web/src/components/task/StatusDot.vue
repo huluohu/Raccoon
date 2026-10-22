@@ -44,7 +44,7 @@ const glyph = computed(() => {
   align-items: center;
   gap: 5px;
   font-size: var(--font-caption);
-  font-weight: 500;
+  font-weight: var(--weight-caption);
   white-space: nowrap;
 }
 .sdot-glyph {
@@ -54,7 +54,7 @@ const glyph = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--font-caption);
   line-height: 1;
 }
 .sdot--neutral .sdot-glyph { background: var(--surface-3); color: var(--text-2); }

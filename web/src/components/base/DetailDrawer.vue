@@ -64,7 +64,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
   background: transparent;
   color: var(--text-3);
   cursor: pointer;
-  font-size: 15px;
+  font-size: var(--font-body);
   padding: 4px 8px;
   border-radius: var(--radius-ctrl);
 }

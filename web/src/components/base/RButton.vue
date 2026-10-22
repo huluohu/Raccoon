@@ -56,7 +56,7 @@ function onClick(ev: MouseEvent) {
   border-radius: var(--radius-ctrl);
   border: 1px solid transparent;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: var(--weight-caption);
   transition: background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
   white-space: nowrap;
 }

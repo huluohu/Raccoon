@@ -4,6 +4,8 @@ import { mountView, mountViewWithRouter } from '@/test/mount'
 import Settings from '@/views/Settings.vue'
 import { RButtonStub, REmptyStub, RSelectStub } from '@/test/stubs'
 import { useToastStore } from '@/stores/toast'
+import { useAuthStore } from '@/stores/auth'
+import { ApiError } from '@/api/types'
 
 /**
  * Settings.vue 用例（docs/07 §3 SettingItem / docs/04 §2.4）。
@@ -23,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   testQB: vi.fn(),
   testN115: vi.fn(),
   telegramStatus: vi.fn(),
+  authChangeUsername: vi.fn(),
+  authChangePassword: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({ api: mocks }))
@@ -121,7 +125,15 @@ beforeEach(() => {
   mocks.testQB.mockReset().mockResolvedValue({ ok: true, version: '4.6.0' })
   mocks.testN115.mockReset().mockResolvedValue({ ok: false })
   mocks.telegramStatus.mockReset().mockResolvedValue({ data: { enabled: false, allowlist: 0 } })
+  mocks.authChangeUsername.mockReset().mockResolvedValue({ user: { id: 'usr_1', username: 'renamed', created_at: 1 } })
+  mocks.authChangePassword.mockReset().mockResolvedValue({ ok: true })
 })
+
+/** 账号分组挂载后置当前用户（mountView 会重建 pinia，user 必须挂载后再给）。 */
+function withUser(w: any) {
+  useAuthStore().user = { id: 'usr_1', username: 'admin', created_at: 1 }
+  return w
+}
 
 describe('Settings 视图', () => {
   it('按分组渲染配置项，并给出生效时机徽章与默认值', async () => {
@@ -396,4 +408,158 @@ describe('Settings 视图', () => {
     expect(w.find('.error-card').exists()).toBe(false)
     expect(w.find('#download').exists()).toBe(true)
   })
+
+// ---- 账号（用户名 / 密码修改，docs/04 §2.1）----
+describe('Settings 账号', () => {
+  it('账号分组渲染当前用户名与「不可查看」的密码状态', async () => {
+    const w = withUser(mountSettings())
+    await flushPromises()
+
+    const acct = w.find('#account')
+    expect(acct.exists()).toBe(true)
+    expect(acct.text()).toContain('admin')
+    expect(acct.text()).toContain('已设置')
+    expect(acct.text()).toContain('Argon2id')
+    // 侧栏有账号入口
+    expect(w.find('.side-nav').text()).toContain('账号')
+  })
+
+  it('改用户名成功：带当前口令调接口，成功后 store.user 同步（侧栏用户名跟着变）', async () => {
+    const w = withUser(mountSettings())
+    await flushPromises()
+    const inputs = w.find('#account').findAll('input')
+
+    await inputs[0].setValue('renamed')   // 新用户名
+    await inputs[1].setValue('Hlb27Xlh') // 当前口令
+    await flushPromises()
+    await btnByText(w, '修改用户名').trigger('click')
+    await flushPromises()
+
+    expect(mocks.authChangeUsername).toHaveBeenCalledWith('renamed', 'Hlb27Xlh')
+    // store.user 更新后侧栏用户名立即变成新值（不刷新页面）
+    expect(useAuthStore().user?.username).toBe('renamed')
+    // 输入框清空，不残留明文口令
+    expect((inputs[0].element as HTMLInputElement).value).toBe('')
+    expect((inputs[1].element as HTMLInputElement).value).toBe('')
+    const toastText = useToastStore().items.map((t) => t.text).join(' ')
+    expect(toastText).toContain('用户名已改为 renamed')
+  })
+
+  it('改用户名口令错误：透传后端文案，不清空输入', async () => {
+    mocks.authChangeUsername.mockRejectedValueOnce(new ApiError('UNAUTHORIZED', '当前口令不正确', 'req-1'))
+    const w = withUser(mountSettings())
+    await flushPromises()
+    const inputs = w.find('#account').findAll('input')
+
+    await inputs[0].setValue('renamed')
+    await inputs[1].setValue('wrong-pass')
+    await flushPromises()
+    await btnByText(w, '修改用户名').trigger('click')
+    await flushPromises()
+
+    const toastText = useToastStore().items.map((t) => t.text).join(' ')
+    expect(toastText).toContain('当前口令不正确')
+    // 失败不清空：用户改完口令重试，不用把新用户名再打一遍
+    expect((inputs[0].element as HTMLInputElement).value).toBe('renamed')
+  })
+
+  it('改用户名前端校验：非法用户名/缺口令都不发请求', async () => {
+    const w = withUser(mountSettings())
+    await flushPromises()
+    const inputs = w.find('#account').findAll('input')
+
+    // 非法用户名（带空格）
+    await inputs[0].setValue('名字 带空格')
+    await inputs[1].setValue('Hlb27Xlh')
+    await flushPromises()
+    await btnByText(w, '修改用户名').trigger('click')
+    await flushPromises()
+    expect(mocks.authChangeUsername).not.toHaveBeenCalled()
+
+    // 合法用户名但缺口令
+    await inputs[0].setValue('goodname')
+    await inputs[1].setValue('')
+    await flushPromises()
+    await btnByText(w, '修改用户名').trigger('click')
+    await flushPromises()
+    expect(mocks.authChangeUsername).not.toHaveBeenCalled()
+  })
+
+  it('改密码成功：旧口令 + 新口令 + 确认，成功后三者清空', async () => {
+    const w = withUser(mountSettings())
+    await flushPromises()
+    const inputs = w.find('#account').findAll('input')
+
+    await inputs[2].setValue('Hlb27Xlh')      // 当前口令
+    await inputs[3].setValue('New-Passw0rd')  // 新口令
+    await inputs[4].setValue('New-Passw0rd')  // 确认
+    await flushPromises()
+    await btnByText(w, '修改密码').trigger('click')
+    await flushPromises()
+
+    expect(mocks.authChangePassword).toHaveBeenCalledWith('Hlb27Xlh', 'New-Passw0rd')
+    expect((inputs[2].element as HTMLInputElement).value).toBe('')
+    expect((inputs[3].element as HTMLInputElement).value).toBe('')
+    expect((inputs[4].element as HTMLInputElement).value).toBe('')
+    const toastText = useToastStore().items.map((t) => t.text).join(' ')
+    expect(toastText).toContain('密码已修改')
+  })
+
+  it('改密码两次不一致 / 弱口令 / 缺旧口令都不发请求', async () => {
+    const w = withUser(mountSettings())
+    await flushPromises()
+    const inputs = w.find('#account').findAll('input')
+
+    // 两次不一致
+    await inputs[2].setValue('Hlb27Xlh')
+    await inputs[3].setValue('New-Passw0rd')
+    await inputs[4].setValue('Another-Pass1')
+    await flushPromises()
+    await btnByText(w, '修改密码').trigger('click')
+    await flushPromises()
+    expect(mocks.authChangePassword).not.toHaveBeenCalled()
+
+    // 弱口令（<8 位）
+    await inputs[3].setValue('short')
+    await inputs[4].setValue('short')
+    await flushPromises()
+    await btnByText(w, '修改密码').trigger('click')
+    await flushPromises()
+    expect(mocks.authChangePassword).not.toHaveBeenCalled()
+
+    // 缺旧口令
+    await inputs[2].setValue('')
+    await inputs[3].setValue('New-Passw0rd')
+    await inputs[4].setValue('New-Passw0rd')
+    await flushPromises()
+    await btnByText(w, '修改密码').trigger('click')
+    await flushPromises()
+    expect(mocks.authChangePassword).not.toHaveBeenCalled()
+  })
+
+  it('账号表单有未提交输入时，离开路由同样被拦', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const host = { template: '<router-view />' }
+    const { wrapper: w, router } = mountViewWithRouter(host, [
+      { path: '/settings', component: Settings },
+      { path: '/tasks', component: { template: '<div>tasks</div>' } },
+    ])
+    await router.push('/settings')
+    await router.isReady()
+    await flushPromises()
+    useAuthStore().user = { id: 'usr_1', username: 'admin', created_at: 1 }
+    await flushPromises()
+
+    // 只在账号表单里输入（配置项没动）
+    await w.find('#account').findAll('input')[0].setValue('renamed')
+    await flushPromises()
+
+    await router.push('/tasks')
+    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(router.currentRoute.value.path).toBe('/settings')
+    confirmSpy.mockRestore()
+  })
+})
+
 })

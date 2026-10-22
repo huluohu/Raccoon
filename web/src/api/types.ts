@@ -405,6 +405,8 @@ export interface ApiErrorBody {
     code: string
     message: string
     request_id: string
+    /** 补充说明：引擎/上游的真实原因（如 yt-dlp 的原始报错）。可选。 */
+    detail?: string
   }
 }
 
@@ -413,6 +415,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly requestId: string,
+    /** 引擎/上游真实原因（可选），用于把「引擎退出码 1」还原成可判断的原因。 */
+    readonly detail?: string,
   ) {
     super(message)
     this.name = 'ApiError'

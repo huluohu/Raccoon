@@ -29,16 +29,38 @@ type Error struct {
 	HTTP    int
 	Code    ErrorCode
 	Message string
+	// Detail 补充说明（可选）。用于把引擎/上游的真实原因带出来，
+	// 比如「yt-dlp: The page needs to be reloaded.」——
+	// 否则用户只能看到一句「引擎退出码 1」，无从判断该升级引擎还是换链接。
+	Detail string
 }
 
 func (e *Error) Error() string { return string(e.Code) + ": " + e.Message }
 
-func Validation(msg string) *Error   { return &Error{http.StatusBadRequest, CodeValidation, msg} }
-func NotFound(msg string) *Error     { return &Error{http.StatusNotFound, CodeNotFound, msg} }
-func Conflict(msg string) *Error     { return &Error{http.StatusConflict, CodeConflict, msg} }
-func Unauthorized(msg string) *Error { return &Error{http.StatusUnauthorized, CodeUnauthorized, msg} }
-func Forbidden(msg string) *Error    { return &Error{http.StatusForbidden, CodeForbidden, msg} }
-func Internal(msg string) *Error     { return &Error{http.StatusInternalServerError, CodeInternal, msg} }
+// WithDetail 附加补充说明（链式）。
+func (e *Error) WithDetail(detail string) *Error {
+	e.Detail = detail
+	return e
+}
+
+func Validation(msg string) *Error {
+	return &Error{HTTP: http.StatusBadRequest, Code: CodeValidation, Message: msg}
+}
+func NotFound(msg string) *Error {
+	return &Error{HTTP: http.StatusNotFound, Code: CodeNotFound, Message: msg}
+}
+func Conflict(msg string) *Error {
+	return &Error{HTTP: http.StatusConflict, Code: CodeConflict, Message: msg}
+}
+func Unauthorized(msg string) *Error {
+	return &Error{HTTP: http.StatusUnauthorized, Code: CodeUnauthorized, Message: msg}
+}
+func Forbidden(msg string) *Error {
+	return &Error{HTTP: http.StatusForbidden, Code: CodeForbidden, Message: msg}
+}
+func Internal(msg string) *Error {
+	return &Error{HTTP: http.StatusInternalServerError, Code: CodeInternal, Message: msg}
+}
 
 type CtxKey struct{}
 
@@ -76,13 +98,16 @@ func WriteErr(w http.ResponseWriter, r *http.Request, err error) {
 	if !errors.As(err, &he) {
 		he = Internal("服务内部错误")
 	}
-	WriteJSON(w, he.HTTP, map[string]any{
-		"error": map[string]any{
-			"code":       he.Code,
-			"message":    he.Message,
-			"request_id": RequestIDFrom(r, w),
-		},
-	})
+	body := map[string]any{
+		"code":       he.Code,
+		"message":    he.Message,
+		"request_id": RequestIDFrom(r, w),
+	}
+	// detail 只在有内容时出现（INTERNAL 永不附带，避免泄露内部细节）。
+	if he.Detail != "" && he.Code != CodeInternal {
+		body["detail"] = he.Detail
+	}
+	WriteJSON(w, he.HTTP, map[string]any{"error": body})
 }
 
 // DecodeJSON 解析请求体；大小上限 1MB 防滥用。

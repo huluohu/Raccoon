@@ -382,6 +382,30 @@ describe('Tasks 视图', () => {
     expect(w.find('.err').text()).toContain('任务列表拉不到')
   })
 
+  it('解析失败时把引擎原始原因一并显示（不能只剩「引擎退出码 1」）', async () => {
+    // 后端错误信封：message 是可展示文案，detail 是引擎原始报错。
+    // 少了 detail，用户看到的就是一句无信息量的「引擎退出码 1」。
+    mocks.parseUrl.mockRejectedValueOnce(
+      new ApiError(
+        'VALIDATION',
+        '视频不存在、已删除或链接有误',
+        'req-1',
+        '[youtube] aaaaaaaaaaa: This video is unavailable',
+      ),
+    )
+    const w = mountTasks()
+    await flushPromises()
+    await w.find('#task-url-input').setValue('https://www.youtube.com/watch?v=aaaaaaaaaaa')
+    const btns = w.findAll('button')
+    const previewBtn = btns.find((b: any) => b.text().includes('解析预览'))
+    await previewBtn!.trigger('click')
+    await flushPromises()
+
+    const errText = w.find('.err').text()
+    expect(errText).toContain('视频不存在、已删除或链接有误')
+    expect(errText).toContain('This video is unavailable')
+  })
+
   it('新插入的任务打上 row-flash 高亮，旧任务不打（docs/07 §6 列表变更）', async () => {
     mocks.listTasks.mockResolvedValue({
       items: [makeTask({ id: 'old-1', title: '老的' })],

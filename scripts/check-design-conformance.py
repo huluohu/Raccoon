@@ -111,6 +111,36 @@ def check_tokens() -> None:
         check(f"§2 Token {tok} 已定义", f"{tok}:" in root_block, "styles/tokens.css :root")
 
 
+# ------------------------------------------------- §2 字阶落地（禁写死字号/字重）
+# 方案 §2 给了完整字阶（12/13.5/16/18/20/24/30px + 七档字重）并规定「最小字号 12px」。
+# 组件里写死数值的后果：改一次字阶要翻遍全仓，且 10/11px 的小字会悄悄跌破规格下限
+# （曾实测散落 10px/11px 二十余处，超宽屏下整体比例失衡）。这里固化为机器断言：
+# 凡 font-size/font-weight 出现数字字面量即 FAIL，必须走 var(--font-*)/var(--weight-*)。
+HARDCODED_FONT_RE = re.compile(r"font-(?:size|weight)\s*:\s*[\d.]+")
+# tokens.css 自身是变量定义处（--font-display: 30px），不适用本条
+TYPOGRAHY_SCAN = [p for p in list(WEB.rglob("*.vue")) + list(WEB.rglob("*.css")) if p.name != "tokens.css"]
+
+
+def check_typography() -> None:
+    offenders = []
+    for p in TYPOGRAHY_SCAN:
+        if "/test/" in str(p) or p.name.endswith(".spec.ts"):
+            continue
+        for i, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            if HARDCODED_FONT_RE.search(line):
+                offenders.append(f"{p.relative_to(WEB)}:{i}")
+    check("§2 字号/字重全部走 Token（无写死数值）", not offenders,
+          f"写死处：{offenders[:6]}" if offenders else "")
+
+    # 内容区宽度约束：超宽屏下不为 ~1200px 设计的版面被硬拉满（曾实测 1905px 窗口
+    # 内容区 1649px，输入框涨到 1000px、比例全面失衡）。外壳必须给出上限并居中。
+    app = read("App.vue")
+    check("§6 内容区有宽度约束（超宽屏不硬拉满）",
+          re.search(r"\.content-inner\s*\{[^}]*max-width", app) is not None
+          and "max-width" in app and "margin" in app,
+          "App.vue .content-inner")
+
+
 # ------------------------------------------------- §4 禁 emoji 冒充图标 / §5 表情
 # 只判「真 emoji」（Misc Symbols & Pictographs / Supplemental Symbols & Pictographs /
 # Emoji 呈现块）。U+2700–U+27BF Dingbats（✓ ✕ 等）与 U+2600–U+26FF 里被当作
@@ -293,6 +323,7 @@ def main() -> int:
     check_routes()
     check_components()
     check_tokens()
+    check_typography()
     check_no_emoji_icons()
     check_face_system()
     check_shortcuts()
