@@ -360,7 +360,7 @@ func (w *Worker) formatSelector(q string) string {
 
 func isRetryableCode(code string) bool {
 	switch code {
-	case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED", "ENGINE_CRASH", "WORKER_PANIC", "ENGINE_ERROR":
+	case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED", "ENGINE_CRASH", "WORKER_PANIC", "ENGINE_ERROR", "TIMEOUT":
 		return true
 	}
 	return false
@@ -389,6 +389,8 @@ func fixHintFor(code string) string {
 		return `{"action":"none","label":"链接不存在或已删除，请检查后重试"}`
 	case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED":
 		return fixHintRetry()
+	case "TIMEOUT":
+		return `{"action":"none","label":"解析超时，可稍后重试；若链接是大型合集/频道，可先缩小范围"}`
 	case "ENGINE_UNAVAILABLE":
 		return fixHintGotoSettings()
 	case "ENGINE_OUTDATED":

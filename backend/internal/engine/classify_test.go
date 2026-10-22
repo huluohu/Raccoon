@@ -85,6 +85,21 @@ func TestClassify_取消不归类为引擎错误(t *testing.T) {
 	}
 }
 
+func TestClassify_超时与取消分开报(t *testing.T) {
+	// 超时说明这次解析太慢/链接太重，报「已取消」会让人误以为是自己点的。
+	err := classify(context.DeadlineExceeded, "")
+	var ee *EngineError
+	if !errors.As(err, &ee) {
+		t.Fatalf("期望 EngineError，实际 %T", err)
+	}
+	if ee.Code != "TIMEOUT" {
+		t.Fatalf("错误码应为 TIMEOUT，实际 %s", ee.Code)
+	}
+	if !strings.Contains(ee.Message, "超时") {
+		t.Fatalf("提示应说明超时，实际 %s", ee.Message)
+	}
+}
+
 func TestEngineDetail_超长截断(t *testing.T) {
 	long := strings.Repeat("x", 500)
 	got := engineDetail("ERROR: " + long)

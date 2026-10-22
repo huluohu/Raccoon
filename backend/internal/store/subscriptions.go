@@ -123,7 +123,7 @@ func (s *Store) CreateSubscription(sub *Subscription) error {
 		next_check_at, error_note, created_at, updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		sub.ID, sub.Platform, sub.SourceType, sub.SourceID, sub.SourceURL, sub.Title, sub.Mode,
-		sub.RangeFrom, sub.RangeTo, sub.Quality, sub.SaveRule, sub.IntervalMin, boolInt(sub.Enabled), sub.CredentialID,
+		sub.RangeFrom, sub.RangeTo, sub.Quality, sub.SaveRule, sub.IntervalMin, boolInt(sub.Enabled), nullIfEmpty(sub.CredentialID),
 		sub.LastCheckedAt, sub.LastItemID, sub.NextCheckAt, sub.ErrorNote, sub.CreatedAt, sub.UpdatedAt)
 	return err
 }

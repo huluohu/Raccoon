@@ -100,7 +100,14 @@ func (e *UnavailableError) Error() string { return e.Engine + " 不可用: " + e
 
 // Resolve 拉元信息（--dump-single-json）。
 func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*ResolveResult, error) {
-	args := []string{"--dump-single-json", "--no-warnings", "--no-playlist", "--socket-timeout", "20"}
+	// --playlist-items 1：合集/频道/播放列表链接只解析第一个条目。
+	//
+	// 为什么必须加：--no-playlist 对「频道首页」这类链接不生效，yt-dlp 会
+	// 逐个拉取列表里每个视频的完整信息（实测 @laoming 频道耗时 2 分 32 秒，
+	// 且每个会员专属视频都报一次错），远超调用方的 30–40 秒超时。
+	// 加上后同一链接降到 6 秒。解析预览只需要来源的标题/封面/条目数，
+	// 完整条目信息由下载阶段单独拉，不受影响。
+	args := []string{"--dump-single-json", "--no-warnings", "--no-playlist", "--playlist-items", "1", "--socket-timeout", "20"}
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}
@@ -479,7 +486,12 @@ func (e *EngineError) Error() string { return e.Code + ": " + e.Message }
 
 // classify 按退出码 + 输出尾部归类错误（docs/05 §7 重试策略依据）。
 func classify(err error, output string) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	// 超时和用户取消是两回事：超时说明这次解析太慢/链接太重，
+	// 报「已取消」会让人以为是自己点的。
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &EngineError{Code: "TIMEOUT", Message: "解析超时（链接内容过多或平台响应过慢），可稍后重试"}
+	}
+	if errors.Is(err, context.Canceled) {
 		return &EngineError{Code: "CANCELLED", Message: "已取消"}
 	}
 	ue := &EngineError{Code: "ENGINE_ERROR", Message: "下载引擎执行失败"}
