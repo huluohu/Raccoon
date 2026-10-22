@@ -9,6 +9,7 @@ import { useNotificationsStore } from '@/stores/notifications'
 import Login from '@/views/Login.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
 import RToast from '@/components/base/RToast.vue'
+import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 
 const ui = useUiStore()
 const auth = useAuthStore()
@@ -68,14 +69,7 @@ onUnmounted(() => notif.stop())
     <template v-else>
       <aside class="nav">
         <div class="brand">
-          <span class="brand-logo" aria-hidden="true">
-            <svg viewBox="0 0 32 32" width="22" height="22">
-              <circle cx="16" cy="18" r="10" fill="#2B3644" />
-              <circle cx="9.5" cy="8" r="5" fill="#2B3644" />
-              <circle cx="22.5" cy="8" r="5" fill="#2B3644" />
-              <path d="M4 14 Q16 22 28 14" stroke="#F5B93C" stroke-width="3" fill="none" stroke-linecap="round" />
-            </svg>
-          </span>
+          <RaccoonFace face="working" :size="22" />
           <span class="brand-name">浣熊 <em>Raccoon</em></span>
         </div>
         <nav>
@@ -130,7 +124,6 @@ onUnmounted(() => notif.stop())
 .app { display: flex; min-height: 100vh; background: var(--bg); color: var(--text-1); }
 .nav { width: 208px; flex-shrink: 0; padding: 16px 12px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; }
 .brand { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 700; }
-.brand-logo { display: inline-flex; }
 .brand-name em { font-style: normal; font-size: 12px; color: var(--text-3); margin-left: 2px; }
 .nav nav { display: flex; flex-direction: column; gap: 2px; }
 .nav nav a { padding: 8px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: 14px; }

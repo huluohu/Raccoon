@@ -2,6 +2,7 @@
 // 登录 / 首次初始化（后端 428 setup_required 语义的前端落点）。
 import { ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 
 const auth = useAuthStore()
 const username = ref('')
@@ -29,7 +30,7 @@ async function submit() {
   <section class="auth">
     <div class="card">
       <div class="brand">
-        <span class="logo" aria-hidden="true">🦝</span>
+        <RaccoonFace face="working" :size="52" />
         <div>
           <h1>浣熊 <em>Raccoon</em></h1>
           <p class="sub">{{ isSetup() ? '首次使用：创建管理员账号' : '请登录以继续' }}</p>
@@ -62,10 +63,11 @@ async function submit() {
 </template>
 
 <style scoped>
-.auth { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 24px; }
+/* flex:1 + width:100%：本页在 App.vue 里是 .app（display:flex）的直接子项，
+   不占满的话会被 flex 收缩成内容宽并贴主轴起点（卡片缩在左上角）。 */
+.auth { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 24px; }
 .card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-modal); padding: 32px; box-shadow: var(--shadow-2); }
 .brand { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
-.logo { font-size: 34px; }
 h1 { margin: 0; font-size: 22px; font-weight: 750; }
 h1 em { font-style: normal; font-size: 13px; color: var(--text-3); margin-left: 4px; }
 .sub { margin: 4px 0 0; font-size: var(--font-aux); color: var(--text-2); }
