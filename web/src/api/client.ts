@@ -87,6 +87,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ items, preview }),
     }),
+  /** 父子批量（docs/05 §5）：父任务 + 子任务树，父卡聚合子进度。 */
+  createParentTasks: (items: { url: string; quality?: string; save_path?: string }[], quality?: string) =>
+    request<import('./types').CreateParentTasksResponse>('/tasks/parent', {
+      method: 'POST',
+      body: JSON.stringify({ items, quality }),
+    }),
+  /** 批量操作（docs/04 §2.2）：逐个执行报告，单条失败不影响其余。 */
+  batchTasks: (action: 'cancel' | 'retry' | 'delete', ids: string[]) =>
+    request<import('./types').TaskBatchResult>('/tasks/batch', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids }),
+    }),
   taskDetail: (id: string) => request<import('./types').TaskDetailResult>(`/tasks/${id}`),
   taskEvents: (id: string, after = 0) =>
     request<{ items: import('./types').TaskEvent[] | null }>(`/tasks/${id}/events?after=${after}`),
@@ -269,6 +281,13 @@ export const api = {
       body: JSON.stringify({ name, scope, expires_in_hours: expiresInHours }),
     }),
   revokeToken: (id: string) => request<{ ok: boolean }>(`/tokens/${id}`, { method: 'DELETE' }),
+
+  // ---- 外部集成通道（docs/04 §2.10 / docs/08 W4.6–W4.8）----
+  integrationStatus: () =>
+    request<{ data: import('./types').IntegrationStatus }>('/integrations/status'),
+  testQB: () => request<import('./types').IntegrationTestResult>('/integrations/qb/test', { method: 'POST' }),
+  testN115: () => request<import('./types').IntegrationTestResult>('/integrations/n115/test', { method: 'POST' }),
+  telegramStatus: () => request<{ data: import('./types').TelegramStatus }>('/integrations/telegram/status'),
 
   // ---- 系统（docs/04 §2.9）----
   queueStats: () => request<import('./types').QueueStats>('/system/queue'),

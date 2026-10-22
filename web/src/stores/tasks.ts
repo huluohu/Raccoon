@@ -4,7 +4,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { api } from '@/api/client'
-import { ApiError, type Task, type TaskEvent, type TaskStatus } from '@/api/types'
+import { ApiError, type CreateParentTasksResponse, type CreateTasksResponse, type Task, type TaskBatchResult, type TaskEvent, type TaskStatus } from '@/api/types'
 import { useAuthStore } from './auth'
 
 /** SSE 广播事件名（后端 worker/task_handler 侧字面量）：task.status / task.progress /
@@ -13,11 +13,14 @@ import { useAuthStore } from './auth'
 interface TaskProgressPayload {
   task_id: string
   progress: number
-  speed_bps: number
-  eta_sec: number
-  downloaded_size: number
-  expected_size: number
-  progress_known: boolean
+  speed_bps?: number
+  eta_sec?: number
+  downloaded_size?: number
+  expected_size?: number
+  progress_known?: boolean
+  /** 父任务聚合帧（backend internal/task/parent.go）：仅父任务带这两个字段。 */
+  child_total?: number
+  child_failed?: number
 }
 
 /** 重连退避（前端不阻塞业务请求）。 */
@@ -40,6 +43,11 @@ export const useTasksStore = defineStore('tasks', () => {
   const warning = ref('')
   /** SSE notif.new 计数：通知 store watch 它来增量拉未读（避免第二条 SSE 连接）。 */
   const notifTick = ref(0)
+  /** 父任务子项计数：SSE 聚合帧才带 child_total/child_failed（GET /tasks 不返回这两列），
+   *  故按父任务 ID 单独留存，避免整表对账后丢失。 */
+  const childStats = ref<Record<string, { total: number; failed: number }>>({})
+  /** 列表被截断（服务端还有下一页）：子项统计只能覆盖已加载部分，UI 需如实说明。 */
+  const listTruncated = ref(false)
 
   const activeCount = computed(
     () => counts.value.waiting + counts.value.parsing + counts.value.downloading + counts.value.post,
@@ -53,8 +61,11 @@ export const useTasksStore = defineStore('tasks', () => {
     loading.value = true
     error.value = ''
     try {
-      const res = await api.listTasks({ limit: '50' })
+      // limit=100（后端上限）：父子任务树要求子项行也在列表里，
+      // 否则父卡展开后看不到子任务。
+      const res = await api.listTasks({ limit: '100' })
       items.value = res.items ?? []
+      listTruncated.value = Boolean(res.next_cursor)
       if (res.counts) counts.value = res.counts
     } catch (e) {
       if (e instanceof ApiError && (e.code === 'UNAUTHORIZED' || e.code === 'FORBIDDEN')) {
@@ -103,10 +114,24 @@ export const useTasksStore = defineStore('tasks', () => {
     }
 
     const onStatus = (ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as { task_id: string; status: TaskStatus; wait_reason?: string }
+      const d = JSON.parse(ev.data) as {
+        task_id: string
+        status: TaskStatus
+        wait_reason?: string
+        child_total?: number
+        child_failed?: number
+      }
       const row = items.value.find((t) => t.id === d.task_id)
       bumpCounts(row?.status, d.status, d.task_id)
       patch(d.task_id, { status: d.status, wait_reason: d.wait_reason })
+      // 父任务聚合帧带子项计数（backend internal/task/parent.go）。
+      if (d.child_total !== undefined) {
+        patch(d.task_id, { child_total: d.child_total, child_failed: d.child_failed })
+        childStats.value = {
+          ...childStats.value,
+          [d.task_id]: { total: d.child_total, failed: d.child_failed ?? 0 },
+        }
+      }
       if (d.status === 'done' || d.status === 'failed') void refresh()
     }
 
@@ -114,11 +139,26 @@ export const useTasksStore = defineStore('tasks', () => {
 
     source.addEventListener('task.progress', ((ev: MessageEvent) => {
       const d = JSON.parse(ev.data) as TaskProgressPayload
+      // 父任务聚合帧只有 progress/downloaded_size + 子项计数，没有 speed/expected_size；
+      // 绝不能拿它覆盖父任务自身的状态与速度（父任务没有自己的下载过程）。
+      if (d.child_total !== undefined) {
+        patch(d.task_id, {
+          progress: d.progress,
+          downloaded_size: d.downloaded_size ?? 0,
+          child_total: d.child_total,
+          child_failed: d.child_failed,
+        })
+        childStats.value = {
+          ...childStats.value,
+          [d.task_id]: { total: d.child_total, failed: d.child_failed ?? 0 },
+        }
+        return
+      }
       patch(d.task_id, {
         progress: d.progress,
-        speed_bps: d.speed_bps,
-        downloaded_size: d.downloaded_size,
-        expected_size: d.expected_size > 0 ? d.expected_size : null,
+        speed_bps: d.speed_bps ?? 0,
+        downloaded_size: d.downloaded_size ?? 0,
+        expected_size: d.expected_size && d.expected_size > 0 ? d.expected_size : null,
         status: 'downloading',
       })
     }) as EventListener)
@@ -167,6 +207,55 @@ export const useTasksStore = defineStore('tasks', () => {
     }
   }
 
+  /** 提交父任务（批量）：父卡 + 子任务树（docs/05 §5）。 */
+  async function submitParent(
+    items: { url: string; quality?: string; save_path?: string }[],
+    quality?: string,
+  ): Promise<CreateParentTasksResponse> {
+    error.value = ''
+    try {
+      const res = await api.createParentTasks(items, quality)
+      // 创建响应里的子项计数是权威值（GET /tasks 不返回这两列）。
+      childStats.value = {
+        ...childStats.value,
+        [res.data.id]: { total: res.child_total, failed: res.child_failed },
+      }
+      await refresh()
+      return res
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '批量提交失败'
+      throw e
+    }
+  }
+
+  /** 普通批量提交（POST /tasks，一次多条，冲突项单独报出）。 */
+  async function submitBatch(
+    items: { url: string; quality?: string; save_path?: string }[],
+  ): Promise<CreateTasksResponse> {
+    error.value = ''
+    try {
+      const res = await api.createTasks(items)
+      await refresh()
+      return res
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '批量提交失败'
+      throw e
+    }
+  }
+
+  /** 批量操作（docs/04 §2.2）：逐个报告，单条失败不影响其余。 */
+  async function batch(action: 'cancel' | 'retry' | 'delete', ids: string[]): Promise<TaskBatchResult> {
+    error.value = ''
+    try {
+      const res = await api.batchTasks(action, ids)
+      await refresh()
+      return res
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '批量操作失败'
+      throw e
+    }
+  }
+
   async function preview(url: string) {
     return api.parseUrl(url)
   }
@@ -205,11 +294,16 @@ export const useTasksStore = defineStore('tasks', () => {
     connected,
     warning,
     notifTick,
+    childStats,
+    listTruncated,
     activeCount,
     refresh,
     connect,
     disconnect,
     submit,
+    submitParent,
+    submitBatch,
+    batch,
     preview,
     cancel,
     retry,

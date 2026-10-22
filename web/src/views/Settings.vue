@@ -28,7 +28,6 @@ const tokens = ref<ApiToken[]>([])
 const newTokenName = ref('')
 const newTokenScope = ref(3)
 const newTokenPlain = ref('')
-const connResult = ref<{ ok: boolean; message: string; latency_ms: number } | null>(null)
 const testing = ref(false)
 
 /** 分组（按 key 前缀）。 */
@@ -41,6 +40,9 @@ const GROUPS: { key: string; label: string }[] = [
   { key: 'notify', label: '通知' },
   { key: 'log', label: '日志' },
   { key: 'server', label: '服务' },
+  { key: 'qb', label: 'qBittorrent' },
+  { key: 'n115', label: '115 网盘' },
+  { key: 'telegram', label: 'Telegram' },
 ]
 
 const grouped = computed(() =>
@@ -61,15 +63,30 @@ const EFFECTIVE_TEXT: Record<Effective, string> = {
 
 function draftOf(item: ConfigItem): unknown {
   if (item.key in drafts.value) return drafts.value[item.key]
+  // 敏感项不回填掩码：掩码不是真实值，回填后保存会把掩码写进配置。
+  if (item.sensitive) return ''
   return item.value
 }
 
 function setDraft(item: ConfigItem, val: unknown) {
   drafts.value = { ...drafts.value, [item.key]: val }
   const next = new Set(dirtyKeys.value)
-  if (JSON.stringify(val) !== JSON.stringify(item.value)) next.add(item.key)
-  else next.delete(item.key)
+  if (item.sensitive) {
+    // 敏感项：留空 = 不修改（与凭据中心同一语义）。
+    if (typeof val === 'string' && val !== '') next.add(item.key)
+    else next.delete(item.key)
+  } else if (JSON.stringify(val) !== JSON.stringify(item.value)) {
+    next.add(item.key)
+  } else {
+    next.delete(item.key)
+  }
   dirtyKeys.value = next
+}
+
+/** 敏感项当前值的只读展示：后端只回传掩码，空串 = 未设置（不显示明文）。 */
+function sensitiveMask(item: ConfigItem): string {
+  const v = typeof item.value === 'string' ? item.value : ''
+  return v ? v : '未设置'
 }
 
 function onBoolChange(item: ConfigItem, ev: Event) {
@@ -157,14 +174,29 @@ async function rollback(entry: ConfigHistoryEntry) {
   }
 }
 
-async function testConn(target: string) {
+/** 通道测试结果（用服务端已保存的配置实探，不模拟、不假装成功）。 */
+const channelResult = ref<Record<string, { ok: boolean; message: string }>>({})
+
+async function testChannel(key: 'qb' | 'n115' | 'telegram') {
   testing.value = true
-  connResult.value = null
   try {
-    const res = await api.testConnection(target)
-    connResult.value = { ok: res.ok, message: res.message, latency_ms: res.latency_ms }
+    if (key === 'telegram') {
+      // Telegram 没有 test 端点：用 /integrations/telegram/status 的 enabled 如实表达。
+      const res = await api.telegramStatus()
+      const msg = res.data.enabled
+        ? `通道已启用，白名单 ${res.data.allowlist} 人`
+        : '通道未启用（需配置 bot token 且白名单非空）'
+      channelResult.value = { ...channelResult.value, [key]: { ok: res.data.enabled, message: msg } }
+    } else {
+      const res = key === 'qb' ? await api.testQB() : await api.testN115()
+      const msg = res.ok ? (res.version ? `连接正常（版本 ${res.version}）` : '连接正常') : '连接失败'
+      channelResult.value = { ...channelResult.value, [key]: { ok: res.ok, message: msg } }
+    }
   } catch (e) {
-    connResult.value = { ok: false, message: e instanceof Error ? e.message : '测试失败', latency_ms: 0 }
+    channelResult.value = {
+      ...channelResult.value,
+      [key]: { ok: false, message: e instanceof Error ? e.message : '测试失败' },
+    }
   } finally {
     testing.value = false
   }
@@ -267,7 +299,30 @@ onMounted(load)
               <p class="setting-desc">{{ item.desc }}</p>
               <div class="setting-control">
                 <template v-if="item.locked">
-                  <input class="input" type="text" :value="String(item.value ?? '')" disabled />
+                  <!-- env 锁定的项只读；敏感项即使锁定也只回显掩码，不显示明文。 -->
+                  <input
+                    v-if="item.sensitive"
+                    class="input"
+                    type="password"
+                    :value="''"
+                    disabled
+                    placeholder="由环境变量锁定"
+                  />
+                  <span v-if="item.sensitive" class="sens-state">当前：{{ sensitiveMask(item) }}</span>
+                  <input v-else class="input" type="text" :value="String(item.value ?? '')" disabled />
+                </template>
+                <template v-else-if="item.sensitive">
+                  <!-- 敏感项：password 输入框 + 掩码展示；留空 = 不修改（不回填掩码，避免把掩码写回配置） -->
+                  <input
+                    class="input"
+                    type="password"
+                    autocomplete="new-password"
+                    :value="String(draftOf(item) ?? '')"
+                    placeholder="留空表示不修改"
+                    @input="onTextChange(item, $event)"
+                    @change="onTextChange(item, $event)"
+                  />
+                  <span class="sens-state">当前：{{ sensitiveMask(item) }}</span>
                 </template>
                 <template v-else-if="item.type === 'bool'">
                   <label class="switch">
@@ -303,23 +358,29 @@ onMounted(load)
                     @change="onTextChange(item, $event)"
                   />
                 </template>
-                <span class="setting-default tnum">默认 {{ String(item.default) }}</span>
+                <span v-if="!item.sensitive" class="setting-default tnum">默认 {{ String(item.default) }}</span>
               </div>
             </div>
           </article>
 
-          <!-- 连接测试 -->
+          <!-- 外部集成通道测试 -->
           <article id="conn" class="group">
-            <h2 class="group-title">连接测试</h2>
-            <p class="group-desc">真发一次请求到目标服务，不模拟、不假装成功。</p>
+            <h2 class="group-title">外部集成通道测试</h2>
+            <p class="group-desc">
+              用服务端已保存的配置实探一次外部通道；未配置会如实报「未配置」，不假装可用。
+            </p>
             <div class="conn-row">
-              <RButton size="sm" :disabled="testing" @click="testConn('qbittorrent')">测 qBittorrent</RButton>
-              <RButton size="sm" :disabled="testing" @click="testConn('telegram')">测 Telegram</RButton>
-              <RButton size="sm" :disabled="testing" @click="testConn('n115')">测 115</RButton>
+              <RButton size="sm" :disabled="testing" @click="testChannel('qb')">测 qBittorrent</RButton>
+              <RButton size="sm" :disabled="testing" @click="testChannel('n115')">测 115</RButton>
+              <RButton size="sm" :disabled="testing" @click="testChannel('telegram')">查 Telegram 状态</RButton>
             </div>
-            <p v-if="connResult" class="conn-result" :class="connResult.ok ? 'ok' : 'bad'">
-              {{ connResult.ok ? '✓' : '✕' }} {{ connResult.message }}
-              <span v-if="connResult.latency_ms" class="tnum">({{ connResult.latency_ms }}ms)</span>
+            <p
+              v-for="(r, k) in channelResult"
+              :key="k"
+              class="conn-result"
+              :class="r.ok ? 'ok' : 'bad'"
+            >
+              {{ r.ok ? '✓' : '✕' }} {{ r.message }}
             </p>
           </article>
 
@@ -425,6 +486,7 @@ onMounted(load)
 .eff-badge--restart { background: color-mix(in srgb, var(--warning) 18%, transparent); color: var(--warning); }
 .lock-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--surface-3); color: var(--text-2); }
 .sens-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: var(--gold-soft); color: var(--gold-strong); }
+.sens-state { font-size: var(--font-caption); color: var(--text-3); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dirty-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
 .conn-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .conn-result { margin-top: 10px; font-size: var(--font-aux); }

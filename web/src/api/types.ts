@@ -51,6 +51,7 @@ export interface Task {
   kind: string
   source: string
   source_ref?: string
+  parent_id?: string
   platform: string
   url: string
   title?: string
@@ -70,6 +71,10 @@ export interface Task {
   attempt: number
   max_attempts: number
   cancel_requested: boolean
+  /** 父任务子项总数（后端 store.Task，omitempty；仅父任务有）。 */
+  child_total?: number
+  /** 父任务失败子项数（后端 store.Task，omitempty；仅父任务有）。 */
+  child_failed?: number
   error_code?: string
   error_message?: string
   fix_hint?: string
@@ -135,6 +140,22 @@ export interface CreateTasksResponse {
   conflicts: { url: string; existing_task_id: string }[]
 }
 
+// ---- 父子任务（docs/05 §5 / docs/04 §2.2）----
+
+/** POST /tasks/parent 响应：父任务 + 已建子任务树。 */
+export interface CreateParentTasksResponse {
+  data: Task
+  children: Task[] | null
+  child_total: number
+  child_failed: number
+}
+
+/** POST /tasks/batch 响应：逐个执行报告（单条失败不影响其余）。 */
+export interface TaskBatchResult {
+  succeeded: string[]
+  failed: { id: string; reason: string }[]
+}
+
 // ---- 配置中心（docs/04 §2.4） ----
 
 /** 生效时机（docs/06 §2）。 */
@@ -181,6 +202,36 @@ export interface ConnTestResult {
   target: string
   message: string
   latency_ms: number
+}
+
+// ---- 外部集成通道（docs/04 §2.10 / docs/08 W4.6–W4.8）----
+
+/** 单通道状态（GET /integrations/status）。未探测时 ok/message 缺省（=状态不明）。 */
+export interface IntegrationChannelStatus {
+  /** 是否已配置（服务端读到配置项）。 */
+  configured: boolean
+  /** 实探结果：仅在服务端构造出客户端时下发；缺省=状态不明。 */
+  ok?: boolean
+  /** 实探失败原因。 */
+  message?: string
+}
+
+export interface IntegrationStatus {
+  qb: IntegrationChannelStatus
+  n115: IntegrationChannelStatus
+  telegram: IntegrationChannelStatus
+}
+
+/** Telegram 通道状态（GET /integrations/telegram/status）。 */
+export interface TelegramStatus {
+  enabled: boolean
+  allowlist: number
+}
+
+/** 通道测试结果（POST /integrations/{qb,n115}/test）。 */
+export interface IntegrationTestResult {
+  ok: boolean
+  version?: string
 }
 
 // ---- 凭据中心（docs/04 §2.5） ----

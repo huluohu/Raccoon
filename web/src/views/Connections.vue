@@ -8,7 +8,7 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import { formatRelative } from '@/utils/format'
-import type { Credential } from '@/api/types'
+import type { Credential, IntegrationChannelStatus, IntegrationStatus, TelegramStatus } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
@@ -84,6 +84,113 @@ const valuePlaceholder = computed(() =>
 const expiringSoon = computed(() =>
   items.value.filter((c) => c.status === 'expiring' || c.status === 'expired'),
 )
+
+// ---- 外部集成通道（docs/04 §2.10 / docs/08 W4.6–W4.8）----
+
+/** GET /integrations/status 的三通道状态（未探测时 ok/message 缺省 = 状态不明）。 */
+const integrations = ref<IntegrationStatus | null>(null)
+const integrationsLoading = ref(true)
+const integrationsErr = ref('')
+/** GET /integrations/telegram/status：真实可用性靠它（enabled + 白名单人数）。 */
+const tgStatus = ref<TelegramStatus | null>(null)
+/** 正在测试的通道 key。 */
+const testingChannel = ref('')
+/** 测试结果：key → { ok, text }。 */
+const channelTest = ref<Record<string, { ok: boolean; text: string }>>({})
+
+/** 单通道展示态：如实区分「未配置 / 状态不明 / 可用 / 不可用」。 */
+type ChannelState = 'unconfigured' | 'unknown' | 'ok' | 'bad'
+
+interface ChannelView {
+  key: 'qb' | 'n115' | 'telegram'
+  name: string
+  desc: string
+  state: ChannelState
+  stateText: string
+  detail: string
+  canTest: boolean
+}
+
+function channelView(key: 'qb' | 'n115' | 'telegram'): ChannelView {
+  const base: Omit<ChannelView, 'state' | 'stateText' | 'detail'> = {
+    key,
+    name: key === 'qb' ? 'qBittorrent' : key === 'n115' ? '115 网盘' : 'Telegram',
+    desc:
+      key === 'qb'
+        ? '把磁力/离线下载交给 qB 客户端执行'
+        : key === 'n115'
+          ? '把任务转存到 115 网盘'
+          : '通过 Telegram 机器人提交任务到同一队列',
+    canTest: key !== 'telegram',
+  }
+  // Telegram 的真实可用性来自 /integrations/telegram/status（enabled = token + 白名单都齐）。
+  if (key === 'telegram' && tgStatus.value) {
+    if (!tgStatus.value.enabled) {
+      return { ...base, state: 'unconfigured', stateText: '未启用', detail: '需配置 bot token 且白名单非空' }
+    }
+    return { ...base, state: 'ok', stateText: '可用', detail: `已启用 · 白名单 ${tgStatus.value.allowlist} 人` }
+  }
+  const st: IntegrationChannelStatus | undefined = integrations.value?.[key]
+  if (!st || !st.configured) {
+    return { ...base, state: 'unconfigured', stateText: '未配置', detail: '在设置页填写连接参数后启用' }
+  }
+  if (st.ok === undefined) {
+    // 后端只在能构造客户端时实探；缺省即「状态不明」，不假装可用。
+    return { ...base, state: 'unknown', stateText: '状态不明', detail: '已配置，尚未探测到实探结果' }
+  }
+  if (st.ok) {
+    return { ...base, state: 'ok', stateText: '可用', detail: st.message || '实探通过' }
+  }
+  return { ...base, state: 'bad', stateText: '不可用', detail: st.message || '实探失败' }
+}
+
+const channelViews = computed<ChannelView[]>(() =>
+  (['qb', 'n115', 'telegram'] as const).map(channelView),
+)
+
+async function loadIntegrations() {
+  integrationsLoading.value = true
+  integrationsErr.value = ''
+  try {
+    const res = await api.integrationStatus()
+    integrations.value = res.data
+  } catch (e) {
+    integrationsErr.value = e instanceof Error ? e.message : '外部集成状态加载失败'
+  } finally {
+    integrationsLoading.value = false
+  }
+  // Telegram 的 enabled/allowlist 单独取（status 里的 telegram 只给 configured）。
+  try {
+    const res = await api.telegramStatus()
+    tgStatus.value = res.data
+  } catch {
+    tgStatus.value = null
+  }
+}
+
+async function testChannel(key: 'qb' | 'n115' | 'telegram') {
+  // Telegram 没有独立的 test 端点：它的可用性由 /integrations/telegram/status 给出。
+  if (key === 'telegram') {
+    await loadIntegrations()
+    toast.info('Telegram 通道没有测试端点，状态以左侧实测结果为准')
+    return
+  }
+  testingChannel.value = key
+  try {
+    const res = key === 'qb' ? await api.testQB() : await api.testN115()
+    const text = res.ok ? (res.version ? `连接成功（版本 ${res.version}）` : '连接成功') : '连接失败'
+    channelTest.value = { ...channelTest.value, [key]: { ok: res.ok, text } }
+    if (res.ok) toast.success((key === 'qb' ? 'qBittorrent' : '115') + '：' + text)
+    else toast.warning((key === 'qb' ? 'qBittorrent' : '115') + '：' + text)
+  } catch (e) {
+    const text = e instanceof Error ? e.message : '测试失败'
+    channelTest.value = { ...channelTest.value, [key]: { ok: false, text } }
+    toast.error(text)
+  } finally {
+    testingChannel.value = ''
+    await loadIntegrations()
+  }
+}
 
 async function load() {
   loading.value = true
@@ -189,7 +296,10 @@ function expireText(c: Credential): string {
   return formatRelative(c.expires_at) + '过期'
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadIntegrations()
+})
 </script>
 
 <template>
@@ -201,6 +311,46 @@ onMounted(load)
       </div>
       <RButton variant="accent" @click="resetForm">新建凭据</RButton>
     </header>
+
+    <!-- 外部集成通道 -->
+    <section class="integrations">
+      <header class="int-head">
+        <div>
+          <h2 class="int-title">外部集成</h2>
+          <p class="int-sub">qBittorrent / 115 / Telegram 三条通道的连接状态，实时探测，不假装可用</p>
+        </div>
+        <RButton size="sm" variant="ghost" :disabled="integrationsLoading" @click="loadIntegrations">
+          {{ integrationsLoading ? '刷新中…' : '刷新状态' }}
+        </RButton>
+      </header>
+
+      <p v-if="integrationsErr" class="alert alert--danger">{{ integrationsErr }}</p>
+
+      <ul class="int-grid">
+        <li v-for="c in channelViews" :key="c.key" class="int-card" :data-state="c.state">
+          <header class="int-card-head">
+            <span class="int-name">{{ c.name }}</span>
+            <span class="int-state">
+              <span class="int-glyph" aria-hidden="true">
+                {{ c.state === 'ok' ? '✓' : c.state === 'bad' ? '✕' : c.state === 'unknown' ? '?' : '–' }}
+              </span>
+              {{ c.stateText }}
+            </span>
+          </header>
+          <p class="int-desc">{{ c.desc }}</p>
+          <p class="int-detail">{{ c.detail }}</p>
+          <p v-if="channelTest[c.key]" class="int-test" :class="channelTest[c.key].ok ? 'ok' : 'bad'">
+            {{ channelTest[c.key].ok ? '✓' : '✕' }} {{ channelTest[c.key].text }}
+          </p>
+          <footer class="int-foot">
+            <RButton size="sm" :disabled="testingChannel === c.key" @click="testChannel(c.key)">
+              {{ testingChannel === c.key ? '测试中…' : c.canTest ? '测试连接' : '刷新状态' }}
+            </RButton>
+            <RouterLink class="int-link" to="/settings">去设置页填写参数 →</RouterLink>
+          </footer>
+        </li>
+      </ul>
+    </section>
 
     <p v-if="expiringSoon.length" class="alert">
       有 {{ expiringSoon.length }} 条凭据已失效或待确认，失效后高清晰度与会员内容会下载失败。
@@ -319,6 +469,40 @@ onMounted(load)
 .alert--danger { background: transparent; border-color: var(--danger); color: var(--danger); }
 
 .cred-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+
+/* 外部集成通道 */
+.integrations { margin-bottom: 18px; }
+.int-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.int-title { margin: 0; font-size: var(--font-title-3); font-weight: 700; }
+.int-sub { margin: 4px 0 0; font-size: var(--font-caption); color: var(--text-3); }
+.int-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.int-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+  padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow-1);
+}
+.int-card[data-state='ok'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
+.int-card[data-state='bad'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.int-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.int-name { font-size: var(--font-title-3); font-weight: 650; }
+.int-state { display: inline-flex; align-items: center; gap: 5px; font-size: var(--font-caption); font-weight: 600; color: var(--text-2); }
+.int-glyph {
+  width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff; background: var(--neutral);
+}
+.int-card[data-state='ok'] .int-state { color: var(--success); }
+.int-card[data-state='ok'] .int-glyph { background: var(--success); }
+.int-card[data-state='bad'] .int-state { color: var(--danger); }
+.int-card[data-state='bad'] .int-glyph { background: var(--danger); }
+.int-card[data-state='unknown'] .int-state { color: var(--warning); }
+.int-card[data-state='unknown'] .int-glyph { background: var(--warning); }
+.int-desc { margin: 0; font-size: var(--font-aux); color: var(--text-2); }
+.int-detail { margin: 0; font-size: var(--font-caption); color: var(--text-3); word-break: break-word; }
+.int-test { margin: 0; font-size: var(--font-caption); }
+.int-test.ok { color: var(--success); }
+.int-test.bad { color: var(--danger); }
+.int-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); }
+.int-link { color: var(--text-3); font-size: var(--font-caption); text-decoration: none; }
+.int-link:hover { color: var(--accent); }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);

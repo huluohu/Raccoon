@@ -42,6 +42,11 @@ func (s *Server) testConnection(target string, params map[string]any) connTestRe
 			res.Message = "未配置 qBittorrent 地址"
 			return res
 		}
+		// SSRF 防线：回环/云元数据端点一律拒绝；内网放行（自托管 qB 常在局域网）。
+		if _, err := ValidateOutboundURL(base, OutboundPolicy{AllowPrivate: true}); err != nil {
+			res.Message = "地址不被允许: " + err.Error()
+			return res
+		}
 		start := time.Now()
 		// qB WebUI 登录端点：未授权也返回 403，说明服务在。
 		req, _ := http.NewRequest(http.MethodGet, strings.TrimRight(base, "/")+"/api/v2/app/version", nil)
