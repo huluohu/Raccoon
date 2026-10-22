@@ -112,11 +112,11 @@ func (s *Server) authenticateToken(r *http.Request, raw string) (*store.User, er
 }
 
 // requiredScope 请求所需 scope。
+//
+// 顺序即安全：管理域前缀检查必须排在方法短路之前。早年 GET 短路在前，
+// 导致一枚只读令牌就能 GET /api/v1/tokens 枚举全部令牌元数据、
+// GET /api/v1/credentials 读凭据列表 —— 越权面是真实存在过的（渗透用例锁定）。
 func requiredScope(r *http.Request) int {
-	switch r.Method {
-	case http.MethodGet, http.MethodHead:
-		return store.ScopeRead
-	}
 	for _, prefix := range []string{
 		"/api/v1/config", "/api/v1/credentials", "/api/v1/subscriptions",
 		"/api/v1/live-sources", "/api/v1/tokens",
@@ -124,6 +124,10 @@ func requiredScope(r *http.Request) int {
 		if strings.HasPrefix(r.URL.Path, prefix) {
 			return store.ScopeAdmin
 		}
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		return store.ScopeRead
 	}
 	return store.ScopeWrite
 }

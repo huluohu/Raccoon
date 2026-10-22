@@ -181,8 +181,8 @@ func (s *Store) ListTasks(f TaskFilter) (*ListResult, error) {
 		args = append(args, f.Platform)
 	}
 	if f.Q != "" {
-		where = append(where, "title LIKE ?")
-		args = append(args, "%"+escapeLike(f.Q)+"%")
+		where = append(where, "title LIKE ? ESCAPE '\\'")
+		args = append(args, "%"+likePattern(f.Q)+"%")
 	}
 	if f.Kind != "" {
 		where = append(where, "kind = ?")
@@ -299,6 +299,23 @@ func parseCursor(c string) (int64, string, bool) {
 
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// likePattern 生成 LIKE 模式片段：截断 + 转义通配符（配套 ESCAPE '\' 子句用）。
+//
+// 两个坑都是实测踩出来的（渗透用例集锁定）：
+//  1. 截断：SQLite 对超过约 5 万字符的 LIKE 模式直接报
+//     "LIKE or GLOB pattern too complex"（SQLITE_MAX_LIKE_PATTERN_LENGTH），
+//     超长搜索词会把 500 抛给用户 —— 搜索框粘 64KB 文本即可复现；
+//  2. 转义：escapeLike 早年只转义、SQL 不带 ESCAPE 子句，而 SQLite 默认
+//     反斜杠不是转义符，导致搜 "100%"、"a_b" 反而 0 命中（搜索功能坏掉）。
+const likePatternMaxLen = 256
+
+func likePattern(q string) string {
+	if len(q) > likePatternMaxLen {
+		q = q[:likePatternMaxLen] // 按字节截断：截断多字节字符尾部的搜索场景可接受
+	}
+	return escapeLike(q)
 }
 
 // UpdateTaskFields 通用字段更新（解析完成后写 title/size 等）。

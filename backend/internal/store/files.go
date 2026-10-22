@@ -61,8 +61,8 @@ func (s *Store) ListMediaFiles(f FileFilter) ([]*MediaFile, int, error) {
 		args = append(args, f.Kind)
 	}
 	if f.Query != "" {
-		where = append(where, "name LIKE ?")
-		args = append(args, "%"+f.Query+"%")
+		where = append(where, "name LIKE ? ESCAPE '\\'")
+		args = append(args, "%"+likePattern(f.Query)+"%")
 	}
 	clause := ""
 	if len(where) > 0 {

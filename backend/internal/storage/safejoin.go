@@ -50,17 +50,70 @@ func SafeJoin(root, rel string) (string, error) {
 	if joined != absRoot && !strings.HasPrefix(joined, absRoot+string(os.PathSeparator)) {
 		return "", fmt.Errorf("%w: %s", ErrPathEscape, rel)
 	}
-	// 符号链接逃逸检查：若目标已存在，取其真实路径再校验。
-	if resolved, err := filepath.EvalSymlinks(joined); err == nil {
-		realRoot, rerr := filepath.EvalSymlinks(absRoot)
-		if rerr != nil {
-			realRoot = absRoot
-		}
-		if resolved != realRoot && !strings.HasPrefix(resolved, realRoot+string(os.PathSeparator)) {
-			return "", fmt.Errorf("%w: 符号链接指向根目录外", ErrPathEscape)
-		}
+	// 符号链接逃逸检查。
+	//
+	// 为什么不能只 EvalSymlinks(joined)：SafeJoin 的主用途是计算「尚未存在」的
+	// 产物输出路径，而 EvalSymlinks 对不存在的路径返回 ENOENT —— 早年直接
+	// 跳过检查，等于给预置软链（root/escape -> /outside）开了逃逸通道
+	// （渗透用例 TestSafeJoin_符号链接逃逸被拒 实测复现）。
+	// 正确做法：从 joined 逐级上退到第一个真实存在的祖先做解析，
+	// 再把不存在的尾部成分逐个 Lstat，软链一律解析校验。
+	if err := checkSymlinkEscape(absRoot, joined); err != nil {
+		return "", err
 	}
 	return joined, nil
+}
+
+// checkSymlinkEscape 校验 joined（含其全部成分）不经符号链接逃逸出 root。
+func checkSymlinkEscape(absRoot, joined string) error {
+	realRoot, rerr := filepath.EvalSymlinks(absRoot)
+	if rerr != nil {
+		realRoot = absRoot
+	}
+	within := func(p string) bool {
+		return p == realRoot || strings.HasPrefix(p, realRoot+string(os.PathSeparator))
+	}
+	// 逐级上退找第一个真实存在的祖先。
+	probe := joined
+	var tail []string // 不存在的尾部成分（自底向上收集）
+	for {
+		if resolved, err := filepath.EvalSymlinks(probe); err == nil {
+			if !within(resolved) {
+				return fmt.Errorf("%w: 符号链接指向根目录外", ErrPathEscape)
+			}
+			break
+		}
+		tail = append(tail, filepath.Base(probe))
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			break // 已到文件系统根
+		}
+		probe = parent
+	}
+	// 尾部成分（joined 里尚不存在）逐个检查：是软链就解析并校验目标。
+	for _, name := range tail {
+		candidate := filepath.Join(probe, name)
+		if fi, err := os.Lstat(candidate); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			resolved, err := filepath.EvalSymlinks(candidate)
+			if err != nil {
+				// 悬空软链：EvalSymlinks 会因目标不存在而失败，改读链接本身。
+				target, lerr := os.Readlink(candidate)
+				if lerr != nil {
+					return fmt.Errorf("%w: 无法解析符号链接", ErrPathEscape)
+				}
+				if filepath.IsAbs(target) {
+					resolved = filepath.Clean(target)
+				} else {
+					resolved = filepath.Clean(filepath.Join(filepath.Dir(candidate), target))
+				}
+			}
+			if !within(resolved) {
+				return fmt.Errorf("%w: 符号链接指向根目录外", ErrPathEscape)
+			}
+		}
+		probe = candidate
+	}
+	return nil
 }
 
 // WithinRoot 判断绝对路径是否位于 root 内（媒体库直链/预览用）。
