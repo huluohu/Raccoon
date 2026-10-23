@@ -1,0 +1,75 @@
+%% Raccoon docs/15 序列图：monitor sampler 生命周期 / stats 查询链路 / 前端轮询生命周期
+sequenceDiagram
+    participant M as main
+    participant S as Server
+    participant SP as monitor.Sampler
+    participant PR as proc(linux)
+    participant RB as RingBuffer
+    participant DB as SQLite
+
+    M->>S: New(cfg, store, logger)
+    S->>SP: monitor.New(store, 2s, ringCap=60)
+    S->>SP: Start(ctx)
+    loop 每 2s（ticker）
+        SP->>PR: read /proc/stat|meminfo|net/dev
+        PR-->>SP: Sample{...}
+        SP->>SP: cpuUsagePct(prev, cur) / bps delta
+        SP->>RB: push(cpu, memory, net_up, net_down)
+        Note over SP: 满 30 tick（60s）且平台为 linux
+        SP->>SP: aggregate(30 样本) → 1min 均值
+        SP->>DB: UPSERT monitor_sample(ts,...)
+        SP->>DB: DELETE FROM monitor_sample WHERE ts < now-7d
+    end
+    Note over S: 优雅停机（/system/restart 或 SIGTERM）
+    S->>SP: Stop()
+    alt 聚合器已有 ≥1 样本
+        SP->>DB: flush 部分 1min 聚合（诚实：不丢已采样本）
+    end
+    SP-->>S: stopped
+sequenceDiagram
+    participant OV as Overview.vue
+    participant SS as stores/system.ts
+    participant API as api/client.ts
+    participant H as stats_handler.go
+    participant ST as store/stats.go
+    participant DB as SQLite
+
+    OV->>SS: onMounted → system.startSummary()
+    SS->>API: GET /system/stats/summary
+    API->>H: requireAuth → handleSummary
+    H->>ST: SummaryStats(uptimeSec)
+    ST->>DB: COUNT(done, finished_at BETWEEN 今日0点 AND 明日0点)
+    ST->>DB: COUNT(done, finished_at BETWEEN 本周一0点 AND 下周一0点)
+    ST->>DB: SELECT kind, COUNT(*) FROM media_files GROUP BY kind
+    ST->>DB: JOIN subscriptions(source_type='favorite')
+    ST->>DB: SELECT COUNT(*) FROM live_sources WHERE status='recording'
+    DB-->>ST: rows
+    ST-->>H: SummaryStats（SuccessRate 分母 0 = nil）
+    H-->>SS: 200 JSON
+    SS-->>OV: ref 更新 → MetricCard 渲染（success_rate=null → 「—」）
+    Note over SS: 5s 轮询；页面不可见或离开即停（见 4.3）
+sequenceDiagram
+    participant V as Monitor.vue
+    participant SS as stores/system.ts
+    participant API as api/client.ts
+    participant AU as stores/auth.ts
+    participant AP as App.vue
+
+    V->>SS: onMounted → system.connect('monitor')
+    SS->>API: monitorNow() 立即拉一次
+    SS->>SS: setInterval(2s)
+    loop 可见且已连接
+        SS->>API: monitorNow()
+    end
+    Note over SS: document visibilitychange
+    alt 页面隐藏
+        SS->>SS: clearInterval（停轮询，省电省流量）
+    else 页面恢复可见
+        SS->>API: 立即拉一次
+        SS->>SS: setInterval(2s) 恢复
+    end
+    V->>SS: onUnmounted → system.disconnect('monitor')
+    Note over AP: auth.phase 离开 ready（登出/掉线）
+    AP->>SS: system.disconnectAll()
+    Note over SS: 401/403 → auth.markUnauthenticated()（同 tasks store 语义）
+    Note over SS: 请求失败 → error ref + 指数退避重试（1/2/5s，最多 3 次后停下一次 tick）

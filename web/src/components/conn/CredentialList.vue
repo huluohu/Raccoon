@@ -104,7 +104,7 @@ function expireText(c: Credential): string {
           size="sm"
           variant="ghost"
           tone="danger"
-          confirm="再点一次确认删除"
+          confirm="确认删除？"
           @click="emit('remove', c)"
         >
           删除

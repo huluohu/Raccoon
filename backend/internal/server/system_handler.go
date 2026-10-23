@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -165,59 +166,17 @@ func (s *Server) readLogTail(n int) []string {
 	return out
 }
 
-// redactLine 日志行脱敏（cookie/token/password/key → ***）。
-func redactLine(line string) string {
-	lower := strings.ToLower(line)
-	for _, key := range []string{"cookie", "token", "password", "passwd", "secret", "authorization", "auth_key", "api_key"} {
-		if !strings.Contains(lower, key) {
-			continue
-		}
-		line = redactKeyValue(line, key)
-	}
-	return line
-}
+// redactPattern 命中「敏感键 + 分隔符 + 值」的行内片段：值可能是引号串
+// （"token":"abc"）、Bearer 串（Authorization: Bearer abc）或裸串（password=abc）。
+//
+// 为什么用正则重写：原实现先 TrimLeft 掉引号冒号再判断分隔符，遇到
+// `"token":"abc"` 会把值首字符 'a' 当分隔符 → 整行漏脱敏（真泄漏）。
+// 正则锚定「键 + :/= + 值」，不含分隔符的普通叙述（如「token 已过期」）不动。
+var redactPattern = regexp.MustCompile(`(?i)(cookie|token|password|passwd|secret|authorization|auth_key|api_key)("?\s*[:=]\s*)("[^"]*"|Bearer\s+\S+|[^\s,;&}]+)`)
 
-// redactKeyValue 把 "key":"value" / key=value 形式的值替换为 ***。
-func redactKeyValue(line, key string) string {
-	lower := strings.ToLower(line)
-	for i := 0; ; {
-		idx := strings.Index(lower[i:], key)
-		if idx < 0 {
-			break
-		}
-		abs := i + idx
-		rest := line[abs+len(key):]
-		trimmed := strings.TrimLeft(rest, " \t\"':")
-		if trimmed == "" {
-			break
-		}
-		sep := trimmed[0]
-		var end int
-		switch sep {
-		case '"':
-			end = strings.Index(trimmed[1:], "\"")
-			if end < 0 {
-				end = len(trimmed) - 1
-			} else {
-				end++
-			}
-		case '=':
-			end = strings.IndexAny(trimmed, ", &}")
-			if end < 0 {
-				end = len(trimmed)
-			}
-		default:
-			i = abs + len(key)
-			continue
-		}
-		line = line[:abs+len(key)] + "***" + trimmed[end:]
-		lower = strings.ToLower(line)
-		i = abs + len(key) + 3
-		if i > len(line) {
-			break
-		}
-	}
-	return line
+// redactLine 日志行脱敏（cookie/token/password/key → ***）。诊断包与 /logs 共用。
+func redactLine(line string) string {
+	return redactPattern.ReplaceAllString(line, "${1}${2}***")
 }
 
 // tailN 取尾部 n 项。

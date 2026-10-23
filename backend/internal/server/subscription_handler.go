@@ -162,6 +162,8 @@ func (s *Server) handleSubUpdate(w http.ResponseWriter, r *http.Request) error {
 		sub.RangeTo = req.RangeTo
 	}
 	if err := s.store.UpdateSubscription(sub); err != nil {
+		// 带上底层错误：这句 500 曾经掩盖了外键约束失败，排查全靠猜。
+		s.log.Error("订阅更新失败", map[string]any{"id": sub.ID, "err": err.Error()})
 		return subErrToHTTP(err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": sub})
@@ -171,6 +173,7 @@ func (s *Server) handleSubUpdate(w http.ResponseWriter, r *http.Request) error {
 // handleSubDelete 删除订阅（不删已下载文件）。
 func (s *Server) handleSubDelete(w http.ResponseWriter, r *http.Request) error {
 	if err := s.store.DeleteSubscription(param(r, "id")); err != nil {
+		s.log.Error("订阅删除失败", map[string]any{"id": param(r, "id"), "err": err.Error()})
 		return subErrToHTTP(err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})

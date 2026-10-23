@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RTable from '@/components/base/RTable.vue'
+import { mount } from '@/test/mount'
 
 /**
  * RTable 用例（docs/07 §4 验收点：表头浅底 / 行高 44·36 / hover 行操作 / 空态≠骨架屏）。

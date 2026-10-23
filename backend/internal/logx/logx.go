@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,33 @@ func New(out io.Writer, module string, minLv Level) *Logger {
 // Default 输出到 stdout，info 起步。
 func Default(module string) *Logger {
 	return New(os.Stdout, module, LevelInfo)
+}
+
+// FilePath 运行日志文件路径（与 /api/v1/logs 读取的是同一个文件，单一来源）。
+// dataDir 为空时退化为进程工作目录下的 logs/。
+func FilePath(dataDir string) string {
+	if dataDir == "" {
+		dataDir = "."
+	}
+	return filepath.Join(dataDir, "logs", "raccoon.log")
+}
+
+// maxLogFileBytes 单文件上限，超过则启动时轮转一次（raccoon.log → raccoon.log.1）。
+// 只保留一份历史：单机自托管场景够用，真正的日志治理交给外部采集。
+const maxLogFileBytes = 32 << 20
+
+// OpenSink 打开运行日志文件（追加写）。目录不存在则创建；
+// 文件超过 maxLogFileBytes 时先轮转为 .1（覆盖旧 .1），保证不无限增长。
+// 调用方负责 Close。失败返回 error 由调用方决定是否降级为仅 stdout。
+func OpenSink(path string) (io.WriteCloser, error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	if st, err := os.Stat(path); err == nil && st.Size() > maxLogFileBytes {
+		_ = os.Rename(path, path+".1") // 覆盖旧 .1；失败不阻塞启动
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 }
 
 func (l *Logger) With(module string) *Logger {

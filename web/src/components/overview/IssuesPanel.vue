@@ -15,8 +15,10 @@ withDefaults(
   defineProps<{
     /** 失败任务列表（调用方已过滤）。 */
     tasks: Task[]
+    /** 非任务类预警（E2：成功率低于阈值等）。与失败任务同处一块，语气一致。 */
+    alerts?: { title: string; detail: string; to?: string }[]
   }>(),
-  { tasks: () => [] },
+  { tasks: () => [], alerts: () => [] },
 )
 
 const emit = defineEmits<{
@@ -24,15 +26,28 @@ const emit = defineEmits<{
   retry: [id: string]
   /** 「全部任务」→ 去下载页。 */
   more: []
+  /** 预警条目点击 → 跳转（由父层负责路由）。 */
+  open: [to: string]
 }>()
 </script>
 
 <template>
-  <article v-if="tasks.length > 0" class="card card--wide issue-panel">
+  <article v-if="tasks.length > 0 || alerts.length > 0" class="card card--wide issue-panel">
     <header class="card-head">
       <h2>有几单没成</h2>
       <RButton variant="ghost" size="sm" @click="emit('more')">全部任务 →</RButton>
     </header>
+    <!-- 预警条目（E2）：不是任务失败，但同样需要用户动作 -->
+    <ul v-if="alerts.length" class="alert-list">
+      <li v-for="a in alerts" :key="a.title" class="alert-row">
+        <RaccoonFace face="failed" :size="32" />
+        <div class="issue-main">
+          <div class="issue-title">{{ a.title }}</div>
+          <div class="issue-reason">{{ a.detail }}</div>
+        </div>
+        <RButton v-if="a.to" size="sm" @click="emit('open', a.to)">去看看</RButton>
+      </li>
+    </ul>
     <ul class="issue-list">
       <li v-for="t in tasks" :key="t.id" class="issue-row">
         <!-- 表情按状态取用（§5）：失败 = failed -->
@@ -108,6 +123,17 @@ const emit = defineEmits<{
   flex-direction: column;
   gap: 12px;
 }
+/* 预警区与失败任务区之间留一道间距：两类条目语气不同，糊在一起会读成同一件事。 */
+.alert-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.alert-row { display: flex; align-items: center; gap: 14px; }
 .issue-row { display: flex; align-items: center; gap: 14px; }
 .issue-main { flex: 1; min-width: 0; }
 .issue-title {

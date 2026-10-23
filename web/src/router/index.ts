@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// 路由表与 docs/07 §3 逐条对应：/setup、/login + 七个一级页面。
+// 路由表与 docs/07 §3 逐条对应：/setup、/login + 九个一级页面 + 监控/日志/历史。
 // setup/login 由 App.vue 的会话 gate 按 auth.phase 内联渲染；这里再注册同组件路由，
 // 是为了让用户直接输 /login、/setup（或书签/反代重定向）时不落到空白页。
 const routes: RouteRecordRaw[] = [
@@ -10,9 +10,14 @@ const routes: RouteRecordRaw[] = [
   { path: '/login', name: 'login', component: () => import('@/views/Login.vue'), meta: { title: '登录' } },
   { path: '/', name: 'overview', component: () => import('@/views/Overview.vue'), meta: { title: '总览' } },
   { path: '/tasks', name: 'tasks', component: () => import('@/views/Tasks.vue'), meta: { title: '下载' } },
+  // 历史是「下载」的只读视图，但它是独立一级入口（docs/15 §1.2 裁决 10 项导航）：
+  // 放在 /tasks 之外的路径，才能让用户把「正在下的」和「下完的」分成两个心智位置。
+  { path: '/history', name: 'history', component: () => import('@/views/History.vue'), meta: { title: '历史' } },
   { path: '/media', name: 'media', component: () => import('@/views/Media.vue'), meta: { title: '媒体库' } },
   { path: '/subscriptions', name: 'subscriptions', component: () => import('@/views/Subscriptions.vue'), meta: { title: '订阅' } },
   { path: '/live', name: 'live', component: () => import('@/views/Live.vue'), meta: { title: '直播' } },
+  { path: '/logs', name: 'logs', component: () => import('@/views/Logs.vue'), meta: { title: '日志' } },
+  { path: '/monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '监控' } },
   { path: '/connections', name: 'connections', component: () => import('@/views/Connections.vue'), meta: { title: '连接' } },
   { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue'), meta: { title: '设置' } },
 ]

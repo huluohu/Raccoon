@@ -58,7 +58,7 @@
 
 | 方法 | 路径 | 说明 | 认证 |
 | --- | --- | --- | --- |
-| GET | /auth/status | `{setup_required: bool}` 决定前端进 /setup 还是 /login | 无 |
+| POST | /auth/status | `{setup_required: bool}` 决定前端进 /setup 还是 /login | 无 |
 | POST | /auth/setup | 创建管理员（仅 users 空时可用）：username/password → 种会话 | 无 |
 | POST | /auth/login | username/password → 会话 Cookie + csrf_token | 无 |
 | POST | /auth/logout | 销毁会话 | 会话 |
@@ -141,6 +141,7 @@
 | GET | /files | 文件视角列表：platform/uploader/kind/q 过滤；`previewable` 标记 |
 | GET | /files/{id}/download | 直链下载（Content-Disposition；路径必须在 data 根内） |
 | GET | /files/{id}/preview | 浏览器可播编码返回 Range 播放，否则 415 + 提示 |
+| DELETE | /files/{id} | **删文件**（磁盘 + 索引；路径从 DB 取并二次校验在 data 根内）。与「删任务记录」是两个动作 |
 
 ### 2.9 通知 `notifications` ｜ 事件流 `events` ｜ 系统 `system`
 
@@ -153,6 +154,47 @@
 | GET | /system/info | 版本、运行时长、引擎版本、架构 |
 | POST | /system/restart | 优雅重启应用服务（非宿主容器）：停收新任务 → 当前任务让出 → 恢复队列 |
 | GET | /system/diag/export | 诊断包（脱敏日志+配置快照+任务统计；导出前预览接口同路径带 `?preview=1`） |
+| GET | /system/queue | 队列快照：各状态计数 + 运行中任务（总览页用） |
+
+### 2.10 统计 / 监控 / 日志（仪表盘数据源，docs/14 §2、docs/15 §3.1）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | /system/stats/summary | 主页指标一次聚合：`{uptime_sec,total_downloads,today_downloads,week_downloads,success_rate,media_bytes,media_by_kind,sub_downloads,favorite_downloads,live_recording}` |
+| GET | /system/stats/trend?days=7\|30 | 按日趋势 + 失败拆分：`{days,points:[{date,count,bytes}],failures:{by_platform,by_reason}}`；`points` 长度恒等于 days，末元素为本地今日；其它 days 值 400 |
+| GET | /system/monitor | 实时资源：`{ok,sampled_at,cpu,memory,disk,net,series}`（2s×60 点；`null` = 该时刻采集失败，前端断线不插值）；非 Linux 返回 `{ok:false,message}` |
+| GET | /system/monitor/history?range=1h\|24h | 历史聚合：`{range,granularity_sec,points:[{ts,cpu,memory,disk,net_rx,net_tx}]}`；1h=60s 粒度、24h=1440s 均值；空窗返回 `[]` |
+| GET | /logs | 运行日志：`level`（逗号多选）/`module`/`q`（≤256 截断）/`from`/`to`/`limit`（≤500）/`cursor`（行号）→ `{items:[{ts,level,module,msg}],next_cursor}`；`msg` 出口统一脱敏（cookie/token/password → `***`） |
+
+口径（与实现同源）：
+
+- `today/week` = `status='done'` 且 `finished_at` 落在**服务端本地时区**自然日/自然周（周一为首日）；
+- `success_rate` = done/(done+failed)，**分母 0 时返回 `null`**（前端显示「—」，不造 0%/100%）；
+- `favorite_downloads` 为**快照口径**：订阅删除后历史任务仍计入（`tasks.sub_favorite` 标记）。
+
+### 2.11 API Token `tokens`
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | /tokens | 列表（不含明文，只有前缀） |
+| POST | /tokens | 创建：`{name,scope,expires_in_hours}` → 明文只在此次响应出现一次 |
+| DELETE | /tokens/{id} | 撤销（幂等） |
+
+### 2.12 外部集成 `integrations`
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | /integrations/status | qB / 115 / Telegram 配置态与连通性汇总 |
+| POST | /integrations/qb/test | qB 连通性测试 |
+| POST | /integrations/n115/test | 115 连通性测试 |
+| GET | /integrations/telegram/status | Telegram bot 状态 |
+
+### 2.13 用户偏好 `user/preferences`
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | /user/preferences | `{"data":{"layout":"{\"hidden\":[],\"order\":[]}"}}`——`layout` 是 JSON **字符串**；无记录时为空串（前端回落默认布局） |
+| PUT | /user/preferences | body `{"layout":"..."}`；校验合法 JSON + ≤64KB，非法 400；走 CSRF |
 
 ---
 

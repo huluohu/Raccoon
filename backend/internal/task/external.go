@@ -119,14 +119,14 @@ func (e *ExternalExecutor) Run(ctx context.Context, t *store.Task) {
 // runQB 磁力/种子任务：提交 → 轮询 → 完成。
 func (e *ExternalExecutor) runQB(ctx context.Context, t *store.Task) {
 	if e.qb == nil {
-		e.fail(t.ID, "QB_UNAVAILABLE", "未配置 qBittorrent 连接，该任务无法执行", fixHintGotoSettings())
+		e.failWithRoute(t, "QB_UNAVAILABLE", "未配置 qBittorrent 连接，该任务无法执行", fixHintGotoSettings(), "qB 不可用")
 		return
 	}
 	hash, err := e.qb.AddMagnet(ctx, t.URL, QBAddOptions{
 		SavePath: t.SavePath,
 	})
 	if err != nil {
-		e.fail(t.ID, "QB_SUBMIT_FAILED", err.Error(), fixHintGotoSettings())
+		e.failWithRoute(t, "QB_SUBMIT_FAILED", err.Error(), fixHintGotoSettings(), "qB 提交失败")
 		return
 	}
 	_ = e.mgr.st.AppendEvent(t.ID, "info", "qb_submitted", "已提交到 qBittorrent", fmt.Sprintf(`{"hash":%q}`, hash))
@@ -144,6 +144,10 @@ func (e *ExternalExecutor) runQB(ctx context.Context, t *store.Task) {
 func (e *ExternalExecutor) pollQB(ctx context.Context, t *store.Task, hash string) {
 	ticker := time.NewTicker(e.pollI)
 	defer ticker.Stop()
+	// 连续查询失败计数：qB 持续不可用时必须有出口，否则任务永远卡在 downloading
+	// 白占 worker 额度（旧实现用 Attempt+1<MaxAttempts 判退出，但 Attempt 在轮询期
+	// 从不递增——死循环。现在按连续失败次数收敛，与 max_attempts 语义对齐）。
+	queryErrs := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -161,13 +165,15 @@ func (e *ExternalExecutor) pollQB(ctx context.Context, t *store.Task, hash strin
 		}
 		torrents, err := e.qb.Torrents(ctx, []string{hash})
 		if err != nil {
-			// qB 短暂不可用不立即失败：重试到超过最大次数再判失败。
-			if cur, cerr := e.mgr.st.GetTask(t.ID); cerr == nil && cur.Attempt+1 < cur.MaxAttempts {
+			// qB 短暂不可用不立即失败：连续失败到 max_attempts 次再判失败。
+			queryErrs++
+			if queryErrs < t.MaxAttempts {
 				continue
 			}
 			e.fail(t.ID, "QB_QUERY_FAILED", err.Error(), fixHintRetry())
 			return
 		}
+		queryErrs = 0
 		if len(torrents) == 0 {
 			// qB 还没登记（异步），继续等。
 			continue
@@ -231,9 +237,10 @@ func (e *ExternalExecutor) finish(t *store.Task, savePath, name string, size int
 }
 
 // runN115 115 离线任务：提交 → 轮询 → 完成。
+// n115_first 策略下，115 确定失败时自动转 qB（docs/15 §3.7 failover）。
 func (e *ExternalExecutor) runN115(ctx context.Context, t *store.Task) {
 	if e.n115 == nil {
-		e.fail(t.ID, "N115_UNAVAILABLE", "未配置 115 连接，该任务无法执行", fixHintGotoSettings())
+		e.failN115(t, "N115_UNAVAILABLE", "未配置 115 连接，该任务无法执行", fixHintGotoSettings())
 		return
 	}
 	sub, err := e.n115.SubmitOffline(ctx, N115Request{
@@ -241,7 +248,7 @@ func (e *ExternalExecutor) runN115(ctx context.Context, t *store.Task) {
 		WPPath: t.SavePath,
 	})
 	if err != nil {
-		e.fail(t.ID, "N115_SUBMIT_FAILED", err.Error(), fixHintGotoSettings())
+		e.failN115(t, "N115_SUBMIT_FAILED", err.Error(), fixHintGotoSettings())
 		return
 	}
 	ref := sub.OfflineID
@@ -250,8 +257,9 @@ func (e *ExternalExecutor) runN115(ctx context.Context, t *store.Task) {
 	}
 	_ = e.mgr.st.AppendEvent(t.ID, "info", "n115_submitted", "已提交 115 离线任务", fmt.Sprintf(`{"ref":%q}`, ref))
 	_ = e.mgr.st.UpdateTaskFields(t.ID, map[string]any{
-		"title":  firstNonEmptyStr(sub.Name, t.Title),
-		"engine": "115",
+		"title":      firstNonEmptyStr(sub.Name, t.Title),
+		"engine":     "115",
+		"route_path": AppendRoutePath(t.RoutePath, "115 提交成功"),
 	}, "parsing")
 	if err := e.transition(t.ID, "parsing", "downloading"); err != nil {
 		return
@@ -263,6 +271,9 @@ func (e *ExternalExecutor) runN115(ctx context.Context, t *store.Task) {
 func (e *ExternalExecutor) pollN115(ctx context.Context, t *store.Task, ref string) {
 	ticker := time.NewTicker(e.pollI)
 	defer ticker.Stop()
+	// 连续查询失败计数（同 pollQB：轮询期 Attempt 不递增，必须独立收敛，
+	// 否则 115 持续不可用时任务永远卡 downloading 白占 worker）。
+	queryErrs := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -276,12 +287,14 @@ func (e *ExternalExecutor) pollN115(ctx context.Context, t *store.Task, ref stri
 		}
 		cur, err := e.n115.GetOfflineTask(ctx, ref)
 		if err != nil {
-			if c, cerr := e.mgr.st.GetTask(t.ID); cerr == nil && c.Attempt+1 < c.MaxAttempts {
+			queryErrs++
+			if queryErrs < t.MaxAttempts {
 				continue
 			}
 			e.fail(t.ID, "N115_QUERY_FAILED", err.Error(), fixHintRetry())
 			return
 		}
+		queryErrs = 0
 		pct := float64(cur.Progress)
 		_ = e.mgr.st.UpdateTaskFields(t.ID, map[string]any{
 			"progress":      pct,
@@ -293,7 +306,9 @@ func (e *ExternalExecutor) pollN115(ctx context.Context, t *store.Task, ref stri
 		})
 		switch cur.Status {
 		case "failed", "error":
-			e.fail(t.ID, "N115_FAILED", "115 离线任务失败", fixHintGotoSettings())
+			// 云端报告失败 = 确定失败：n115_first 策略下允许转 qB（115 侧任务已失败，
+			// 不存在两边重复下载）；其余策略按普通失败落库。
+			e.failN115(t, "N115_FAILED", "115 离线任务失败", fixHintGotoSettings())
 			return
 		case "done", "completed", "success":
 			var total int64
@@ -326,6 +341,46 @@ func (e *ExternalExecutor) fail(taskID, code, msg, hint string) {
 	_ = e.mgr.st.AppendEvent(taskID, "error", "failed", code+": "+msg, "")
 	e.mgr.hub.Broadcast("task.failed", map[string]any{"task_id": taskID, "status": "failed", "error_code": code})
 	e.mgr.notify("task_failed", "error", "任务失败："+code, msg, taskID)
+}
+
+// failWithRoute 置失败，并把最后一段链路追补进 route_path（「走了哪条路」不留断点）。
+func (e *ExternalExecutor) failWithRoute(t *store.Task, code, msg, hint, routeSeg string) {
+	if routeSeg != "" {
+		_ = e.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+			"route_path": AppendRoutePath(t.RoutePath, routeSeg),
+		}, "")
+	}
+	e.fail(t.ID, code, msg, hint)
+}
+
+// failN115 115 失败出口：策略=n115_first 且确定失败时自动转 qB（failover），
+// 否则按普通失败落库。attempt 不递增——路由转移不是重试（docs/15 §3.7）。
+func (e *ExternalExecutor) failN115(t *store.Task, code, msg, hint string) {
+	strategy := e.mgr.cfg.GetString("storage.strategy")
+	if !ShouldFailoverToQB(strategy, code) {
+		e.failWithRoute(t, code, msg, hint, "115 失败")
+		return
+	}
+	// 转 qB：kind 改写 + 回 waiting 队列由调度循环重新领取。
+	// 前提（IsDefiniteN115Failure 保证）：115 侧未产生远程副作用，不会两边重复下载。
+	newRoute := AppendRoutePath(t.RoutePath, "115 失败 → 转 qB")
+	err := e.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+		"kind":       KindQB,
+		"platform":   "qb",
+		"status":     StatusWaiting,
+		"route_path": newRoute,
+		"error_code": "", "error_message": "", "fix_hint": "",
+	}, "")
+	if err != nil {
+		// CAS 失败（状态已被并发推进）：回落普通失败，不重试转移。
+		e.failWithRoute(t, code, msg, hint, "115 失败")
+		return
+	}
+	_ = e.mgr.st.AppendEvent(t.ID, "warn", "route_failover",
+		"115 确定失败，按策略 n115_first 自动转 qB 重新入队", "")
+	e.mgr.hub.Broadcast("task.status", map[string]any{
+		"task_id": t.ID, "status": "waiting", "route_path": newRoute,
+	})
 }
 
 // markCancelled 置取消。

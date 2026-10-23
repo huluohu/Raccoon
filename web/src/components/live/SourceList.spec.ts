@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import SourceList from '@/components/live/SourceList.vue'
 import { RButtonStub, PlatformBadgeStub } from '@/test/stubs'
 import type { LiveSource } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * SourceList 用例（docs/07 §3「/live → SourceList」）。

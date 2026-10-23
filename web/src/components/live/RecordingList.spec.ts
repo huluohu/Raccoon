@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RecordingList from '@/components/live/RecordingList.vue'
+import { mount } from '@/test/mount'
 
 /**
  * RecordingList 用例（docs/07 §3「/live → RecordingList」）。

@@ -14,6 +14,7 @@
 //   围巾金只落在最高频动作上：顶栏提交按钮 + 当前导航项，全屏 ≤3 处。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useGlobalShortcuts } from '@/composables/useShortcuts'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
@@ -32,21 +33,42 @@ const notif = useNotificationsStore()
 const router = useRouter()
 const route = useRoute()
 
+// 全站快捷键（docs/07 §7）：`/` 聚焦提交框、G D / G S 跳转。
+// 页面级行导航（↑↓ / Enter / R）由各页面 useShortcuts 注册，这里只保证
+// 「任何页面都至少能用全局键」——否则快捷键只在下载页有效。
+useGlobalShortcuts()
+
 const quickUrl = ref('')
 const quickErr = ref('')
 /** 768–1023 抽屉态：侧导航收进抽屉时的开合。 */
 const navOpen = ref(false)
+/** <768 底部栏「更多」面板的开合（10 项塞不进 375px，5 高频 + 更多）。 */
+const moreOpen = ref(false)
 
-/** 一级导航：图标用线稿 SVG（docs/07 §4 禁 emoji 冒充图标）。 */
+/**
+ * 一级导航（docs/15 §1.2 裁决 5）：10 项 = 9 个复刻页 + Raccoon 自有「连接」。
+ * `short` 是底部栏用的两字短标签（「媒体库」在 375px 下放不进 52px 的槽位）。
+ * `tab` 标记底部栏 5 个高频入口（docs/15 §1.2 裁决 6：主页/任务/历史/文件/设置），
+ * 其余 5 项收进「更多」面板。
+ * 图标用线稿 SVG（docs/07 §4 禁 emoji 冒充图标）。
+ */
 const NAV_ITEMS = [
-  { to: '/', label: '总览', icon: 'M2.6 7.3 8 2.9l5.4 4.4v5.4a.9.9 0 0 1-.9.9H3.5a.9.9 0 0 1-.9-.9z M6.2 13.6V9.4h3.6v4.2' },
-  { to: '/tasks', label: '下载', icon: 'M8 2.2v7.2m0 0 2.8-2.8M8 9.4 5.2 6.6M2.6 12.6h10.8' },
-  { to: '/media', label: '媒体库', icon: 'M2.4 4.4h3.9l1.2 1.6h6.1v6.9a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z M6.6 9.9l1.5 1.7 1.1-1.2 1.6 1.8' },
-  { to: '/subscriptions', label: '订阅', icon: 'M3.2 6.6a5.4 5.4 0 0 1 5.4 5.4M3.2 3.4a8.6 8.6 0 0 1 8.6 8.6M4.4 12a.9.9 0 1 0 0-.1' },
-  { to: '/live', label: '直播', icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
-  { to: '/connections', label: '连接', icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
-  { to: '/settings', label: '设置', icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
+  { to: '/', label: '总览', short: '主页', tab: true, icon: 'M2.6 7.3 8 2.9l5.4 4.4v5.4a.9.9 0 0 1-.9.9H3.5a.9.9 0 0 1-.9-.9z M6.2 13.6V9.4h3.6v4.2' },
+  { to: '/tasks', label: '下载', short: '任务', tab: true, icon: 'M8 2.2v7.2m0 0 2.8-2.8M8 9.4 5.2 6.6M2.6 12.6h10.8' },
+  { to: '/history', label: '历史', short: '历史', tab: true, icon: 'M8 3a5 5 0 1 0 0 10A5 5 0 0 0 8 3zM8 5.5V8l2 1.4' },
+  { to: '/media', label: '媒体库', short: '文件', tab: true, icon: 'M2.4 4.4h3.9l1.2 1.6h6.1v6.9a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z M6.6 9.9l1.5 1.7 1.1-1.2 1.6 1.8' },
+  { to: '/subscriptions', label: '订阅', short: '订阅', tab: false, icon: 'M3.2 6.6a5.4 5.4 0 0 1 5.4 5.4M3.2 3.4a8.6 8.6 0 0 1 8.6 8.6M4.4 12a.9.9 0 1 0 0-.1' },
+  { to: '/live', label: '直播', short: '直播', tab: false, icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
+  { to: '/logs', label: '日志', short: '日志', tab: false, icon: 'M3.4 3.6h9.2M3.4 6.6h9.2M3.4 9.6h5.6M3.4 12.4h3.2' },
+  { to: '/monitor', label: '监控', short: '监控', tab: false, icon: 'M2.2 8h2.3l1.5-3.8 2.5 7.6 1.5-3.8h3.8' },
+  { to: '/connections', label: '连接', short: '连接', tab: false, icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
+  { to: '/settings', label: '设置', short: '设置', tab: true, icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
 ]
+
+/** 底部栏 5 个高频入口。 */
+const TAB_ITEMS = computed(() => NAV_ITEMS.filter((i) => i.tab))
+/** 「更多」面板里的其余入口。 */
+const MORE_ITEMS = computed(() => NAV_ITEMS.filter((i) => !i.tab))
 
 /**
  * 顶栏页面标题：路由 meta.title 是唯一来源。
@@ -56,10 +78,21 @@ const NAV_ITEMS = [
  */
 const pageTitle = computed(() => (route.meta.title as string) ?? '')
 
-/** 768–1023 抽屉态：Esc 关闭（焦点即使跑出抽屉也能兜住）。 */
+/** 768–1023 抽屉态 / <768「更多」面板：Esc 关闭（焦点即使跑出面板也能兜住）。 */
 function onNavKey(ev: KeyboardEvent) {
-  if (ev.key === 'Escape' && navOpen.value) navOpen.value = false
+  if (ev.key !== 'Escape') return
+  if (moreOpen.value) moreOpen.value = false
+  if (navOpen.value) navOpen.value = false
 }
+
+// 路由变化必须收起「更多」面板：面板是覆盖层，跳转后还挂着会挡住新页面内容。
+watch(
+  () => route.fullPath,
+  () => {
+    moreOpen.value = false
+    navOpen.value = false
+  },
+)
 
 async function quickSubmit(target: string) {
   if (!target) return
@@ -208,15 +241,48 @@ onUnmounted(() => {
         </main>
       </div>
 
-      <!-- <768：底部主操作栏（触控目标 ≥44px；内容区已留出底部安全区，关键按钮不被挡） -->
+      <!-- <768：底部主操作栏（触控目标 ≥44px；内容区已留出底部安全区，关键按钮不被挡）
+           10 项导航在 375px 下每项只有 37px，放不下 → 5 高频 + 「更多」面板
+           （docs/15 §1.2 裁决 6；方案 a 不引入横向滚动的隐藏可及性问题）。 -->
       <nav class="tabbar" aria-label="主导航">
-        <router-link v-for="item in NAV_ITEMS" :key="item.to" :to="item.to" :title="item.label">
+        <router-link v-for="item in TAB_ITEMS" :key="item.to" :to="item.to" :title="item.label">
           <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
             <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          <span class="tabbar-label">{{ item.label }}</span>
+          <span class="tabbar-label">{{ item.short }}</span>
         </router-link>
+        <button
+          class="tabbar-more"
+          type="button"
+          aria-controls="tabbar-more-sheet"
+          :aria-expanded="moreOpen ? 'true' : 'false'"
+          @click="moreOpen = !moreOpen"
+        >
+          <svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true">
+            <circle cx="3.6" cy="8" r="1.2" fill="currentColor" />
+            <circle cx="8" cy="8" r="1.2" fill="currentColor" />
+            <circle cx="12.4" cy="8" r="1.2" fill="currentColor" />
+          </svg>
+          <span class="tabbar-label">更多</span>
+        </button>
       </nav>
+
+      <!-- 「更多」面板：点遮罩、点任一项、Esc 都关（零成本退出路径） -->
+      <div v-if="moreOpen" class="sheet-mask" @click="moreOpen = false" />
+      <div v-if="moreOpen" id="tabbar-more-sheet" class="more-sheet" role="dialog" aria-label="更多导航">
+        <router-link
+          v-for="item in MORE_ITEMS"
+          :key="item.to"
+          :to="item.to"
+          class="more-item"
+          @click="moreOpen = false"
+        >
+          <svg viewBox="0 0 16 16" width="22" height="22" aria-hidden="true">
+            <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <span>{{ item.label }}</span>
+        </router-link>
+      </div>
     </template>
     <RToast />
   </div>
@@ -354,6 +420,11 @@ onUnmounted(() => {
 }
 
 .tabbar { display: none; }
+/* 「更多」面板与它的遮罩默认隐藏，只有 <768 才启用。
+   默认隐藏态写在这里（媒体查询之前）——同特异性下后写的赢，
+   写在后面会把媒体查询里的 display 覆盖掉（docs/07 §8.1 ⑤ 的教训）。 */
+.sheet-mask,
+.more-sheet { display: none; }
 
 /* ≥1280：侧导航常驻 + 双栏 —— 即上方默认样式，无需覆盖 */
 
@@ -435,6 +506,59 @@ onUnmounted(() => {
     max-width: 100%;
   }
   .tabbar a.router-link-active { color: var(--accent); background: var(--accent-soft); }
+  /* 「更多」按钮与普通 tab 同构：同样的 flex 槽位、同样的 44px 触控目标。
+     它是 button 不是 a，所以选中态由 aria-expanded 驱动（面板开着时点亮）。 */
+  .tabbar-more {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--text-2);
+    border-radius: var(--radius-ctrl);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .tabbar-more[aria-expanded='true'] { color: var(--accent); background: var(--accent-soft); }
+
+  /* 「更多」面板：贴着底部栏上沿弹出，遮罩挡住内容区（避免误点下面的列表）。 */
+  .sheet-mask { display: block; position: fixed; inset: 0; z-index: 70; background: var(--scrim); }
+  .more-sheet {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(52px + env(safe-area-inset-bottom, 0px));
+    z-index: 71;
+    padding: 12px 12px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+    box-shadow: var(--shadow-3);
+  }
+  .more-item {
+    min-height: 56px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 4px;
+    color: var(--text-2);
+    text-decoration: none;
+    /* 面板项是「要点的入口」而不是注解，用辅助档 13.5px，不用 12px 徽章档 */
+    font-size: var(--font-aux);
+    border-radius: var(--radius-ctrl);
+  }
+  .more-item.router-link-active { color: var(--accent); background: var(--accent-soft); }
   /* 内容底部留出 tabbar 高度 + 间距，长页面最后一个按钮不会被挡住 */
   .content { padding: 16px 14px calc(16px + 52px + env(safe-area-inset-bottom, 0px)); }
 }

@@ -26,6 +26,8 @@ const emit = defineEmits<{
   open: [file: MediaFile]
   /** 下载。 */
   download: [file: MediaFile]
+  /** 删除文件（危险操作，二次确认由上层弹窗负责）。 */
+  delete: [file: MediaFile]
 }>()
 
 /** 类型文案：占位区不渲染 kind 英文原词——那是给机器看的，屏幕上就是没做完的占位。 */
@@ -110,6 +112,7 @@ const thumbTint = computed(() => {
     <div class="file-actions">
       <RButton size="sm" variant="ghost" @click="emit('download', file)">下载</RButton>
       <RButton size="sm" variant="ghost" @click="emit('open', file)">详情</RButton>
+      <RButton size="sm" variant="ghost" tone="danger" @click="emit('delete', file)">删除</RButton>
     </div>
   </li>
 </template>
@@ -140,6 +143,11 @@ const thumbTint = computed(() => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+/* 深色模式封面 1px 描边：深底封面（#1D2231）与卡片底色（#161A26）太接近，
+   没有边界时缩略图会「糊」进卡片里；浅色模式本身有明度差，不需要这道线。 */
+:global([data-theme='dark']) .file-thumb {
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 /* 非图片占位：图标 + 中文类型名，纵向居中。底色由 thumbTint 按平台品牌色注入，
    这里不再按 kind 写死渐变——平台色比类型色更能回答「这是哪家的文件」。 */

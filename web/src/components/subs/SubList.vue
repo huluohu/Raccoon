@@ -71,6 +71,12 @@ function sourceTypeText(s: Subscription): string {
       <h3 class="card-title">{{ s.title || s.source_url }}</h3>
       <p class="card-url mono" :title="s.source_url">{{ s.source_url }}</p>
 
+      <!-- 暂停态必须说清「暂停了什么、什么没变」：卡片只是变暗的话，
+           用户会怀疑是加载失败还是被停用了。 -->
+      <p v-if="!s.enabled" class="paused-note">
+        已暂停：不再按周期检查新内容，已下载的文件保留。点「启用」恢复自动检查。
+      </p>
+
       <div class="counts">
         <span class="cnt done">{{ s.item_counts?.downloaded ?? 0 }} 已下载</span>
         <span class="cnt queued">{{ s.item_counts?.queued ?? 0 }} 待下载</span>
@@ -111,7 +117,7 @@ function sourceTypeText(s: Subscription): string {
           size="sm"
           variant="ghost"
           tone="danger"
-          confirm="再点一次确认删除"
+          confirm="确认删除？"
           @click="emit('remove', s)"
         >
           删除
@@ -133,8 +139,18 @@ function sourceTypeText(s: Subscription): string {
   gap: 10px;
   box-shadow: var(--shadow-1);
 }
-/* 暂停的订阅整体降透明度——一眼看出哪些在跑。 */
-.card.off { opacity: 0.66; }
+/* 暂停的订阅换底色而不是整体降透明度：opacity 会把文字一起压低，
+   12px 辅助字在 0.66 下对比度直接掉到不可读——「看不清」不等于「已暂停」。 */
+.card.off { background: var(--surface-2); }
+.paused-note {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-ctrl);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  font-size: var(--font-aux);
+  color: var(--text-2);
+}
 .card-head { display: flex; align-items: center; gap: 8px; }
 /* 来源类型 / 抓取模式：胶囊徽章（caption 档，12px 是徽章允许的下限）。 */
 .src-type,

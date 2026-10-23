@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RInput from '@/components/base/RInput.vue'
+import { mount } from '@/test/mount'
 
 /**
  * RInput 用例（docs/07 §4 验收点：标签常驻 / 错误内联定位 / 清除与粘贴反馈）。

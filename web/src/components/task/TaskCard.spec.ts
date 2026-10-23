@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import TaskCard from '@/components/task/TaskCard.vue'
 import { makeTask } from '@/test/fixtures'
+import { mount } from '@/test/mount'
 
 /**
  * TaskCard 用例（docs/07 §4：状态徽章 + 迷你进度 + 速度/大小/平台徽章；父任务子计数）。
@@ -79,5 +80,20 @@ describe('TaskCard', () => {
     // 主体区域（role=button）才开详情。
     await w.find('[role="button"]').trigger('click')
     expect(w.emitted('open')).toBeTruthy()
+  })
+
+  it('readonly：操作区整块不渲染，父级传了 actions 也不渲染', () => {
+    // 只读页上出现的按钮都该能用；留着点了没反应的删除，比没有按钮更让人困惑。
+    const w = mount(TaskCard, {
+      props: { task: makeTask(), readonly: true },
+      slots: { actions: '<button class="op-del">删除</button>' },
+      global: { stubs },
+    })
+    expect(w.find('.tcard-ops').exists()).toBe(false)
+    expect(w.find('.op-del').exists()).toBe(false)
+    // 多选框只为批量操作服务，只读页一并隐去
+    expect(w.find('.tcard-pick').exists()).toBe(false)
+    // 数据行照旧
+    expect(w.text()).toContain('测试视频 · 第 1 集')
   })
 })

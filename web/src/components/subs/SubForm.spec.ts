@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import SubForm from '@/components/subs/SubForm.vue'
 import { RButtonStub } from '@/test/stubs'
 import type { ParsePreview } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * SubForm 用例（docs/07 §3「/subscriptions → SubForm（先预览后创建）」）。

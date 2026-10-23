@@ -1,0 +1,77 @@
+%% Raccoon docs/15 类图：store/monitor/strategy/handler 关键类
+classDiagram
+    class Store {
+        +SummaryStats(uptimeSec int64) SummaryStats
+        +DailyDoneStats(from, to time.Time) []DailyDoneStat
+        +MediaCountByKind() map[string]int
+        +CountRecordingLiveSources() int
+        +FailureBreakdown(from, to time.Time) FailureBreakdown
+        +GetPreferences() string
+        +SavePreferences(layout string) error
+        +UpdateTaskFields(id string, fields map[string]any, from string) error
+    }
+    class SummaryStats {
+        +UptimeSec int64
+        +TodayDownloads int
+        +WeekDownloads int
+        +SuccessRate *float64
+        +MediaByKind map[string]int
+        +FavoriteDownloads int
+        +LiveRecording int
+    }
+    class DailyDoneStat {
+        +Date string
+        +Count int
+        +Bytes int64
+    }
+    class Sampler {
+        -ring [4]*Ring
+        -prev *Sample
+        -agg accumulator
+        +New(st *Store, interval, ringCap) *Sampler
+        +Start(ctx context.Context)
+        +Stop()
+        +Snapshot() Snapshot
+    }
+    class Snapshot {
+        +Ok bool
+        +SampledAt int64
+        +CPU *Metric
+        +Memory *MemMetric
+        +Disk *DiskMetric
+        +Net *NetMetric
+        +Series *Series
+    }
+    class StrategyRouter {
+        +RouteKind(strategy, magnet, explicitKind) kind, routePath
+        +FallbackToQB(task) fields
+    }
+    class Task {
+        +RoutePath string
+        +Kind string
+        +Status string
+    }
+    class StatsHandler {
+        +handleSummary(w, r) error
+        +handleTrend(w, r) error
+    }
+    class MonitorHandler {
+        +handleMonitor(w, r) error
+        +handleMonitorHistory(w, r) error
+    }
+    class LogHandler {
+        +handleLogs(w, r) error
+    }
+    class PreferencesHandler {
+        +handleGetPreferences(w, r) error
+        +handlePutPreferences(w, r) error
+    }
+    Store --> SummaryStats
+    Store --> DailyDoneStat
+    Sampler --> Snapshot
+    Sampler --> Store : 聚合落库
+    StatsHandler --> Store
+    MonitorHandler --> Sampler
+    MonitorHandler --> Store
+    StrategyRouter --> Task
+    PreferencesHandler --> Store

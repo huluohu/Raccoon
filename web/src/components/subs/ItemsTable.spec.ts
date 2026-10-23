@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import ItemsTable from '@/components/subs/ItemsTable.vue'
 import { RaccoonFaceStub } from '@/test/stubs'
 import type { SubscriptionItem } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * ItemsTable 用例（docs/07 §3「/subscriptions → ItemsTable」）。

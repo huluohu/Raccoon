@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RButton from './RButton.vue'
+import { mount } from '@/test/mount'
 
 describe('RButton', () => {
   it('默认渲染 <button>，不渲染 <a>', () => {
@@ -75,6 +76,24 @@ describe('RButton', () => {
     expect(w.emitted('click')).toBeFalsy()
     await w.find('button').trigger('click')
     expect(w.emitted('click')).toBeTruthy()
+  })
+
+  // 只断言「没 emit」是不够的：旧实现第一次点击后外观一动不动，
+  // 用户看到的就是「删除点了完全没反应」，测试却全绿。断言要落在可见结果上。
+  it('confirm 二次确认：第一次点击必须有可见反馈（文案变确认语 + 危险态）', async () => {
+    const w = mount(RButton, { props: { confirm: '确认删除？' }, slots: { default: '删除' } })
+    expect(w.text()).toBe('删除')
+    await w.find('button').trigger('click')
+    expect(w.text()).toBe('确认删除？')
+    expect(w.find('button').classes()).toContain('rbtn--confirming')
+  })
+
+  it('confirm 第二次点击后确认态复位（文案回到原样）', async () => {
+    const w = mount(RButton, { props: { confirm: '确认删除？' }, slots: { default: '删除' } })
+    await w.find('button').trigger('click')
+    await w.find('button').trigger('click')
+    expect(w.text()).toBe('删除')
+    expect(w.find('button').classes()).not.toContain('rbtn--confirming')
   })
 
   it('aria-label 等 fallthrough 属性落到根元素上', () => {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import QbTestPanel from '@/components/conn/QbTestPanel.vue'
 import { RButtonStub, RouterLinkStub } from '@/test/stubs'
+import { mount } from '@/test/mount'
 
 /**
  * QbTestPanel 用例（docs/07 §3「/connections → QbTestPanel」）。

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RecordPlanForm from '@/components/live/RecordPlanForm.vue'
 import { RButtonStub } from '@/test/stubs'
+import { mount } from '@/test/mount'
 
 /**
  * RecordPlanForm 用例（docs/07 §3「/live → RecordPlanForm」）。

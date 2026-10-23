@@ -9,8 +9,9 @@
  *    登录页浅底用默认值，使用方按底色覆盖（§8「禁在模板写死色值」）。
  */
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RaccoonLogo from './RaccoonLogo.vue'
+import { mount } from '@/test/mount'
 
 describe('RaccoonLogo 组件', () => {
   it('full 变体：徽标 + 字标（侧导航 / 登录页用）', () => {

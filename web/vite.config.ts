@@ -25,5 +25,7 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // 每份 spec 跑之前执行：注册「用例结束即卸载」的 afterEach（见 src/test/setup.ts）。
+    setupFiles: ['./src/test/setup.ts'],
   },
 })

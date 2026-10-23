@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import PreviewDrawer from '@/components/media/PreviewDrawer.vue'
 import type { MediaFile } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * PreviewDrawer 用例（docs/07 §3「/media → PreviewDrawer」）。

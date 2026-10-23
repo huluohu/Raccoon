@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import FileCard from '@/components/media/FileCard.vue'
 import type { MediaFile } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * FileCard 用例（docs/07 §3「/media → FileTable/FileCard」）。

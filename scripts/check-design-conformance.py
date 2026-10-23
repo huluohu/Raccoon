@@ -70,6 +70,12 @@ SPEC_COMPONENTS = {
     "PlatformBadge": "components/task/PlatformBadge.vue",
     "PawSlider": "components/raccoon/PawSlider.vue",
     "RaccoonFace": "components/raccoon/RaccoonFace.vue",
+    # 复刻波（docs/15 T05）新增：图表与指标卡必须是真被视图用的组件，
+    # 不是「文件建好了但没人引用」的摆设。
+    "MetricCard": "components/base/MetricCard.vue",
+    "TrendChart": "components/charts/TrendChart.vue",
+    "DonutChart": "components/charts/DonutChart.vue",
+    "DeleteFileDialog": "components/media/DeleteFileDialog.vue",
 }
 
 
@@ -761,14 +767,15 @@ def check_link_validation() -> None:
 
 # ---------------------------------------------------------------- §7 交互铁律
 SHORTCUTS = {
-    "`/` 聚焦提交框": "case '/'",
+    "`/` 聚焦提交框": "ev.key === '/'",
     "`Esc` 关闭/清除": "ev.key === 'Escape'",
     "`↑` 移动": "case 'ArrowUp'",
     "`↓` 移动": "case 'ArrowDown'",
     "`Enter` 详情": "case 'Enter'",
     "`Shift+Space` 多选": "ev.shiftKey",
     "`R` 重试": "case 'r'",
-    "`G D`/`G S` 跳转": "router.push('/tasks')",
+    "`G D` 跳转下载页": "push('/tasks')",
+    "`G S` 跳转设置页": "push('/settings')",
 }
 
 
@@ -806,6 +813,143 @@ def check_layout_fixes() -> None:
     rdialog = read("components/base/RDialog.vue")
     check("§4 RDialog 宽度 ≤480px", bool(re.search(r"max-width:\s*480px", rdialog)),
           "components/base/RDialog.vue")
+
+
+def check_round2_contracts() -> None:
+    """第二轮（T03/T04）契约断言：全局快捷键、删文件入口、状态语义、深色描边、新端点文档。
+
+    这些断言对应「用户真的报过的缺陷」或「docs/15 点名的契约」，全部落在
+    可观测结果上（谁调了哪个接口 / 文案说了什么 / 样式有没有那条线），
+    不检查「函数被定义过」这类实现细节。
+    """
+    # R5：快捷键必须全站可用（App.vue 装全局监听）
+    app = read("App.vue")
+    check("§7 全局快捷键在 App.vue 安装", "useGlobalShortcuts(" in app, "App.vue")
+
+    # R1：删文件入口存在，且与「删任务记录」用两个不同接口
+    client = read("api/client.ts")
+    check("删文件接口 deleteTaskFile 存在", "deleteTaskFile:" in client, "api/client.ts")
+    check("删媒体文件接口 deleteFile 存在", "deleteFile:" in client, "api/client.ts")
+    check("任务详情删除产物走 deleteTaskFile", "api.deleteTaskFile" in read("views/Tasks.vue"), "views/Tasks.vue")
+    check("媒体库删除文件走 deleteFile", "api.deleteFile" in read("views/Media.vue"), "views/Media.vue")
+    # 删文件必须二次确认（破坏性决策，docs/07 §4）。
+    # 确认框统一由 DeleteFileDialog 承担，视图（Media/Tasks）负责弹，
+    # 详情面板只发事件——所以这里查的是「视图侧有确认」，不是「详情自己弹窗」。
+    check("媒体库删文件有确认框", "DeleteFileDialog" in read("views/Media.vue"), "views/Media.vue")
+    check("任务详情删产物有确认框（视图侧弹）",
+          "DeleteFileDialog" in read("views/Tasks.vue"), "views/Tasks.vue")
+    check("详情面板删文件只发事件（不自己弹窗）",
+          "delete-file" in read("components/task/TaskDetail.vue")
+          and "RDialog" not in read("components/task/TaskDetail.vue"),
+          "components/task/TaskDetail.vue")
+
+    # R2：删任务记录的文案不得再声称「删本地文件」（两件事已经拆开）
+    tasks_view = read("views/Tasks.vue")
+    check("删任务文案不再声称删本地文件", "及其本地文件" not in tasks_view, "views/Tasks.vue")
+
+    # R9：post（后处理）没有可信百分比 → 必须走不确定进度条纹，且条纹色跟随阶段
+    prog = read("components/task/TaskProgress.vue")
+    check("§4 后处理阶段用条纹（不编造百分比）", "props.task.status === 'post'" in prog
+          and "indeterminate" in prog, "components/task/TaskProgress.vue")
+    check("§4 条纹色跟随阶段（post=success）", "--stripe: var(--success)" in prog,
+          "components/task/TaskProgress.vue")
+
+    # R10：暂停态要说明「暂停了什么、什么没变」
+    check("§3 暂停订阅有文字说明", "已暂停：不再按周期检查新内容" in read("components/subs/SubList.vue"),
+          "components/subs/SubList.vue")
+
+    # R11：深色模式封面 1px 描边（深底封面与卡片底色太接近）
+    card = read("components/media/FileCard.vue")
+    check("§2 深色封面 1px 描边", "data-theme='dark'" in card and "inset 0 0 0 1px" in card,
+          "components/media/FileCard.vue")
+
+    # docs/04 路由总表必须收录本轮新增端点（文档即契约）
+    api_doc = (ROOT / "docs" / "04-API详细设计.md").read_text(encoding="utf-8")
+    for path in ["/system/stats/summary", "/system/stats/trend", "/system/monitor",
+                 "/system/monitor/history", "/logs", "/user/preferences", "/files/{id}"]:
+        check(f"docs/04 收录 {path}", path in api_doc, "docs/04-API详细设计.md")
+
+
+def check_round3_ia() -> None:
+    """第三轮（T05）信息架构断言：10 项导航、tabbar 5+更多、三新页、纯 SVG 图表、主页取数收敛。
+
+    这些断言查的是「用户看到的结构」，不是「文件存不存在」：
+    导航项数、底部栏槽位数、更多面板的默认隐藏规则位置、
+    主页是否还在自己开一套统计轮询。
+    """
+    # ---- 1. 三条新路由（docs/07 §3 十条一级页面）----
+    router = read("router/index.ts")
+    for path in ["/history", "/logs", "/monitor"]:
+        check(f"§3 路由 {path}", f"'{path}'" in router, "router/index.ts")
+
+    # ---- 2. 侧导航 10 项 + 底部栏 5 高频 + 「更多」----
+    app = read("App.vue")
+    nav_count = app.count("icon: 'M")
+    check("§3 侧导航 10 项", nav_count == 10, f"实际 {nav_count} 项")
+    check("§3 导航项带底部栏短标签 short", app.count("short:") == 10, f"实际 {app.count('short:')} 项")
+    check("§6 底部栏 5 高频 + 「更多」",
+          "TAB_ITEMS" in app and "MORE_ITEMS" in app
+          and "tabbar-more" in app and "more-sheet" in app, "App.vue")
+    # 层叠顺序：默认隐藏态必须写在媒体查询之前（docs/07 §8.1 ⑤ 的实测教训）
+    idx_default_hide = app.find(".sheet-mask,")
+    idx_mobile = app.find("@media (max-width: 767px)")
+    check("§6 更多面板默认隐藏态写在媒体查询之前",
+          0 <= idx_default_hide < idx_mobile, "App.vue 层叠顺序")
+
+    # ---- 3. 主页取数收敛到 stores/system（不许页面自己再开一套统计轮询）----
+    ov = read("views/Overview.vue")
+    check("§2.3 主页统计来自 stores/system", "useSystemStore" in ov, "views/Overview.vue")
+    check("§2.3 主页不再自己拉统计/趋势/监控",
+          "api.statsSummary" not in ov and "api.statsTrend" not in ov
+          and "api.monitorSnapshot" not in ov, "views/Overview.vue")
+    check("§2.3 主页轮询交给 store 起停",
+          "startPolling(" in ov and "stopPolling(" in ov, "views/Overview.vue")
+
+    # ---- 4. 图表纯 SVG（禁引图表库）----
+    pkg = (ROOT / "web" / "package.json").read_text(encoding="utf-8")
+    for lib in ["chart.js", "echarts", "d3", "apexcharts", "recharts"]:
+        check(f"§4 未引入图表库 {lib}", lib not in pkg, "package.json")
+    check("§4 TrendChart 是纯 SVG（polyline）", "polyline" in read("components/charts/TrendChart.vue"),
+          "components/charts/TrendChart.vue")
+    check("§4 DonutChart 是纯 SVG（stroke-dasharray）",
+          "stroke-dasharray" in read("components/charts/DonutChart.vue"),
+          "components/charts/DonutChart.vue")
+    # 诚实原则：无数据不画假线、算不出百分比不画 0%
+    check("§1 图表空数据显式降级",
+          "暂无数据" in read("components/charts/TrendChart.vue"), "components/charts/TrendChart.vue")
+    check("§1 环形图 percent=null 显示「—」",
+          "—" in read("components/charts/DonutChart.vue"), "components/charts/DonutChart.vue")
+
+    # ---- 5. 三新页 + 各自的用例 + 外壳用例 ----
+    for rel in ["views/History.vue", "views/History.spec.ts",
+                "views/Logs.vue", "views/Logs.spec.ts",
+                "views/Monitor.vue", "views/Monitor.spec.ts",
+                "App.spec.ts"]:
+        check(f"§8 {rel} 存在", exists(rel), rel)
+
+    # ---- 6. 历史页只读：复用 TaskList 的 readonly，不出现写操作 ----
+    hist = read("views/History.vue")
+    check("§3 历史页复用只读列表", "readonly" in hist, "views/History.vue")
+    check("§3 历史页不提供取消/重试/删除",
+          "tasks.remove" not in hist and "tasks.retry" not in hist and "tasks.cancel" not in hist,
+          "views/History.vue")
+    for rel in ["components/task/TaskList.vue", "components/task/TaskCard.vue", "components/task/TaskRow.vue"]:
+        check(f"§3 {rel} 支持 readonly", "readonly" in read(rel), rel)
+
+    # ---- 7. 任务详情：走了哪条路 + 暂停说明（R10/T02）----
+    detail = read("components/task/TaskDetail.vue")
+    check("§4 详情展示 route_path", "route_path" in detail, "components/task/TaskDetail.vue")
+    check("§3 详情说明「不支持暂停/续传」", "不支持暂停/续传" in detail,
+          "components/task/TaskDetail.vue")
+
+    # ---- 8. docs/07 与实现同步（文档即宪法）----
+    doc07 = (ROOT / "docs" / "07-前端设计落地.md").read_text(encoding="utf-8")
+    for path in ["/history", "/logs", "/monitor"]:
+        check(f"docs/07 §3 收录 {path}", path in doc07, "docs/07-前端设计落地.md")
+    for comp in ["MetricCard", "TrendChart", "DonutChart", "DeleteFileDialog"]:
+        check(f"docs/07 §4 收录 {comp}", comp in doc07, "docs/07-前端设计落地.md")
+    check("docs/07 §6 记录 tabbar 5+更多", "5 高频 + 「更多」" in doc07, "docs/07-前端设计落地.md")
+    check("docs/07 §2 surface-2 是合法 hex", "#EEEF2;" not in doc07, "docs/07-前端设计落地.md")
 
 
 def check_spec_files() -> None:
@@ -939,9 +1083,12 @@ def check_responsive() -> None:
           "tabbar-label" in app and re.search(
               r"\.tabbar-label\s*\{[^}]*font-size:", style) is not None,
           "App.vue .tabbar-label")
-    # 底部栏每个入口都要有可读标签文本（不能是空 span）
+    # 底部栏每个入口都要有可读标签文本（不能是空 span）。
+    # 10 项导航后底部栏改用 short 短标签（「媒体库」在 375px 的 52px 槽位里放不下，
+    # docs/15 §1.2 裁决 5），所以这里两种取值都认——但必须是真文本而不是空。
     check("§6 <768 底部栏渲染 label 文本",
-          re.search(r'<span class="tabbar-label">\{\{ item\.label \}\}</span>', app) is not None,
+          "tabbar-label" in app and re.search(
+              r'<span class="tabbar-label">\{\{ item\.(label|short) \}\}</span>', app) is not None,
           "App.vue tabbar 模板")
 
 
@@ -1020,6 +1167,8 @@ def main() -> int:
     check_face_system()
     check_shortcuts()
     check_layout_fixes()
+    check_round2_contracts()
+    check_round3_ia()
     check_spec_files()
     check_motion()
     check_responsive()

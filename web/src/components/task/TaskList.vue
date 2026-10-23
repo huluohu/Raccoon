@@ -48,6 +48,11 @@ const props = withDefaults(
     shownChildren: (id: string) => Task[]
     /** 是否为父任务。 */
     isParent: (t: Task) => boolean
+    /** 只读（历史页复用）：不渲染批量工具条，也不给行传操作插槽。
+     *  筛选条保留——筛选是「看哪几条」，不是「改哪几条」，只读页同样需要。
+     *  父任务的展开/收起改由本组件以树控件的形式提供（见模板），
+     *  因为它属于浏览行为，不能跟着操作区一起被 readonly 砍掉。 */
+    readonly?: boolean
   }>(),
   {
     loading: false,
@@ -56,6 +61,7 @@ const props = withDefaults(
     expandedIds: () => new Set<string>(),
     flashIds: () => new Set<string>(),
     busyId: '',
+    readonly: false,
   },
 )
 
@@ -123,8 +129,9 @@ function clearSelection(): void {
     </div>
 
     <!-- 批量工具条：只有选中任务才出现。
-         原来页面上只有 Shift+Space 键盘多选，没有任何可见入口——用户不知道能批量。 -->
-    <div v-if="selectedCount > 0" class="batchbar" role="toolbar" aria-label="批量操作">
+         原来页面上只有 Shift+Space 键盘多选，没有任何可见入口——用户不知道能批量。
+         只读页直接不渲染：批量动作本来就是写操作。 -->
+    <div v-if="!readonly && selectedCount > 0" class="batchbar" role="toolbar" aria-label="批量操作">
       <span class="batchbar-count tnum">已选 {{ selectedCount }} 项</span>
       <div class="batchbar-ops">
         <RButton size="sm" variant="ghost" :disabled="busyId !== ''" @click="runBatch('retry')">
@@ -167,7 +174,8 @@ function clearSelection(): void {
     />
 
     <!-- 列表（父 → 子）。父任务用 TaskCard（子项聚合计数 + 重试失败项插槽），
-         普通任务与子项用 TaskRow 紧凑行；选中态供 §7 键盘多选使用。 -->
+         普通任务与子项用 TaskRow 紧凑行；选中态供 §7 键盘多选使用。
+         只读模式：行组件自身也不渲染操作区，这里干脆不传 #actions（双保险）。 -->
     <div v-if="roots.length" class="list">
       <template v-for="t in roots" :key="t.id">
         <TaskCard
@@ -176,6 +184,8 @@ function clearSelection(): void {
           :class="{ on: selectedIds.has(t.id), 'row-flash': flashIds.has(t.id) }"
           :task="t"
           parent
+          :readonly="readonly"
+          :selectable="!readonly"
           :child-stats="{
             total: statOf(t.id).total,
             failed: statOf(t.id).failed,
@@ -185,7 +195,7 @@ function clearSelection(): void {
           @open="emit('open', $event)"
           @select="(task, ev) => emit('select', task, ev)"
         >
-          <template #actions>
+          <template v-if="!readonly" #actions>
             <RButton size="sm" variant="ghost" @click.stop="emit('toggle-expand', t.id)">
               {{ isExpanded(t.id) ? '收起' : '展开子项' }}
             </RButton>
@@ -199,7 +209,7 @@ function clearSelection(): void {
               删除
             </RButton>
           </template>
-          <template #retry-failed>
+          <template v-if="!readonly" #retry-failed>
             <RButton
               size="sm"
               :disabled="busyId === t.id"
@@ -214,11 +224,13 @@ function clearSelection(): void {
           v-else
           :task="t"
           :class="{ 'row-flash': flashIds.has(t.id) }"
+          :readonly="readonly"
+          :selectable="!readonly"
           :selected="isSelected(t.id)"
           @open="emit('open', $event)"
           @select="(task, ev) => emit('select', task, ev)"
         >
-          <template #actions>
+          <template v-if="!readonly" #actions>
             <RButton
               v-if="isActiveStatus(t.status)"
               size="sm"
@@ -248,6 +260,15 @@ function clearSelection(): void {
           </template>
         </TaskRow>
 
+        <!-- 只读模式下父任务的展开/收起：操作区整块被 readonly 收走，
+             但「展开看子项」是浏览不是写操作，历史页同样需要。
+             所以由列表自己提供这个树控件，而不是塞回卡片的操作区。 -->
+        <div v-if="readonly && isParent(t)" class="tree-toggle">
+          <RButton size="sm" variant="ghost" @click="emit('toggle-expand', t.id)">
+            {{ isExpanded(t.id) ? '收起' : `展开子项（${statOf(t.id).total}）` }}
+          </RButton>
+        </div>
+
         <!-- 子任务列表：父卡展开后逐条列出（状态点 + 迷你进度 + 标题） -->
         <ul v-if="isParent(t) && isExpanded(t.id)" class="children">
           <TaskRow
@@ -256,11 +277,13 @@ function clearSelection(): void {
             :task="c"
             size="sm"
             :class="{ 'row-flash': flashIds.has(c.id) }"
+            :readonly="readonly"
+            :selectable="!readonly"
             :selected="isSelected(c.id)"
             @open="emit('open', $event)"
             @select="(task, ev) => emit('select', task, ev)"
           >
-            <template #actions>
+            <template v-if="!readonly" #actions>
               <RButton
                 v-if="isActiveStatus(c.status)"
                 size="sm"
@@ -325,6 +348,9 @@ function clearSelection(): void {
 
 .list { display: flex; flex-direction: column; gap: 10px; }
 .root-card { margin-bottom: 0; }
+/* 只读模式下的展开控件：紧跟父卡下方、与子项缩进对齐，
+   视觉上属于「树」而不是「卡片里的按钮」。 */
+.tree-toggle { display: flex; margin-left: 4px; }
 .children { list-style: none; margin: 8px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 8px; }
 .muted { color: var(--text-3); font-size: var(--font-body); }
 .alert {

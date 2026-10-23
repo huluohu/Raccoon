@@ -20,3 +20,6 @@ backend/internal/web/dist/*
 
 # ---- AI 工具会话产物（不入库）----
 .ai-memory/
+
+# ---- 本地工程数据（任务/索引/会话，不入库）----
+.workbuddy-ai/

@@ -31,6 +31,7 @@ type Task struct {
 	ErrorMessage    string  `json:"error_message,omitempty"`
 	FixHint         string  `json:"fix_hint,omitempty"` // JSON：{action,label}
 	CancelRequested bool    `json:"cancel_requested"`
+	RoutePath       string  `json:"route_path,omitempty"` // 存储策略「走了哪条路」（docs/01 §3.4）
 	ScheduledAt     *int64  `json:"scheduled_at,omitempty"`
 	ChildTotal      int     `json:"child_total,omitempty"`  // 仅父任务：子任务数
 	ChildFailed     int     `json:"child_failed,omitempty"` // 仅父任务：失败子任务数

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import IssuesPanel from '@/components/overview/IssuesPanel.vue'
 import { makeTask } from '@/test/fixtures'
+import { mount } from '@/test/mount'
 
 /**
  * IssuesPanel 用例（docs/07 §3 总览页关键组件）。

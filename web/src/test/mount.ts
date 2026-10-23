@@ -1,4 +1,3 @@
-import { afterEach } from 'vitest'
 import { mount as vtuMount, type MountingOptions } from '@vue/test-utils'
 import type { Component } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
@@ -43,6 +42,7 @@ function mountWithRouter<P = unknown>(
       ...(global ?? {}),
     },
   })
+  tracked().push(wrapper as unknown as Unmountable)
   return { wrapper, router }
 }
 
@@ -63,11 +63,59 @@ export function mountViewWithRouter<P = unknown>(
   return mountWithRouter(comp, routes, options)
 }
 
-// 每个用例结束后把挂载节点从文档里摘掉：否则下一个用例 document.getElementById
-// 会撞上上一个用例的残留节点（两个 #task-url-input 同时存在，断言全乱）。
-afterEach(() => {
+/**
+ * 每个用例结束后必须卸载：下面是为什么不能用 VTU 自带的 enableAutoUnmount。
+ *
+ * VTU 的 enableAutoUnmount 把 isEnabled / wrapperInstances 放在**模块作用域**里，
+ * 而 @vue/test-utils 是 node_modules 外链依赖，整个 fork 进程只加载一次——
+ * 于是「七个 spec 各注册一次」会抛 cannot be called more than once；
+ * 只留一个文件注册，其余文件的组件又永远不会被卸载。
+ * 两条路都会让上一个用例的 DOM 留在 document.body 上，
+ * 下一个用例 document.querySelector / activeElement 读到的全是别人的节点。
+ *
+ * 这里改成自己记账：globalThis 上挂一个待卸载队列（跨文件共享无副作用，
+ * 每个文件结束时由 setupFiles 注册的 afterEach 清空）。
+ */
+const TRACKED_KEY = '__raccoon_mounted_wrappers__'
+
+type Unmountable = { unmount: () => void }
+
+function tracked(): Unmountable[] {
+  const g = globalThis as unknown as Record<string, Unmountable[] | undefined>
+  if (!g[TRACKED_KEY]) g[TRACKED_KEY] = []
+  return g[TRACKED_KEY] as Unmountable[]
+}
+
+/** 卸载所有已挂载实例并摘掉宿主节点。由 src/test/setup.ts 的 afterEach 调用。 */
+export function unmountAllTracked(): void {
+  const list = tracked()
+  while (list.length) {
+    try {
+      list.pop()?.unmount()
+    } catch {
+      // 已经被上游 unmount 过：清干净即可，不该让用例挂在这种地方
+    }
+  }
   while (mountedNodes.length) mountedNodes.pop()?.remove()
-})
+}
+
+/**
+ * 等价于 VTU 的 mount，但会登记到卸载队列里。
+ * spec 统一从这里取 mount，别再从 @vue/test-utils 直接 import。
+ */
+// 整体断言成 typeof vtuMount：保留 VTU 的全部重载与返回类型推导，
+// 否则泛型组件的 slots/props 会在调用点报一串 TS2345。
+export const mount = ((
+  comp: unknown,
+  options?: unknown,
+): ReturnType<typeof vtuMount> => {
+  const wrapper = vtuMount(
+    comp as Component,
+    (options ?? {}) as MountingOptions<never> & Record<string, unknown>,
+  )
+  tracked().push(wrapper as unknown as Unmountable)
+  return wrapper
+}) as typeof vtuMount
 
 export { createPinia, setActivePinia }
 export type { Router }

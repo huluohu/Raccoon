@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -56,9 +57,23 @@ func main() {
 	}
 
 	// 日志级别来自配置（immediate 类）。
-	switch cfg.GetString("log.level") {
-	case "debug":
-		logger = logx.New(os.Stdout, "main", logx.LevelDebug)
+	minLv := logx.LevelInfo
+	if cfg.GetString("log.level") == "debug" {
+		minLv = logx.LevelDebug
+	}
+
+	// 双写：stdout（docker logs 照旧可看）+ 运行日志文件（/api/v1/logs 页面读它）。
+	// 文件打不开不致命——降级为仅 stdout，但要在 stdout 留痕，否则日志页空着没人知道为什么。
+	var logSink io.WriteCloser
+	if sink, err := logx.OpenSink(logx.FilePath(dataDir)); err != nil {
+		logger = logx.New(os.Stdout, "main", minLv)
+		logger.Warn("运行日志文件不可写，日志页将为空", map[string]any{"err": err.Error()})
+	} else {
+		logSink = sink
+		logger = logx.New(io.MultiWriter(os.Stdout, sink), "main", minLv)
+	}
+	if logSink != nil {
+		defer func() { _ = logSink.Close() }()
 	}
 
 	st, err := store.Open(dataDir + "/raccoon.db")

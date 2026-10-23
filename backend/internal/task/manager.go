@@ -354,7 +354,9 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 		if it.Kind != "" {
 			kind = it.Kind
 		} else if engine.IsMagnet(norm) {
-			kind = KindQB
+			// 磁力/种子的提交类型按存储策略路由（docs/01 §3.4 / docs/15 §3.7）：
+			// n115_first → 先试 115 离线；local/qb_fallback → 直接 qB。
+			kind = SubmitKindFor(m.cfg.GetString("storage.strategy"))
 		}
 		platform := engine.PlatformGuess(norm)
 		if kind == KindQB {
@@ -377,6 +379,7 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 			Status:        StatusWaiting, // 回填：CreateTask 固定落 'waiting'
 			Quality:       quality,
 			SavePath:      it.SavePath,
+			RoutePath:     InitialRoutePath(kind, m.cfg.GetString("storage.strategy")),
 			ConfigVersion: cfgVersion,
 			MaxAttempts:   maxAttempts,
 			CreatedAt:     time.Now().UnixMilli(),

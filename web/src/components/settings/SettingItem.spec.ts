@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import SettingItem from '@/components/settings/SettingItem.vue'
 import type { ConfigItem } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * SettingItem 用例（docs/07 §3「SettingItem（生效时机徽章 + 脏圆点 + 保存反馈）」）。

@@ -14,6 +14,7 @@ import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import FileCard from '@/components/media/FileCard.vue'
 import PreviewDrawer from '@/components/media/PreviewDrawer.vue'
 import DownloadBtn from '@/components/media/DownloadBtn.vue'
+import DeleteFileDialog from '@/components/media/DeleteFileDialog.vue'
 import type { MediaFile } from '@/api/types'
 
 const toast = useToastStore()
@@ -100,6 +101,29 @@ function openDetail(f: MediaFile) {
 
 function download(f: MediaFile) {
   toast.success('开始下载：' + f.name)
+}
+
+// ---- 删文件（docs/07 §4：破坏性决策走 RDialog；与「删任务记录」分离）----
+/** 待删文件；null = 确认框关闭。 */
+const pendingDelete = ref<MediaFile | null>(null)
+const deleting = ref(false)
+
+/** 确认后真正删：磁盘文件 + 索引一起删，然后重拉列表（不做本地数组过滤）。 */
+async function confirmDeleteFile() {
+  const f = pendingDelete.value
+  pendingDelete.value = null
+  if (!f) return
+  deleting.value = true
+  try {
+    await api.deleteFile(f.id)
+    toast.success('文件已删除：' + f.name)
+    if (selected.value?.id === f.id) selected.value = null
+    await load()
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '文件删除失败')
+  } finally {
+    deleting.value = false
+  }
 }
 
 let timer: number | undefined
@@ -193,6 +217,9 @@ onMounted(load)
       </template>
       <template #actions="{ row }">
         <DownloadBtn :href="downloadUrl((row as MediaFile).id)" @click="download(row as MediaFile)" />
+        <RButton size="sm" variant="ghost" tone="danger" @click="pendingDelete = row as MediaFile">
+          删除
+        </RButton>
       </template>
     </RTable>
 
@@ -204,8 +231,20 @@ onMounted(load)
         :preview-url="previewUrl"
         @open="openDetail"
         @download="download"
+        @delete="pendingDelete = $event"
       />
     </ul>
+
+    <!-- 删文件确认（不可撤销：磁盘文件真的会被删掉；任务记录保留） -->
+    <DeleteFileDialog
+      :open="pendingDelete !== null"
+      :file-name="pendingDelete?.name ?? ''"
+      :size="pendingDelete?.size ?? 0"
+      :path="pendingDelete?.path ?? ''"
+      @update:open="(v: boolean) => !v && (pendingDelete = null)"
+      @confirm="confirmDeleteFile"
+    />
+    <p v-if="deleting" class="deleting-hint" role="status">正在删除…</p>
 
     <!-- 文件预览抽屉（方案 §3 视图级组件 PreviewDrawer） -->
     <PreviewDrawer
@@ -245,4 +284,5 @@ onMounted(load)
    auto-fill 在 1184px 宽下排 4 条 285px 轨道，文件只有 2 个时右侧空出 570px，
    整页看着「东西全挤在左边」——这是比例失衡最直接的来源。 */
 .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
-.error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }</style>
+.error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
+.deleting-hint { margin: 8px 0 0; font-size: var(--font-aux); color: var(--text-3); }</style>

@@ -78,6 +78,9 @@ const previewUrl = computed(() => (props.file ? props.previewUrl(props.file.id) 
 .detail-preview { background: var(--surface-2); border-radius: var(--radius-ctrl); overflow: hidden; }
 .detail-preview img,
 .detail-preview video { width: 100%; display: block; }
+/* R11：深色模式下画面与抽屉底色接近，不留边界就会「浮空」——
+   用 1px 描边把播放区圈出来（浅色模式不需要，画面自带白边）。 */
+:global([data-theme='dark']) .detail-preview { box-shadow: inset 0 0 0 1px var(--border); }
 .detail-preview audio { width: 100%; display: block; padding: 8px; }
 .detail-unsupported {
   background: var(--gold-soft);

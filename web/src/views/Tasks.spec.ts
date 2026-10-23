@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   cancelTask: vi.fn(),
   retryTask: vi.fn(),
   deleteTask: vi.fn(),
+  deleteTaskFile: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({ api: mocks }))
@@ -52,6 +53,8 @@ const emptyCounts = {
   cancelled: 0,
 }
 
+// 每个用例结束都卸载组件：视图会注册 document 级键盘监听，
+// 漏卸载的实例会在后续 spec 里继续响应 Escape（跨文件污染，曾让 RDialog 用例挂掉）。
 beforeEach(() => {
   mocks.listTasks.mockReset().mockResolvedValue({ items: [], counts: emptyCounts, next_cursor: null })
   mocks.parseUrl.mockReset().mockResolvedValue({
@@ -83,6 +86,7 @@ beforeEach(() => {
   mocks.cancelTask.mockReset().mockResolvedValue({ ok: true })
   mocks.retryTask.mockReset().mockResolvedValue({ ok: true })
   mocks.deleteTask.mockReset().mockResolvedValue({ ok: true })
+  mocks.deleteTaskFile.mockReset().mockResolvedValue({ ok: true })
 
   FakeEventSource.instances = []
   vi.stubGlobal('EventSource', FakeEventSource)
@@ -154,9 +158,20 @@ const TaskDetailStub = {
     files: { type: Array, default: () => [] },
     busy: { type: Boolean, default: false },
   },
-  emits: ['goto-connections', 'goto-settings', 'retry', 'cancel', 'remove'],
-  setup(props: Record<string, any>) {
-    return () => h('div', { class: 'stub-detail', 'data-task': props.task.id })
+  emits: ['goto-connections', 'goto-settings', 'retry', 'cancel', 'remove', 'delete-file'],
+  setup(props: Record<string, any>, { emit }: any) {
+    return () =>
+      h('div', { class: 'stub-detail', 'data-task': props.task.id }, [
+        // 详情里的「删产物」入口：只发事件，确认框由上层负责（组件不弹窗）。
+        h(
+          'button',
+          {
+            class: 'stub-detail-del-file',
+            onClick: () => emit('delete-file', { id: 'f-1', task_id: props.task.id, path: '/data/downloads/第一集.mp4', size: 1024 * 1024, kind: 'video', created_at: 0 }),
+          },
+          '删产物',
+        ),
+      ])
   },
 }
 
@@ -355,6 +370,42 @@ describe('Tasks 视图', () => {
     expect(mocks.taskEvents).toHaveBeenCalledWith('t-open')
     expect(mocks.taskDetail).toHaveBeenCalledWith('t-open')
     expect(w.find('.stub-detail').attributes('data-task')).toBe('t-open')
+  })
+
+  it('详情里删产物要先过共用确认框，确认后才真删并重拉产物列表', async () => {
+    // 删文件（磁盘 + 索引）与删任务记录（软删，文件保留）是两个操作，
+    // 这里锁住「详情只发事件 → 视图弹 DeleteFileDialog → 确认才请求」这条链。
+    mocks.listTasks.mockResolvedValueOnce({
+      items: [makeTask({ id: 't-file', title: '有产物的任务' })],
+      counts: emptyCounts,
+      next_cursor: null,
+    })
+    mocks.taskDetail.mockResolvedValue({
+      data: makeTask({ id: 't-file' }),
+      files: [{ id: 'f-1', task_id: 't-file', path: '/data/downloads/第一集.mp4', size: 1024 * 1024, kind: 'video', created_at: 0 }],
+    })
+    const w = mountTasks()
+    await flushPromises()
+
+    await w.find('.stub-row-open').trigger('click')
+    await flushPromises()
+    await w.find('.stub-detail-del-file').trigger('click')
+    await flushPromises()
+
+    // 弹确认框，此刻还没发删除请求
+    const dialog = document.body.querySelector('.rdialog-root')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.querySelector('.rdialog-title')?.textContent).toContain('删除这个文件？')
+    expect(dialog?.querySelector('.rdialog-desc')?.textContent).toContain('第一集.mp4')
+    expect(dialog?.querySelector('.rdialog-desc')?.textContent).toContain('任务记录会保留')
+    expect(mocks.deleteTaskFile).not.toHaveBeenCalled()
+
+    document.body.querySelector<HTMLButtonElement>('[data-rdialog-action="confirm"]')?.click()
+    await flushPromises()
+
+    expect(mocks.deleteTaskFile).toHaveBeenCalledWith('t-file', 'f-1')
+    // 删完重拉产物：本地过滤会与服务端出现第二份真相
+    expect(mocks.taskDetail.mock.calls.length).toBeGreaterThan(1)
   })
 
   it('`/` 快捷键把焦点送进本页提交框（docs/07 §7，输入框内不劫持）', async () => {

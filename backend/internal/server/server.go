@@ -18,6 +18,7 @@ import (
 	"github.com/huluohu/raccoon/internal/credential"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/logx"
+	"github.com/huluohu/raccoon/internal/monitor"
 	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
 	"github.com/huluohu/raccoon/internal/subscription"
@@ -44,6 +45,8 @@ type Server struct {
 	loginLimiter   *Limiter              // 登录限流（docs/04 §5：5 次/分钟/IP）
 	parseLimiter   *Limiter              // 解析限流（20 次/分钟/IP）
 	restartFn      func()                // 让出重启回调（main 注入）
+	monitor        *monitor.Sampler      // 资源监控采样器（docs/15 §3.2）
+	monitorCancel  context.CancelFunc    // 停机时停采样器
 
 	// Telegram 通道状态（docs/08 W4.8）。
 	tgClient *tgbot.Client
@@ -79,6 +82,16 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	s.setupTokens()
 	s.setupIntegrations()
 	s.setupSystem()
+	s.setupStats()
+	s.setupMonitor()
+	s.setupLogs()
+	s.setupPreferences()
+	// 资源监控采样器：2s tick × 60 点内存环 + 每 60s 聚合落库（保留 7 天）。
+	// 非 Linux 平台采集桩 ok=false，链路诚实降级（docs/15 §3.2）。
+	monitorCtx, monitorCancel := context.WithCancel(context.Background())
+	s.monitor = monitor.New(st, 2*time.Second, 60)
+	s.monitorCancel = monitorCancel
+	s.monitor.Start(monitorCtx)
 	s.registerRoutes()
 	return s, nil
 }
@@ -107,6 +120,13 @@ func (s *Server) ShutdownTasks(timeout time.Duration) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		s.tasks.Stop(ctx)
+	}
+	// 停监控采样器并 flush 未满 1min 的部分聚合（重启/停机都走这里）。
+	if s.monitor != nil {
+		if s.monitorCancel != nil {
+			s.monitorCancel()
+		}
+		s.monitor.Stop()
 	}
 	s.log.Info("任务系统已停止", nil)
 }

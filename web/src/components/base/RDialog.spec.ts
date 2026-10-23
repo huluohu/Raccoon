@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import RDialog from '@/components/base/RDialog.vue'
+import { mount } from '@/test/mount'
 
 /**
  * RDialog 用例（docs/07 §4 验收点：仅破坏性决策 / 默认焦点「取消」/ ≤480px）。

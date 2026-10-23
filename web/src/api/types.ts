@@ -78,6 +78,12 @@ export interface Task {
   error_code?: string
   error_message?: string
   fix_hint?: string
+  /**
+   * 「走了哪条路」的人类可读链路（docs/15 §3.7）。
+   * 由后端在创建时写入初始值、运行期追补转移（如「115 优先 → 115 提交中 → 115 确定失败 → 转 qB」）。
+   * 老数据 / 非磁力任务可能为空串——界面按「—」显示，不猜。
+   */
+  route_path?: string
   created_at: number
   updated_at: number
   started_at?: number | null
@@ -399,7 +405,90 @@ export interface QueueStats {
   unread_notifs: number
 }
 
-// ---- 统一错误信封（docs/04 §1.2） ----
+// ---- 仪表盘：统计 / 监控 / 日志 / 偏好（docs/04 §2.10、§2.13） ----
+
+/** 主页指标聚合（docs/15 §3.1-a）。success_rate 分母 0 时为 null，界面显示「—」。 */
+export interface SummaryStats {
+  uptime_sec: number
+  total_downloads: number
+  today_downloads: number
+  week_downloads: number
+  success_rate: number | null
+  media_bytes: number
+  media_by_kind: Record<string, number>
+  sub_downloads: number
+  favorite_downloads: number
+  live_recording: number
+}
+
+/** 趋势单点：date = 本地时区 YYYY-MM-DD，无数据日由后端补 0。 */
+export interface TrendPoint {
+  date: string
+  count: number
+  bytes: number
+}
+
+/** 失败拆分条目（E5）。 */
+export interface NamedCount {
+  key: string
+  count: number
+}
+
+export interface TrendResult {
+  days: number
+  points: TrendPoint[]
+  failures: { by_platform: NamedCount[] | null; by_reason: NamedCount[] | null }
+}
+
+/** 实时监控快照（非 Linux：ok=false + message，界面显示「当前平台不支持」）。 */
+export interface MonitorSnapshot {
+  ok: boolean
+  message?: string
+  sampled_at: number
+  cpu?: { used_pct: number }
+  memory?: { used_pct: number; used_bytes: number; free_bytes: number; total_bytes: number }
+  disk?: { used_pct: number; free_bytes: number; total_bytes: number }
+  net?: { up_bps: number; down_bps: number }
+  /** 60 点序列；null = 该时刻采集失败（前端断线，不插值）。 */
+  series?: {
+    cpu: (number | null)[]
+    memory: (number | null)[]
+    net_up: (number | null)[]
+    net_down: (number | null)[]
+  }
+}
+
+/** 监控历史点（1h = 60s 粒度，24h = 1440s 均值）。 */
+export interface MonitorHistoryPoint {
+  ts: number
+  cpu: number
+  memory: number
+  disk: number
+  net_rx: number
+  net_tx: number
+}
+
+export interface MonitorHistory {
+  range: '1h' | '24h'
+  granularity_sec: number
+  points: MonitorHistoryPoint[]
+}
+
+/** 运行日志条目（msg 已在服务端脱敏）。 */
+export interface LogItem {
+  ts: number
+  level: 'debug' | 'info' | 'warn' | 'error'
+  module: string
+  msg: string
+}
+
+export interface LogPage {
+  items: LogItem[]
+  /** 下一段起始行号；无更多时等于请求的 cursor（前端据此停「加载更多」）。 */
+  next_cursor: string
+}
+
+/** 统一错误信封（docs/04 §1.2） */
 export interface ApiErrorBody {
   error: {
     code: string

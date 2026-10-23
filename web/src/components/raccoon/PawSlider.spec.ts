@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import PawSlider from '@/components/raccoon/PawSlider.vue'
+import { mount } from '@/test/mount'
 
 /**
  * PawSlider 用例（docs/07 §4「进度条端点爪印滑块（2px 圆点 + 三趾），极简冲突可退圆点」）。

@@ -129,13 +129,18 @@ func (s *Store) CreateSubscription(sub *Subscription) error {
 }
 
 // UpdateSubscription 更新订阅规则。
+//
+// credential_id 必须走 nullIfEmpty：该列是 credentials(id) 的外键，空串不是 NULL，
+// 会直接触发 FOREIGN KEY constraint failed —— 表现是「点暂停/改规则 500 订阅操作失败」。
+// CreateSubscription 一直有这层转换，UPDATE 漏了，导致所有未绑凭据的订阅
+// 一旦被修改就报错（docs/04 §2.6）。
 func (s *Store) UpdateSubscription(sub *Subscription) error {
 	sub.UpdatedAt = time.Now().UnixMilli()
 	res, err := s.RW.Exec(`UPDATE subscriptions SET title=?, mode=?, range_from=?, range_to=?, quality=?,
 		save_rule=?, interval_min=?, enabled=?, credential_id=?, next_check_at=?, error_note=?, updated_at=?
 		WHERE id=?`,
 		sub.Title, sub.Mode, sub.RangeFrom, sub.RangeTo, sub.Quality, sub.SaveRule, sub.IntervalMin,
-		boolInt(sub.Enabled), sub.CredentialID, sub.NextCheckAt, sub.ErrorNote, sub.UpdatedAt, sub.ID)
+		boolInt(sub.Enabled), nullIfEmpty(sub.CredentialID), sub.NextCheckAt, sub.ErrorNote, sub.UpdatedAt, sub.ID)
 	if err != nil {
 		return err
 	}
@@ -162,7 +167,17 @@ func (s *Store) MarkSubscriptionChecked(id, lastItemID, errorNote string, nextCh
 }
 
 // DeleteSubscription 删除订阅（已下载文件不受影响）。
+//
+// 快照口径（docs/15 §3.3）：删收藏类订阅前，先把「这批任务来自收藏订阅」的事实
+// 落到 tasks.sub_favorite 上。否则删订阅的一瞬间，主页「收藏下载」会凭空变少——
+// 历史统计不该被一次删除改写。
 func (s *Store) DeleteSubscription(id string) error {
+	if _, err := s.RW.Exec(`UPDATE tasks SET sub_favorite = 1
+		WHERE source = 'subscription' AND source_ref = ?
+		  AND EXISTS (SELECT 1 FROM subscriptions WHERE id = ? AND source_type = 'favorite')`,
+		id, id); err != nil {
+		return err
+	}
 	res, err := s.RW.Exec(`DELETE FROM subscriptions WHERE id=?`, id)
 	if err != nil {
 		return err

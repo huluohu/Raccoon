@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import CredentialList from '@/components/conn/CredentialList.vue'
 import { RButtonStub, PlatformBadgeStub } from '@/test/stubs'
 import type { Credential } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * CredentialList 用例（docs/07 §3「/connections → CredentialList（打码）」）。

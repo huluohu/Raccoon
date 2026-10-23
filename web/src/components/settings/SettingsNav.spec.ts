@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import SettingsNav from '@/components/settings/SettingsNav.vue'
 import type { SettingsSection } from '@/components/settings/SettingsNav.vue'
+import { mount } from '@/test/mount'
 
 /**
  * SettingsNav 用例（docs/07 §3「SettingsNav（左分组）」）。

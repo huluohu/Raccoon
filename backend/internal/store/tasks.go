@@ -65,11 +65,11 @@ func (s *Store) CreateTask(t *Task) error {
 	_, err := s.RW.Exec(`INSERT INTO tasks
 		(id, parent_id, kind, source, source_ref, platform, url, title, thumbnail, dedupe_key, status,
 		 quality, save_path, expected_size, engine, engine_version, config_version, attempt, max_attempts,
-		 scheduled_at, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?,?,?,?,?,?,?,?)`,
+		 route_path, scheduled_at, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.ParentID, t.Kind, t.Source, t.SourceRef, t.Platform, t.URL, nullStr(t.Title), nullStr(t.Thumbnail),
 		t.DedupeKey, nullStr(t.Quality), nullStr(t.SavePath), t.ExpectedSize, nullStr(t.Engine), nullStr(t.EngineVersion),
-		t.ConfigVersion, t.Attempt, t.MaxAttempts, t.ScheduledAt, t.CreatedAt, t.UpdatedAt)
+		t.ConfigVersion, t.Attempt, t.MaxAttempts, t.RoutePath, t.ScheduledAt, t.CreatedAt, t.UpdatedAt)
 	if err != nil {
 		if isUniqueErr(err) {
 			// 唯一索引冲突即 dedupe（含普通 dedupe_key 索引）。
@@ -104,25 +104,27 @@ func (s *Store) GetTask(id string) (*Task, error) {
 const taskSelect = `SELECT t.id, t.parent_id, t.kind, t.source, t.source_ref, t.platform, t.url, t.title, t.thumbnail,
 	t.status, t.wait_reason, t.quality, t.save_path, t.expected_size, t.downloaded_size, t.speed_bps, t.progress,
 	t.resume_supported, t.engine, t.engine_version, t.config_version, t.attempt, t.max_attempts,
-	t.error_code, t.error_message, t.fix_hint, t.cancel_requested, t.scheduled_at,
+	t.error_code, t.error_message, t.fix_hint, t.cancel_requested, t.route_path, t.scheduled_at,
 	t.created_at, t.updated_at, t.started_at, t.finished_at FROM tasks t`
 
 func scanTask(row *sql.Row) (*Task, error) {
 	var t Task
 	var parentID, sourceRef, platform, title, thumb, waitReason, quality, savePath, engine, engineVer sql.NullString
 	var errCode, errMsg, fixHint sql.NullString
+	var routePath sql.NullString
 	var expectedSize, scheduledAt, startedAt, finishedAt sql.NullInt64
 	var resumeFlag, cancelFlag int64 // INTEGER 列经 int64 中转（database/sql 不支持直扫 bool）
 	err := row.Scan(&t.ID, &parentID, &t.Kind, &t.Source, &sourceRef, &platform, &t.URL, &title, &thumb,
 		&t.Status, &waitReason, &quality, &savePath, &expectedSize, &t.DownloadedSize, &t.SpeedBps, &t.Progress,
 		&resumeFlag, &engine, &engineVer, &t.ConfigVersion, &t.Attempt, &t.MaxAttempts,
-		&errCode, &errMsg, &fixHint, &cancelFlag, &scheduledAt,
+		&errCode, &errMsg, &fixHint, &cancelFlag, &routePath, &scheduledAt,
 		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt)
 	if err != nil {
 		return nil, err
 	}
 	t.ResumeSupported = resumeFlag != 0
 	t.CancelRequested = cancelFlag != 0
+	t.RoutePath = routePath.String
 	t.ErrorCode = errCode.String
 	t.ErrorMessage = errMsg.String
 	t.FixHint = fixHint.String
@@ -232,18 +234,20 @@ func scanTaskRows(rows *sql.Rows) (*Task, error) {
 	var t Task
 	var parentID, sourceRef, platform, title, thumb, waitReason, quality, savePath, engine, engineVer sql.NullString
 	var errCode, errMsg, fixHint sql.NullString
+	var routePath sql.NullString
 	var expectedSize, scheduledAt, startedAt, finishedAt sql.NullInt64
 	var resumeFlag, cancelFlag int64 // INTEGER 列经 int64 中转（database/sql 不支持直扫 bool）
 	err := rows.Scan(&t.ID, &parentID, &t.Kind, &t.Source, &sourceRef, &platform, &t.URL, &title, &thumb,
 		&t.Status, &waitReason, &quality, &savePath, &expectedSize, &t.DownloadedSize, &t.SpeedBps, &t.Progress,
 		&resumeFlag, &engine, &engineVer, &t.ConfigVersion, &t.Attempt, &t.MaxAttempts,
-		&errCode, &errMsg, &fixHint, &cancelFlag, &scheduledAt,
+		&errCode, &errMsg, &fixHint, &cancelFlag, &routePath, &scheduledAt,
 		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt)
 	if err != nil {
 		return nil, err
 	}
 	t.ResumeSupported = resumeFlag != 0
 	t.CancelRequested = cancelFlag != 0
+	t.RoutePath = routePath.String
 	t.ErrorCode = errCode.String
 	t.ErrorMessage = errMsg.String
 	t.FixHint = fixHint.String
@@ -332,7 +336,8 @@ func (s *Store) UpdateTaskFields(id string, fields map[string]any, fromStatus st
 		"expected_size": true, "downloaded_size": true, "speed_bps": true, "progress": true,
 		"engine": true, "engine_version": true, "attempt": true, "error_code": true, "error_message": true,
 		"fix_hint": true, "cancel_requested": true, "scheduled_at": true, "resume_supported": true,
-		"quality": true, "save_path": true, "started_at": true, "finished_at": true,
+		"quality": true, "save_path": true, "started_at": true, "finished_at": true, "route_path": true,
+		"kind": true, // 仅策略 failover 改写（n115→qb），见 task/strategy.go
 	}
 	keys := make([]string, 0, len(fields))
 	for k := range fields {
@@ -520,6 +525,16 @@ func (s *Store) TaskFiles(taskID string) ([]*TaskFile, error) {
 func (s *Store) DeleteTaskFile(fileID string) error {
 	_, err := s.RW.Exec(`DELETE FROM task_files WHERE id=?`, fileID)
 	return err
+}
+
+// DeleteTaskFilesByPath 按路径删除产物索引（媒体库删文件后同步，避免任务详情
+// 里还挂着一条指向已删文件的记录）。返回删除行数。
+func (s *Store) DeleteTaskFilesByPath(path string) (int64, error) {
+	res, err := s.RW.Exec(`DELETE FROM task_files WHERE path=?`, path)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // ListChildren 取子任务（父子聚合用）。

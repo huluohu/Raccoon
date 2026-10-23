@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
+import { mount } from '@/test/mount'
 
 /**
  * QuickSubmit 用例（docs/07 §3 全局关键组件）。

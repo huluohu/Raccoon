@@ -38,10 +38,27 @@ const stage = computed(() => {
   }
 })
 
-/** 是否不确定进度（解析中/大小未知）。 */
+/** 是否不确定进度（解析中 / 后处理 / 下载大小未知）。
+ *  后处理（post）没有可信百分比：ffmpeg 合并/转码不吐进度，写个固定 100%
+ *  或者按时间猜都是在骗人（docs/01 诚实原则）——统一走条纹 + 文字说明。 */
 const indeterminate = computed(
-  () => props.task.status === 'parsing' || (props.task.expected_size === null && props.task.status === 'downloading'),
+  () =>
+    props.task.status === 'parsing' ||
+    props.task.status === 'post' ||
+    (props.task.expected_size === null && props.task.status === 'downloading'),
 )
+
+/** 不确定进度的说明文案：说清「在干什么」，不假装知道还剩多少。 */
+const indeterminateText = computed(() => {
+  switch (props.task.status) {
+    case 'parsing':
+      return '解析中，大小未知'
+    case 'post':
+      return '后处理中，进度未知'
+    default:
+      return '大小未知'
+  }
+})
 
 const pct = computed(() => {
   if (props.task.status === 'done') return 100
@@ -80,7 +97,7 @@ const sizeText = computed(() => {
       />
     </div>
     <div v-if="!compact" class="tprog-meta">
-      <span class="tnum">{{ indeterminate ? (task.status === 'parsing' ? '解析中，大小未知' : '大小未知') : formatPercent(pct) }}</span>
+      <span class="tnum">{{ indeterminate ? indeterminateText : formatPercent(pct) }}</span>
       <span class="tnum tprog-size">{{ sizeText }}</span>
       <span v-if="task.status === 'downloading'" class="tnum tprog-speed">{{ formatSpeed(task.speed_bps) }}</span>
     </div>
@@ -106,11 +123,16 @@ const sizeText = computed(() => {
 .tprog--parse .tprog-fill { background: var(--info); }
 .tprog--post .tprog-fill { background: var(--success); }
 .tprog--idle .tprog-fill { background: var(--text-3); }
+/* 条纹底色跟随阶段：解析=信息蓝、后处理=成功绿。写死 --info 会让后处理
+   显示成一条「蓝色条纹的绿色任务」，阶段色与条纹色自相矛盾。 */
+.tprog--parse { --stripe: var(--info); }
+.tprog--post { --stripe: var(--success); }
 .tprog-bar--indeterminate .tprog-fill {
+  background: var(--stripe, var(--info));
   background-image: repeating-linear-gradient(
     115deg,
-    var(--info) 0 10px,
-    color-mix(in srgb, var(--info) 45%, transparent) 10px 20px
+    var(--stripe, var(--info)) 0 10px,
+    color-mix(in srgb, var(--stripe, var(--info)) 45%, transparent) 10px 20px
   );
   background-size: 28px 100%;
   animation: tprog-stripe 1.1s linear infinite;

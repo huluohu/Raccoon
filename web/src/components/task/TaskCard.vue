@@ -41,8 +41,12 @@ const props = withDefaults(
     childStats?: TaskChildStats
     /** 显式声明是父任务（后端建父任务时 platform 固定为 batch，也可由 childStats 推断）。 */
     parent?: boolean
+    /** 只读（历史页复用）：整块操作区连同选择框都不渲染。
+     *  只读页上出现的按钮都该能用，留着点了没反应的取消/重试/删除，
+     *  比没有按钮更让人困惑——所以是「不渲染」，不是「置灰」。 */
+    readonly?: boolean
   }>(),
-  { selected: false, selectable: true, parent: false },
+  { selected: false, selectable: true, parent: false, readonly: false },
 )
 
 const emit = defineEmits<{
@@ -89,9 +93,11 @@ const waitReason = computed(() => {
 <template>
   <article class="tcard" :class="{ 'is-selected': selected }">
     <div class="tcard-top">
-      <!-- 选择框：独立按钮，点了只改选中不改当前详情，避免误触丢焦点。 -->
+      <!-- 选择框：独立按钮，点了只改选中不改当前详情，避免误触丢焦点。
+           只读模式下一并隐去——多选只为批量操作服务，只读页没有批量操作，
+           留一个勾了也做不了任何事的框，只会让人以为页面没加载完。 -->
       <button
-        v-if="selectable"
+        v-if="selectable && !readonly"
         class="tcard-pick"
         type="button"
         role="checkbox"
@@ -154,7 +160,10 @@ const waitReason = computed(() => {
         <span>{{ formatBytes(task.downloaded_size) }}</span>
       </p>
 
-      <div class="tcard-ops">
+      <!-- 操作区容器整体不渲染（不是把插槽内容藏起来）：
+           父级就算传了 #actions，也只读页不该出现取消/重试/删除。
+           只留数据行（子项计数 / 速度 / 大小），底部区域照旧对齐。 -->
+      <div v-if="!readonly" class="tcard-ops">
         <!-- 「重试失败项」是父任务专属：只有父任务且确有失败子项时才给位置。 -->
         <slot
           v-if="isParent && child && child.failed > 0"

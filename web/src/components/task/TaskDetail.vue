@@ -44,6 +44,8 @@ const emit = defineEmits<{
   (e: 'cancel', task: Task): void
   /** 删除任务。 */
   (e: 'remove', task: Task): void
+  /** 删除单个产物文件（确认后发出；真正的请求由上层执行，组件不 fetch）。 */
+  (e: 'delete-file', file: TaskFile): void
 }>()
 
 defineSlots<{
@@ -99,6 +101,14 @@ const showError = computed(
 
 /** 可重试：失败或已取消的任务都能手动重来（docs/05 §7）。 */
 const canRetry = computed(() => props.task.status === 'failed' || props.task.status === 'cancelled')
+
+/**
+ * 删文件：组件只发事件，确认框由上层（Tasks.vue 的 DeleteFileDialog）统一负责。
+ * 详情面板保持「不 fetch、不弹窗」的纯展示定位，破坏性决策只有一处实现。
+ */
+function requestDeleteFile(f: TaskFile) {
+  emit('delete-file', f)
+}
 
 /** 活跃任务可以取消。 */
 const isActive = computed(() =>
@@ -243,6 +253,10 @@ function fileName(f: TaskFile): string {
         <dd class="tnum">{{ task.quality }}</dd>
         <dt>引擎</dt>
         <dd>{{ engineText }}</dd>
+        <!-- 走了哪条路（docs/15 §3.7）：磁力/种子任务可能经历「115 优先 → 转 qB」，
+             只显示最终结果而不显示路径，用户永远搞不清为什么在 qB 里。 -->
+        <dt>走了哪条路</dt>
+        <dd>{{ task.route_path || '—' }}</dd>
         <dt>已下载</dt>
         <dd class="tnum">{{ formatBytes(task.downloaded_size) }}</dd>
         <dt>创建</dt>
@@ -265,6 +279,17 @@ function fileName(f: TaskFile): string {
         <li v-for="f in files" :key="f.id">
           <span class="td-file-name" :title="f.path">{{ fileName(f) }}</span>
           <span class="tnum td-file-size">{{ formatBytes(f.size) }}</span>
+          <!-- 删文件与删任务分离：这里只删这个产物（磁盘 + 索引），任务记录保留。 -->
+          <button
+            type="button"
+            class="td-file-del"
+            :disabled="busy"
+            :aria-label="`删除文件 ${fileName(f)}`"
+            title="删除这个文件（不可撤销）"
+            @click="requestDeleteFile(f)"
+          >
+            删除
+          </button>
         </li>
       </ul>
     </section>
@@ -351,7 +376,7 @@ function fileName(f: TaskFile): string {
             size="sm"
             variant="ghost"
             tone="danger"
-            confirm="再点一次确认删除"
+            confirm="确认删除？"
             :disabled="busy"
             @click="emit('remove', task)"
           >
@@ -359,7 +384,14 @@ function fileName(f: TaskFile): string {
           </RButton>
         </slot>
       </div>
+      <!-- R10：把「没有暂停按钮」这件事说清楚。
+           引擎（yt-dlp / gallery-dl）本身不支持断点暂停，界面上缺一个暂停按钮
+           会被当成功能缺失；写一句为什么 + 替代路径，比让用户反复找要好。 -->
+      <p v-if="isActive" class="td-note">
+        当前引擎不支持暂停/续传；需要中断请取消，重新入队会保留原配置版本。
+      </p>
     </section>
+
   </div>
 </template>
 
@@ -439,6 +471,24 @@ function fileName(f: TaskFile): string {
   color: var(--text-3);
   flex-shrink: 0;
 }
+/* 删文件按钮：默认低存在感（这是低频且危险的动作用），hover/聚焦才显红。 */
+.td-file-del {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: var(--font-aux);
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: var(--radius-ctrl);
+  transition: color 120ms ease-out;
+}
+.td-file-del:hover:not(:disabled),
+.td-file-del:focus-visible {
+  color: var(--danger);
+  text-decoration: underline;
+}
+.td-file-del:disabled { cursor: not-allowed; opacity: 0.5; }
 
 /* 日志：限高可滚动，日志再长也不把抽屉撑爆。 */
 .td-logs {
@@ -521,5 +571,12 @@ function fileName(f: TaskFile): string {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+/* 操作区说明句：辅助档，压在按钮下方，不抢主操作的视觉权重。 */
+.td-note {
+  margin: 8px 0 0;
+  font-size: var(--font-aux);
+  color: var(--text-3);
+  line-height: 1.6;
 }
 </style>

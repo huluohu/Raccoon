@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import DownloadBtn from '@/components/media/DownloadBtn.vue'
+import { mount } from '@/test/mount'
 
 /**
  * DownloadBtn 用例（docs/07 §3「/media → DownloadBtn」）。

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import StatusStrip from '@/components/shell/StatusStrip.vue'
+import { mount } from '@/test/mount'
 
 /**
  * StatusStrip 用例（docs/07 §3 总览页关键组件）。

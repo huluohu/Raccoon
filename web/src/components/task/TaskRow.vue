@@ -31,8 +31,12 @@ const props = withDefaults(
     childStats?: TaskChildStats
     /** 显式声明是父任务（后端建父任务时 platform 固定为 batch，也可由 childStats 推断）。 */
     parent?: boolean
+    /** 只读（历史页复用）：行内操作区与选择框都不渲染。
+     *  只读页上出现的按钮都该能用，留着点了没反应的取消/重试/删除，
+     *  比没有按钮更让人困惑——所以是「不渲染」，不是「置灰」。 */
+    readonly?: boolean
   }>(),
-  { selected: false, selectable: true, parent: false },
+  { selected: false, selectable: true, parent: false, readonly: false },
 )
 
 const emit = defineEmits<{
@@ -76,9 +80,10 @@ const waitReason = computed(() => {
 
 <template>
   <li class="trow" :class="{ 'is-selected': selected }">
-    <!-- 选择框：独立按钮，点了只改选中不改当前详情，避免误触丢焦点。 -->
+    <!-- 选择框：独立按钮，点了只改选中不改当前详情，避免误触丢焦点。
+         只读模式下一并隐去——多选只为批量操作服务，只读页没有批量操作。 -->
     <button
-      v-if="selectable"
+      v-if="selectable && !readonly"
       class="trow-pick"
       type="button"
       role="checkbox"
@@ -143,8 +148,9 @@ const waitReason = computed(() => {
       <!-- 行内操作区：横排一行，不和数据叠成竖列。
            竖排时「速度 / 大小 / 取消 / 重试 / 删除」挤成一摞，右侧栏宽被撑到
            120px，主内容区反而被挤窄——一行任务的视觉重心全跑到了右边。
-           这里给操作区单独一行横排：数据在上，动作在下，各自成行。 -->
-      <div v-if="$slots.actions" class="trow-ops">
+           这里给操作区单独一行横排：数据在上，动作在下，各自成行。
+           只读模式下整个容器不渲染：父级传了 #actions 也不给位置。 -->
+      <div v-if="!readonly && $slots.actions" class="trow-ops">
         <slot name="actions" :task="task" />
       </div>
     </div>

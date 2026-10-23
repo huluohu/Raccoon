@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import TaskDetail from '@/components/task/TaskDetail.vue'
 import { makeEvent, makeFile, makeTask } from '@/test/fixtures'
+import { mount } from '@/test/mount'
 
 /**
  * TaskDetail 用例（docs/07 §4：概览/进度/日志/错误与建议/操作五区；
@@ -39,6 +40,52 @@ describe('TaskDetail', () => {
       global: { stubs },
     })
     expect(w.find('.td-file-name').text()).toContain('测试视频.mp4')
+  })
+
+  it('点删文件只 emit delete-file，确认框交给上层（组件不自己弹窗）', async () => {
+    // 详情面板是纯展示组件：不 fetch、不弹窗、不决定破坏性操作怎么做。
+    // 确认框统一由上层（Tasks.vue / Media.vue 的 DeleteFileDialog）负责，
+    // 这样「删文件」的文案与交互只有一处实现。
+    const file = makeFile()
+    const w = mount(TaskDetail, {
+      props: { task: makeTask(), files: [file] },
+      global: { stubs },
+    })
+    await w.find('.td-file-del').trigger('click')
+
+    const emitted = w.emitted('delete-file')
+    expect(emitted).toBeTruthy()
+    expect((emitted![0] as unknown[])[0]).toMatchObject({ id: file.id })
+    // 组件内部不能自己冒出确认框
+    expect(document.body.querySelector('.rdialog-root')).toBeNull()
+    w.unmount()
+  })
+
+  it('概览区展示「走了哪条路」，没有留痕时如实显示「—」', () => {
+    // route_path 是后端写入的人类可读链路（docs/15 §3.7）。
+    // 老数据没有这个字段，界面不能编一条看起来合理的路径。
+    const withPath = mount(TaskDetail, {
+      props: { task: makeTask({ route_path: '115 优先 → 115 提交中 → 转 qB' }) },
+      global: { stubs },
+    })
+    const labels = withPath.findAll('.td-kv dt').map((n) => n.text())
+    expect(labels).toContain('走了哪条路')
+    expect(withPath.text()).toContain('115 优先 → 115 提交中 → 转 qB')
+
+    const noPath = mount(TaskDetail, { props: { task: makeTask() }, global: { stubs } })
+    expect(noPath.text()).toContain('走了哪条路')
+    expect(noPath.find('.td-kv').text()).toContain('—')
+  })
+
+  it('活跃任务的操作用含暂停说明（引擎不支持暂停，给出替代路径）', () => {
+    // R10：界面上没有暂停按钮，必须说清为什么 + 该怎么中断，否则会被当成功能缺失。
+    const active = mount(TaskDetail, { props: { task: makeTask({ status: 'downloading' }) }, global: { stubs } })
+    expect(active.find('.td-note').text()).toContain('不支持暂停/续传')
+    expect(active.find('.td-note').text()).toContain('重新入队会保留原配置版本')
+
+    // 已结束的任务不需要这条说明（说了反而像在暗示它还能暂停）
+    const done = mount(TaskDetail, { props: { task: makeTask({ status: 'done' }) }, global: { stubs } })
+    expect(done.find('.td-note').exists()).toBe(false)
   })
 
   it('凭据类错误给出「一键跳 connections」入口并 emit goto-connections', async () => {

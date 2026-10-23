@@ -34,6 +34,13 @@ var Registry = []Setting{
 	{Key: "storage.download_dir", Desc: "默认下载目录（相对数据根）", Default: "downloads", Effective: NextTask},
 	{Key: "storage.naming_rule", Desc: "目录与文件名命名规则", Default: "{platform}/{uploader}/{title}.{ext}", Effective: NextTask},
 	{Key: "storage.disk_warn_pct", Desc: "磁盘余量预警百分比", Default: 5, Effective: Immediate},
+	// ---- 存储策略路由（docs/01 §3.4 / docs/15 §3.7）----
+	// local：磁力/种子直接走 qB、其余走本地引擎（存量行为，升级零变化）；
+	// n115_first：115 优先，确定失败自动转 qB，结果不确定先查询不转移；
+	// qb_fallback：磁力/种子先试 115 离线，确定失败或不可用 → 转 qB。
+	{Key: "storage.strategy", Desc: "存储策略（local/n115_first/qb_fallback）", Default: "local", Effective: NextTask},
+	// ---- 成功率预警（docs/14 E2）----
+	{Key: "alert.success_rate_threshold", Desc: "成功率预警阈值（百分比，低于则总览浮预警）", Default: 80, Effective: Immediate},
 	{Key: "download.max_concurrent", Desc: "全局下载并发上限", Default: 3, Effective: NextTask},
 	{Key: "download.platform_cap", Desc: "单平台并发上限", Default: 2, Effective: NextTask},
 	{Key: "download.default_quality", Desc: "默认下载质量", Default: "best", Effective: NextTask},

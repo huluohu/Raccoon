@@ -170,6 +170,7 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request, values map[s
 var settingChoices = map[string][]string{
 	"download.default_quality": {"best", "audio", "360p", "480p", "720p", "1080p"},
 	"log.level":                {"debug", "info", "warn", "error"},
+	"storage.strategy":         {"local", "n115_first", "qb_fallback"},
 }
 
 // validateSettingValue 值域校验：类型已在 config.Persist 里，这里补业务规则。

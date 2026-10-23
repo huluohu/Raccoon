@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import SubList from '@/components/subs/SubList.vue'
 import { RButtonStub, PlatformBadgeStub } from '@/test/stubs'
 import type { Subscription } from '@/api/types'
+import { mount } from '@/test/mount'
 
 /**
  * SubList 用例（docs/07 §3「/subscriptions → SubList」）。
@@ -146,5 +147,39 @@ describe('SubList 组件', () => {
   it('停用的卡片降透明度（一眼看出哪些在跑）', () => {
     const w = mount(SubList, { props: { items: [makeSub({ enabled: false })] }, global: { stubs } })
     expect(w.find('.card').classes()).toContain('off')
+  })
+})
+
+/**
+ * 真实 RButton 下的破坏性动作。
+ *
+ * 上面那组用的是 RButtonStub（把 confirm 直接跳过），只能证明「事件连线对」；
+ * 线上「删除点了没反应」恰恰死在真按钮的二次确认态不可见上，stub 测不出来。
+ * 这组不 stub RButton，断言必须落在用户看得见的东西上。
+ */
+describe('SubList 破坏性动作（真实 RButton）', () => {
+  const realStubs = { PlatformBadge: PlatformBadgeStub }
+
+  const findBtn = (w: ReturnType<typeof mount>, ...labels: string[]) =>
+    w.findAll('button').find((b) => labels.some((l) => b.text().includes(l)))!
+
+  it('删除要点两次：第一次变成「确认删除？」且不抛事件，第二次才抛', async () => {
+    const sub = makeSub()
+    const w = mount(SubList, { props: { items: [sub] }, global: { stubs: realStubs } })
+
+    await findBtn(w, '删除').trigger('click')
+    expect(w.emitted('remove')).toBeFalsy()
+    expect(w.text()).toContain('确认删除？')
+    expect(findBtn(w, '确认删除？').classes()).toContain('rbtn--confirming')
+
+    await findBtn(w, '确认删除？').trigger('click')
+    expect(w.emitted('remove')![0]).toEqual([sub])
+  })
+
+  it('暂停只需一次点击（非破坏性动作不该有二次确认）', async () => {
+    const sub = makeSub()
+    const w = mount(SubList, { props: { items: [sub] }, global: { stubs: realStubs } })
+    await findBtn(w, '暂停').trigger('click')
+    expect(w.emitted('toggle')![0]).toEqual([sub])
   })
 })

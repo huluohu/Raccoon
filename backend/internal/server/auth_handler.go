@@ -134,8 +134,15 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) error {
 	}
 	u, err := s.store.GetUserByUsername(strings.TrimSpace(req.Username))
 	if err != nil {
-		// 统一文案，不暴露用户是否存在。
-		return httpx.Unauthorized("用户名或口令错误")
+		// 只有「查无此人」才走统一文案（不暴露用户是否存在）。
+		// 其它错误是数据库故障——必须如实报 500 并记日志，否则
+		// 「库读不出来」会被伪装成「用户名或口令错误」，用户怎么输都进不去，
+		// 排查时也完全看不出真实原因（2026-10-23 真实踩过）。
+		if errors.Is(err, store.ErrNoSuchUser) {
+			return httpx.Unauthorized("用户名或口令错误")
+		}
+		s.log.Error("登录查询用户失败", map[string]any{"err": err.Error()})
+		return httpx.Internal("登录失败：数据库不可用，请查看服务日志")
 	}
 	if !auth.VerifyPassword(req.Password, u.PasswordHash) {
 		return httpx.Unauthorized("用户名或口令错误")

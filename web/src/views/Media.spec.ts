@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import Media from '@/views/Media.vue'
 import type { MediaFile } from '@/api/types'
+import { mount } from '@/test/mount'
 import {
   DetailDrawerStub,
   PlatformBadgeStub,
@@ -27,6 +28,7 @@ vi.mock('@/api/client', () => {
   return {
     api: {
       listFiles,
+      deleteFile: vi.fn(async () => ({ ok: true })),
       filePreviewUrl: (id: string) => `/api/v1/files/${id}/preview`,
       fileDownloadUrl: (id: string) => `/api/v1/files/${id}/download`,
     },
@@ -95,8 +97,32 @@ describe('Media 视图', () => {
     expect(calls[calls.length - 1]?.[0]).toMatchObject({ q: '测试' })
   })
 
-  it('768–1023 档位表格降级为卡片，「表格」按钮禁用并说明原因（docs/07 §6）', async () => {
-    // jsdom 的 matchMedia 恒返回 matches:false，这里按档位桩一个真的
+  it('删文件必须二次确认，确认后才真删并重拉列表（与删记录分离）', async () => {
+    const { api } = await import('@/api/client')
+    const w = mountMedia()
+    await flushPromises()
+    const before = vi.mocked(api.listFiles).mock.calls.length
+
+    // 卡片上点「删除」：先出确认框，此时不能发请求
+    const delBtn = w.findAll('.file-card')[0].findAll('button').find((b) => b.text() === '删除')
+    expect(delBtn).toBeTruthy()
+    await delBtn!.trigger('click')
+    await flushPromises()
+
+    const dialog = document.body.querySelector('.rdialog-root')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.querySelector('.rdialog-title')?.textContent).toContain('删除这个文件？')
+    expect(dialog?.querySelector('.rdialog-desc')?.textContent).toContain('不可撤销')
+    expect(vi.mocked(api.deleteFile)).not.toHaveBeenCalled()
+
+    // 确认后才真删，并重拉列表（不本地过滤）
+    document.body.querySelector<HTMLButtonElement>('[data-rdialog-action="confirm"]')?.click()
+    await flushPromises()
+    expect(vi.mocked(api.deleteFile)).toHaveBeenCalledWith('f1')
+    expect(vi.mocked(api.listFiles).mock.calls.length).toBeGreaterThan(before)
+  })
+
+  it('768–1023 档位表格降级为卡片，「表格」按钮禁用并说明原因（docs/07 §6）', async () => {    // jsdom 的 matchMedia 恒返回 matches:false，这里按档位桩一个真的
     const spy = vi.spyOn(window, 'matchMedia').mockImplementation((q: string) => ({
       matches: q.includes('max-width: 1023px'),
       media: q,

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import TelegramPanel from '@/components/conn/TelegramPanel.vue'
 import { RButtonStub, RouterLinkStub } from '@/test/stubs'
+import { mount } from '@/test/mount'
 
 /**
  * TelegramPanel 用例（docs/07 §3「/connections → TelegramPanel」）。

@@ -140,6 +140,11 @@ export const api = {
       body: JSON.stringify({ action, ids }),
     }),
   taskDetail: (id: string) => request<import('./types').TaskDetailResult>(`/tasks/${id}`),
+  /** 任务产物列表（详情抽屉「文件」区）。 */
+  taskFiles: (id: string) => request<{ items: import('./types').TaskFile[] }>(`/tasks/${id}/files`),
+  /** 删除单个产物文件（危险操作，前端必须二次确认；与删任务记录是两件事）。 */
+  deleteTaskFile: (taskId: string, fileId: string) =>
+    request<{ ok: boolean }>(`/tasks/${taskId}/files/${fileId}`, { method: 'DELETE' }),
   taskEvents: (id: string, after = 0) =>
     request<{ items: import('./types').TaskEvent[] | null }>(`/tasks/${id}/events?after=${after}`),
   cancelTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
@@ -215,6 +220,8 @@ export const api = {
   },
   fileDownloadUrl: (id: string) => `${BASE}/files/${id}/download`,
   filePreviewUrl: (id: string) => `${BASE}/files/${id}/preview`,
+  /** 媒体库删文件（删磁盘文件 + 索引；与「删任务记录」彻底分离）。 */
+  deleteFile: (id: string) => request<{ ok: boolean }>(`/files/${id}`, { method: 'DELETE' }),
 
   // ---- 订阅（docs/04 §2.6）----
   listSubscriptions: () => request<{ items: import('./types').Subscription[] }>('/subscriptions'),
@@ -342,4 +349,25 @@ export const api = {
     ),
   /** 下载诊断包（zip 字节流，非 JSON）。 */
   diagExport: () => requestBlob('/system/diag/export'),
+
+  // ---- 仪表盘：统计 / 监控 / 日志 / 偏好（docs/04 §2.10、§2.13）----
+  statsSummary: () => request<import('./types').SummaryStats>('/system/stats/summary'),
+  statsTrend: (days: 7 | 30 = 7) =>
+    request<import('./types').TrendResult>(`/system/stats/trend?days=${days}`),
+  monitorSnapshot: () => request<import('./types').MonitorSnapshot>('/system/monitor'),
+  monitorHistory: (range: '1h' | '24h' = '1h') =>
+    request<import('./types').MonitorHistory>(`/system/monitor/history?range=${range}`),
+  /** 运行日志（level 逗号多选 / module / q / from / to / limit / cursor）。 */
+  logs: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString()
+    return request<import('./types').LogPage>('/logs' + (qs ? '?' + qs : ''))
+  },
+  /** 主页布局偏好：layout 是 JSON **字符串**（hidden/order 两个数组）。 */
+  getPreferences: () =>
+    request<{ data: { layout: string } }>('/user/preferences'),
+  savePreferences: (layout: string) =>
+    request<{ data: { layout: string } }>('/user/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ layout }),
+    }),
 }

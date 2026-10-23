@@ -4,7 +4,7 @@
 // 支持渲染成 <a>（传 href 时）：下载、打开外链这类「导航到资源」的动作，
 // 语义上就该是链接而不是按钮——<a> 才有浏览器原生下载、右键「另存为」、
 // 以及读屏软件念作「链接」。用 <button>+window.open 全都拿不到。
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -43,12 +43,17 @@ const cls = computed(() => [
   `rbtn--${props.variant}`,
   `rbtn--${props.tone}`,
   `rbtn--${props.size}`,
-  { 'rbtn--block': props.block, 'rbtn--disabled': props.disabled },
+  { 'rbtn--block': props.block, 'rbtn--disabled': props.disabled, 'rbtn--confirming': confirming.value },
 ])
+
+/** 确认态显示的文字（没传 confirm 时不进入该状态）。 */
+const confirmLabel = computed(() => props.confirm || '确认？')
 
 function onClick(ev: MouseEvent) {
   if (props.disabled) return
   if (props.confirm && !confirming.value) {
+    // 第一次点击只进入确认态：**必须**有可见变化（文案 + 危险实底），
+    // 否则用户看到的就是「点了没反应」，然后放弃操作。
     confirming.value = true
     timer = window.setTimeout(() => (confirming.value = false), 4000)
     return
@@ -57,6 +62,11 @@ function onClick(ev: MouseEvent) {
   confirming.value = false
   emit('click', ev)
 }
+
+// 卸载时清掉确认态计时器（避免组件销毁后回调改已释放的 ref）。
+onBeforeUnmount(() => {
+  if (timer) window.clearTimeout(timer)
+})
 </script>
 
 <template>
@@ -76,9 +86,12 @@ function onClick(ev: MouseEvent) {
     :disabled="href ? undefined : disabled"
     :aria-disabled="href && disabled ? 'true' : undefined"
     :role="href && disabled ? 'link' : undefined"
+    :aria-live="confirm ? 'polite' : undefined"
     @click="onClick"
   >
-    <slot />
+    <!-- 确认态替换文案：第一次点击必须看得见（否则「删除没反应」）。 -->
+    <template v-if="confirming">{{ confirmLabel }}</template>
+    <slot v-else />
   </component>
 </template>
 
@@ -108,6 +121,24 @@ function onClick(ev: MouseEvent) {
 .rbtn--danger.rbtn--outline:hover:not(.rbtn--disabled) { border-color: var(--danger); }
 .rbtn--block { width: 100%; }
 .rbtn--disabled { opacity: 0.5; cursor: not-allowed; }
+/* 二次确认态：换成危险实底 + 确认文案。第一次点击要有明确反馈，
+   原来的实现只把状态记在内存里、外观一动不动，用户以为按钮坏了。 */
+.rbtn--confirming {
+  background: var(--danger);
+  color: var(--on-danger);
+  border-color: var(--danger);
+  animation: rbtn-confirm-in 180ms ease-out;
+}
+/* 悬停也保持危险实底：ghost/outline 的 :hover 规则特异性更高，会把它压回浅色。 */
+.rbtn--confirming:hover:not(.rbtn--disabled) {
+  background: var(--danger);
+  color: var(--on-danger);
+  border-color: var(--danger);
+}
+@keyframes rbtn-confirm-in {
+  from { transform: scale(0.96); }
+  to { transform: scale(1); }
+}
 /* <a> 没有原生 disabled：靠 pointer-events 阻断点击 + aria-disabled 告知读屏。 */
 a.rbtn--disabled { pointer-events: none; }
 /* <768 触控目标 ≥44px（docs/07 §6）：小屏上 sm 尺寸的 4px 内边距根本点不准。 */

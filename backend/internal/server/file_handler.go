@@ -23,6 +23,40 @@ func (s *Server) setupFiles() {
 	s.router.GET("/api/v1/files", s.requireAuth(s.handleFilesList))
 	s.router.GET("/api/v1/files/:id/download", s.requireAuth(s.handleFileDownload))
 	s.router.GET("/api/v1/files/:id/preview", s.requireAuth(s.handleFilePreview))
+	s.router.DELETE("/api/v1/files/:id", s.requireAuth(s.csrfForSession(s.handleFileDelete)))
+}
+
+// handleFileDelete 删除磁盘文件 + 索引（媒体库的「删文件」，与「删任务记录」分离）。
+//
+// 安全点：路径只从 DB 取，再用 storage.WithinRoot 校验，绝不信任前端传路径；
+// 同时按 path 清掉 task_files 同名索引，否则任务详情里会留下指向已删文件的幽灵行。
+func (s *Server) handleFileDelete(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return httpx.NotFound("文件不存在或已删除")
+	}
+	root := s.cfg.GetString("storage.data_dir")
+	abs := f.Path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, abs)
+	}
+	abs = filepath.Clean(abs)
+	if !storage.WithinRoot(root, abs) {
+		s.log.Warn("文件删除路径越界已拦截", map[string]any{"path": f.Path})
+		return httpx.Forbidden("文件路径超出数据目录范围")
+	}
+	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+		s.log.Error("文件删除失败", map[string]any{"path": abs, "err": err.Error()})
+		return httpx.Internal("文件删除失败：磁盘拒绝删除，请查看服务日志")
+	}
+	if err := s.store.DeleteMediaFile(f.ID); err != nil {
+		return httpx.Internal("文件索引删除失败")
+	}
+	if _, err := s.store.DeleteTaskFilesByPath(f.Path); err != nil {
+		s.log.Warn("产物索引同步删除失败", map[string]any{"path": f.Path, "err": err.Error()})
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return nil
 }
 
 // handleFilesList 媒体库列表（过滤 + 分页）。

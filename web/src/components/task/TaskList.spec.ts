@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+
 import TaskList from '@/components/task/TaskList.vue'
 import { RButtonStub, REmptyStub } from '@/test/stubs'
 import { makeTask } from '@/test/fixtures'
 import type { Task } from '@/api/types'
 import type { FilterKey, FilterOption } from '@/composables/useTaskTree'
+import { mount } from '@/test/mount'
 
 /**
  * TaskList 用例（docs/07 §3「/tasks → TaskList（筛选/批量工具条）」）。
@@ -261,5 +262,37 @@ describe('TaskList 组件', () => {
     // 聚合计数由 TaskCard 渲染；这里断言 TaskList 把它算对并传下去了
     expect(card.exists()).toBe(true)
     expect(w.find('.stub-card').attributes('class')).toContain('root-card')
+  })
+
+  it('readonly：不渲染批量工具条与行内操作，筛选条保留（筛选是浏览不是写操作）', () => {
+    const t = makeTask({ id: 't-1', status: 'failed' })
+    const w = mount(TaskList, {
+      props: baseProps({ roots: [t], selectedIds: new Set(['t-1']), readonly: true }),
+      global: { stubs },
+    })
+    expect(w.find('.batchbar').exists()).toBe(false)
+    expect(w.findAll('.tab').length).toBe(FILTERS.length)
+    // 行组件自己也 readonly，且 TaskList 干脆不传 #actions（双保险）
+    expect(w.findAll('.stub-row button').length).toBe(0)
+  })
+
+  it('readonly：父任务操作区不渲染，但展开子项仍可用（树控件由列表提供）', async () => {
+    const parent = makeTask({ id: 'p-1', platform: 'batch' })
+    const w = mount(TaskList, {
+      props: baseProps({
+        roots: [parent],
+        isParent: (t: Task) => t.id === 'p-1',
+        statOf: () => ({ total: 3, failed: 0, done: 0 }),
+        readonly: true,
+      }),
+      global: { stubs },
+    })
+    // 卡片里不再有「展开/删除」
+    expect(w.findAll('.stub-card button').length).toBe(0)
+
+    const toggle = w.find('.tree-toggle button')
+    expect(toggle.exists()).toBe(true)
+    await toggle.trigger('click')
+    expect(w.emitted('toggle-expand')![0]).toEqual(['p-1'])
   })
 })

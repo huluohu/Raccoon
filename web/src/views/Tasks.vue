@@ -21,6 +21,7 @@ import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import TaskList from '@/components/task/TaskList.vue'
 import TaskDetail from '@/components/task/TaskDetail.vue'
+import DeleteFileDialog from '@/components/media/DeleteFileDialog.vue'
 
 const router = useRouter()
 const tasks = useTasksStore()
@@ -449,6 +450,42 @@ async function confirmDelete() {
   await runAction(t.id, tasks.remove)
 }
 
+/**
+ * 删单个产物文件（详情抽屉里点「删除」触发）。
+ *
+ * 分两步：先只记下待删文件并弹共用确认框（DeleteFileDialog），确认后才真发请求。
+ * 详情组件只发事件、不弹窗，破坏性决策的实现只此一处。
+ *
+ * 与「删任务记录」彻底分离：任务记录走 DELETE /tasks/{id}（软删，文件留在磁盘），
+ * 这里走 DELETE /tasks/{id}/files/{fileId}（真删磁盘 + 索引）。
+ * 成功后重拉产物列表——不能本地数组过滤，否则与服务端出现第二份真相。
+ */
+const pendingDetailFile = ref<TaskFile | null>(null)
+
+async function confirmDeleteDetailFile() {
+  const file = pendingDetailFile.value
+  const t = detail.value
+  pendingDetailFile.value = null
+  if (!file || !t) return
+  busyId.value = t.id
+  try {
+    const { api } = await import('@/api/client')
+    await api.deleteTaskFile(t.id, file.id)
+    detailFiles.value = await fetchDetailFiles(t.id)
+    toast.success('文件已删除')
+  } catch (e) {
+    toast.error(e instanceof ApiError ? e.message : '文件删除失败')
+  } finally {
+    busyId.value = ''
+  }
+}
+
+/** 产物文件名（取路径末段，确认框里展示给人看）。 */
+function baseName(path: string): string {
+  const parts = path.split('/')
+  return parts[parts.length - 1] || path
+}
+
 onMounted(async () => {
   await tasks.refresh()
   tasks.connect()
@@ -649,7 +686,7 @@ onBeforeUnmount(() => {
       title="批量删除任务？"
       danger
       confirm-text="删除"
-      :description="pendingBatchDelete ? `将删除选中的 ${pendingBatchDelete.length} 个任务及其本地文件，此操作不可撤销。` : ''"
+      :description="pendingBatchDelete ? `将删除选中的 ${pendingBatchDelete.length} 个任务记录，磁盘上的文件会保留。此操作不可撤销。` : ''"
       @update:open="(v) => !v && (pendingBatchDelete = null)"
       @confirm="confirmBatchDelete"
       @cancel="pendingBatchDelete = null"
@@ -661,7 +698,7 @@ onBeforeUnmount(() => {
       title="删除任务？"
       danger
       confirm-text="删除"
-      :description="pendingDelete ? `将删除「${pendingDelete.title || pendingDelete.url}」及其本地文件，此操作不可撤销。` : ''"
+      :description="pendingDelete ? `将删除「${pendingDelete.title || pendingDelete.url}」的任务记录，磁盘上的文件会保留。要连文件一起删，请在详情里逐个删除。此操作不可撤销。` : ''"
       @update:open="(v) => !v && (pendingDelete = null)"
       @confirm="confirmDelete"
       @cancel="pendingDelete = null"
@@ -680,8 +717,19 @@ onBeforeUnmount(() => {
         @retry="(t) => runAction(t.id, tasks.retry)"
         @cancel="(t) => runAction(t.id, tasks.cancel)"
         @remove="(t) => runAction(t.id, tasks.remove)"
+        @delete-file="(f) => (pendingDetailFile = f)"
       />
     </DetailDrawer>
+
+    <!-- 删产物确认框：与媒体库共用同一份文案（删哪个文件 / 多大 / 任务记录保留） -->
+    <DeleteFileDialog
+      :open="pendingDetailFile !== null"
+      :file-name="pendingDetailFile ? baseName(pendingDetailFile.path) : ''"
+      :size="pendingDetailFile?.size ?? 0"
+      :path="pendingDetailFile?.path ?? ''"
+      @update:open="(v: boolean) => !v && (pendingDetailFile = null)"
+      @confirm="confirmDeleteDetailFile"
+    />
   </section>
 </template>
 
