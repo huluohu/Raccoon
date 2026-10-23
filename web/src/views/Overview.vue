@@ -26,6 +26,7 @@ import { formatBytes } from '@/utils/format'
 import {
   applyLayout,
   buildCards,
+  CARD_KEYS,
   CARD_LABELS,
   DEFAULT_LAYOUT,
   DEFAULT_RATE_THRESHOLD,
@@ -135,7 +136,11 @@ async function loadLayout() {
 
 function openCustom() {
   draftHidden.value = [...layout.value.hidden]
-  draftOrder.value = visibleCards.value.map((c) => c.key)
+  // 草稿必须覆盖**全部**卡片，不能只列当前可见的：
+  // 只列可见的话，一张卡一旦被隐藏就从面板里消失了，用户再也勾不回来
+  // （偏好里 hidden 越攒越多，界面却没有任何入口能恢复）。
+  const shown = visibleCards.value.map((c) => c.key)
+  draftOrder.value = [...shown, ...CARD_KEYS.filter((k) => !shown.includes(k))]
   customOpen.value = true
 }
 

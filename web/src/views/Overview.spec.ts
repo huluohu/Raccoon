@@ -203,6 +203,38 @@ describe('Overview 视图', () => {
     expect(saved.order.length).toBeGreaterThan(0)
   })
 
+  it('E1：隐藏过的卡片仍在布局面板里，能再勾回来（不能一藏就消失）', async () => {
+    const { api } = await import('@/api/client')
+    vi.mocked(api.getPreferences).mockResolvedValueOnce({
+      data: { layout: JSON.stringify({ hidden: ['images', 'videos'], order: [] }) },
+    })
+    const w = mountOverview()
+    await flushPromises()
+    const openBtn = w.findAll('button').find((b) => b.text().includes('调整主页布局'))
+    await openBtn!.trigger('click')
+    await flushPromises()
+
+    // 面板必须列出**全部**卡片：只列可见的话，隐藏项没有入口能恢复
+    const items = Array.from(document.body.querySelectorAll('.layout-item'))
+    const labels = items.map((li) => li.textContent?.trim() ?? '')
+    expect(labels).toContain('图片')
+    expect(labels).toContain('视频')
+
+    const imgBox = items
+      .find((li) => li.textContent?.includes('图片'))
+      ?.querySelector('input') as HTMLInputElement
+    expect(imgBox.checked).toBe(false) // 隐藏 = 未勾选
+    imgBox.click()
+    await flushPromises()
+    document.body.querySelector<HTMLButtonElement>('[data-rdialog-action="confirm"]')?.click()
+    await flushPromises()
+
+    const calls = vi.mocked(api.savePreferences).mock.calls
+    const saved = JSON.parse(calls[calls.length - 1][0] as string)
+    expect(saved.hidden).not.toContain('images')
+    expect(saved.hidden).toContain('videos')
+  })
+
   it('E2：成功率低于阈值时浮出预警条目并可跳转', async () => {
     const { api } = await import('@/api/client')
     vi.mocked(api.statsSummary).mockResolvedValueOnce({

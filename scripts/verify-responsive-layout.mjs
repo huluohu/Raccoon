@@ -139,8 +139,29 @@ const tabs = await page.evaluate(() =>
   }),
 )
 tabs.length >= 5
-  ? ok('底部栏入口数', `${tabs.length} 项`)
-  : fail('底部栏入口数', `${tabs.length} 项`)
+  ? ok('底部栏入口数（5 高频）', `${tabs.length} 项`)
+  : fail('底部栏入口数（5 高频）', `${tabs.length} 项`)
+
+// 「更多」面板：10 项导航在小屏不能只剩 5 个（docs/15 §2.3 IA）
+await page.click('.tabbar-more')
+await page.waitForTimeout(400)
+const more = await page.evaluate(() => {
+  const sheet = document.querySelector('.more-sheet')
+  if (!sheet) return null
+  const items = Array.from(sheet.querySelectorAll('.more-item'))
+  return {
+    n: items.length,
+    minH: items.length ? Math.min(...items.map((el) => Math.round(el.getBoundingClientRect().height))) : 0,
+  }
+})
+more && more.n >= 5
+  ? ok('「更多」面板补齐低频入口', `${more.n} 项，最小高度 ${more.minH}px`)
+  : fail('「更多」面板补齐低频入口', more ? `仅 ${more.n} 项` : '面板没渲染出来')
+await page.screenshot({ path: SHOTS + 'more-sheet-375.png' })
+await page.keyboard.press('Escape')
+await page.waitForTimeout(400)
+const moreClosed = await page.evaluate(() => !document.querySelector('.more-sheet'))
+moreClosed ? ok('Esc 关闭「更多」面板') : fail('Esc 关闭「更多」面板')
 const allLabeled = tabs.every((t) => t.label.length > 0)
 allLabeled
   ? ok('底部栏每项都有文字标签', tabs.map((t) => t.label).join('/'))
@@ -160,6 +181,10 @@ const PAGES = [
   { path: '/live', name: 'live' },
   { path: '/connections', name: 'connections' },
   { path: '/settings', name: 'settings' },
+  // 本轮新增三页（docs/15 T05）：历史只读 / 日志 / 监控
+  { path: '/history', name: 'history' },
+  { path: '/logs', name: 'logs' },
+  { path: '/monitor', name: 'monitor' },
 ]
 for (const { w, h } of TIERS) {
   await page.setViewportSize({ width: w, height: h })
