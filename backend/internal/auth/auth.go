@@ -1,4 +1,4 @@
-// Package auth 提供口令散列（Argon2id）与 Web 会话管理（内存会话表 + CSRF）。
+// Package auth 提供口令散列（Argon2id）与 Web 会话管理（SQLite 持久化会话表 + CSRF）。
 // 会话为 HttpOnly Cookie（SameSite=Lax）；API Token 通道见 docs/04 §1.1（Wave 4.9 接入）。
 package auth
 
@@ -9,8 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/huluohu/raccoon/internal/store"
 )
 
 // Argon2id 参数（OWASP 2023 建议量级；自托管单用户场景取中等偏上）。
@@ -91,30 +92,27 @@ func decodePHC(encoded string) (salt, key []byte, t uint32, m uint32, p uint8, e
 	return salt, key, t, m, p, nil
 }
 
-// ---- 会话表（内存；重启需重新登录，可接受：单用户自托管） ----
+// ---- 会话表（SQLite 持久化，migration 0005；应用重启不清登录态） ----
 
-// Session 一条 Web 会话。
-type Session struct {
-	UserID    string
-	CSRFToken string
-	CreatedAt time.Time
-	LastSeen  time.Time
-}
-
-// SessionStore 内存会话表（docs/04 §1.1「内存会话表」落地）。
+// SessionStore 持久化会话表（docs/04 §1.1「内存会话表」的升级版：
+// 存储下沉到 store.auth_sessions 表，进程重启后同一把 sid 仍可校验通过）。
+//
+// 有效期两种（均滑动续期，以 last_seen 计）：
+//   - remember=true：「30 天内免登录」，Cookie 同步带 30 天 Max-Age；
+//   - remember=false：普通会话 24h，Cookie 不带 Max-Age（浏览器关闭即失效）。
 type SessionStore struct {
-	mu       sync.Mutex
-	sessions map[string]*Session
-	ttl      time.Duration
+	store       *store.Store
+	rememberTTL time.Duration
+	defaultTTL  time.Duration
 }
 
-// NewSessionStore 建会话表；ttl 为有效期（滑动续期）。
-func NewSessionStore(ttl time.Duration) *SessionStore {
-	return &SessionStore{sessions: map[string]*Session{}, ttl: ttl}
+// NewSessionStore 建会话表：db 为 SQLite 出口，两个 TTL 分别对应 remember 两种会话。
+func NewSessionStore(db *store.Store, rememberTTL, defaultTTL time.Duration) *SessionStore {
+	return &SessionStore{store: db, rememberTTL: rememberTTL, defaultTTL: defaultTTL}
 }
 
 // Create 新建会话，返回 sessionID 与 CSRF token。
-func (s *SessionStore) Create(userID string) (sid, csrf string, err error) {
+func (s *SessionStore) Create(userID string, remember bool) (sid, csrf string, err error) {
 	sid, err = randToken(24)
 	if err != nil {
 		return "", "", err
@@ -123,44 +121,46 @@ func (s *SessionStore) Create(userID string) (sid, csrf string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[sid] = &Session{UserID: userID, CSRFToken: csrf, CreatedAt: time.Now(), LastSeen: time.Now()}
+	if err := s.store.CreateSession(sid, userID, csrf, remember); err != nil {
+		return "", "", err
+	}
 	return sid, csrf, nil
 }
 
+// renewInterval 滑动续期落库节流：距上次刷新不足该间隔不写库，
+// 避免每个请求都产生一次 UPDATE（单用户场景 60s 粒度足够）。
+const renewInterval = time.Minute
+
 // Get 校验会话（滑动续期）；有效返回 UserID。
 func (s *SessionStore) Get(sid string) (userID, csrf string, ok bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.sessions[sid]
-	if !ok {
+	sess, err := s.store.GetSession(sid)
+	if err != nil {
 		return "", "", false
 	}
-	if time.Since(sess.LastSeen) > s.ttl {
-		delete(s.sessions, sid)
+	ttl := s.defaultTTL
+	if sess.Remember {
+		ttl = s.rememberTTL
+	}
+	lastSeen := time.UnixMilli(sess.LastSeen)
+	if time.Since(lastSeen) > ttl {
+		_ = s.store.DeleteSession(sid)
 		return "", "", false
 	}
-	sess.LastSeen = time.Now()
+	// 续期节流：last_seen 落后超过 renewInterval 才写一次库。
+	if time.Since(lastSeen) > renewInterval {
+		_ = s.store.TouchSession(sid, time.Now())
+	}
 	return sess.UserID, sess.CSRFToken, true
 }
 
 // Delete 销毁会话（登出）。
 func (s *SessionStore) Delete(sid string) {
-	s.mu.Lock()
-	delete(s.sessions, sid)
-	s.mu.Unlock()
+	_ = s.store.DeleteSession(sid)
 }
 
-// GC 清理过期会话（启动 goroutine 每小时一次）。
+// GC 清理过期会话（启动 goroutine 每小时一次；重启后补跑，等价于恢复时清洗）。
 func (s *SessionStore) GC() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for sid, sess := range s.sessions {
-		if time.Since(sess.LastSeen) > s.ttl {
-			delete(s.sessions, sid)
-		}
-	}
+	_ = s.store.GCSessionRows(time.Now(), s.rememberTTL, s.defaultTTL)
 }
 
 func randToken(n int) (string, error) {

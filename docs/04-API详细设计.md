@@ -11,10 +11,11 @@
 
 | 通道 | 机制 | 用途 |
 | --- | --- | --- |
-| Web 会话 | 登录后种 `raccoon_session` HttpOnly Cookie（SameSite=Lax）+ 内存会话表 | Web GUI |
+| Web 会话 | 登录后种 `raccoon_session` HttpOnly Cookie（SameSite=Lax）+ SQLite 持久化会话表（auth_sessions，重启不掉登录态） | Web GUI |
 | API Token | `Authorization: Bearer <token>`（api_tokens 表，scope 位掩码） | HTTP API / CLI / 扩展 / 快捷指令 |
 
 - 会话认证的状态变更请求（POST/PUT/DELETE）需 `X-CSRF-Token` 头（登录时下发，存内存）。
+- 会话有效期（滑动续期）：登录页勾选「30 天内免登录」（`remember:true`）→ 30 天 + 持久化 Cookie；未勾选 → 24h + 浏览器会话 Cookie（关浏览器即登出）。会话落 `auth_sessions` 表，应用重启不清登录态。
 - Token 通道豁免 CSRF（无 Cookie 上下文）。
 
 ### 1.2 统一响应

@@ -18,6 +18,10 @@ const sessionCookieName = "raccoon_session"
 
 const sessionTTL = 30 * 24 * time.Hour
 
+// sessionDefaultTTL 普通会话（登录页未勾「30 天内免登录」）的服务端滑动有效期；
+// 对应 Cookie 不带 Max-Age（浏览器关闭即失效）。
+const sessionDefaultTTL = 24 * time.Hour
+
 // authDeps 认证模块依赖（Server 持有）。
 type authDeps struct {
 	auth    *auth.SessionStore
@@ -26,7 +30,7 @@ type authDeps struct {
 
 // setupAuth 挂载 auth 路由与认证中间件。
 func (s *Server) setupAuth() {
-	s.sessions = auth.NewSessionStore(sessionTTL)
+	s.sessions = auth.NewSessionStore(s.store, sessionTTL, sessionDefaultTTL)
 
 	// 无认证入口。
 	s.router.POST("/api/v1/auth/status", s.handleAuthStatus)
@@ -95,11 +99,12 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) error {
 		return httpx.Internal("创建用户失败")
 	}
 	_ = s.store.TouchLogin(u.ID)
-	sid, csrf, err := s.sessions.Create(u.ID)
+	// 初始化即视为勾选「30 天内免登录」：首次使用不该马上被踢回登录页。
+	sid, csrf, err := s.sessions.Create(u.ID, true)
 	if err != nil {
 		return httpx.Internal("创建会话失败")
 	}
-	s.setSessionCookie(w, sid)
+	s.setSessionCookie(w, sid, sessionTTL)
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{
 		"user":       u,
 		"csrf_token": csrf,
@@ -110,6 +115,9 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) error {
 type loginReq struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// Remember 登录页「30 天内免登录」勾选：true → 30 天滑动会话 + 持久化 Cookie；
+	// false → 24h 滑动会话 + 浏览器会话 Cookie（关浏览器即登出）。
+	Remember bool `json:"remember"`
 }
 
 func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) error {
@@ -138,12 +146,16 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) error {
 			_ = s.store.UpdatePassword(u.ID, h)
 		}
 	}
-	sid, csrf, err := s.sessions.Create(u.ID)
+	sid, csrf, err := s.sessions.Create(u.ID, req.Remember)
 	if err != nil {
 		return httpx.Internal("创建会话失败")
 	}
 	_ = s.store.TouchLogin(u.ID)
-	s.setSessionCookie(w, sid)
+	if req.Remember {
+		s.setSessionCookie(w, sid, sessionTTL)
+	} else {
+		s.setSessionCookie(w, sid, 0) // Max-Age=0：浏览器会话 Cookie，关浏览器即失效
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"user":       u,
 		"csrf_token": csrf,
@@ -268,14 +280,16 @@ func validateUserFields(username, password string) error {
 	return auth.CheckPasswordPolicy(password)
 }
 
-func (s *Server) setSessionCookie(w http.ResponseWriter, sid string) {
+// setSessionCookie 种会话 Cookie。maxAge>0 持久化 Cookie（保持登录 30 天）；
+// maxAge==0 会话 Cookie（浏览器关闭即失效）；统一 SameSite=Lax 防跨站携带。
+func (s *Server) setSessionCookie(w http.ResponseWriter, sid string, maxAge time.Duration) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sid,
 		Path:     "/",
-		MaxAge:   int(sessionTTL.Seconds()),
+		MaxAge:   int(maxAge.Seconds()),
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode, // 同站部署；防跨站 POST 带 cookie
+		SameSite: http.SameSiteLaxMode,
 		// Secure 由部署层（HTTPS 反代）决定；本地 http 不置 Secure 否则不生效。
 	})
 }

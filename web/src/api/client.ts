@@ -95,10 +95,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
-  authLogin: (username: string, password: string) =>
+  // remember：登录页「30 天内免登录」勾选（docs/04 §1.1）。
+  authLogin: (username: string, password: string, remember: boolean) =>
     request<import('./types').AuthResult>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, remember }),
     }),
   authLogout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   // 后端 handleAuthMe 返回 {"user": {...}}（非 data 信封，docs/04 §2.1）。

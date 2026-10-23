@@ -54,11 +54,12 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(username: string, password: string): Promise<void> {
+  /** login remember：true → 后端签 30 天滑动会话 + 持久化 Cookie；false → 24h + 浏览器会话 Cookie。 */
+  async function login(username: string, password: string, remember = true): Promise<void> {
     busy.value = true
     error.value = ''
     try {
-      const res = await api.authLogin(username, password)
+      const res = await api.authLogin(username, password, remember)
       setCsrfToken(res.csrf_token)
       user.value = res.user
       phase.value = 'ready'
