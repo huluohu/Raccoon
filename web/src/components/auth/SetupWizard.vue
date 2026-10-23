@@ -18,7 +18,7 @@
 // 本组件不自己跳路由（会话 gate 已经接管，重复跳转会闪一下）。
 import { computed, ref } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
+import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
 
 const auth = useAuthStore()
 
@@ -91,11 +91,7 @@ async function create() {
   <section class="wizard">
     <div class="card">
       <div class="brand">
-        <RaccoonFace :face="step === 1 ? 'waiting' : 'working'" :size="52" />
-        <div>
-          <h1>浣熊 <em>Raccoon</em></h1>
-          <p class="sub">首次使用 · 第 {{ step }} / 2 步</p>
-        </div>
+        <RaccoonLogo :size="56" tagline="首次使用 · 初始化管理员" />
       </div>
 
       <!-- 步骤指示：两个点 + 当前态，不靠文字颜色单独承载信息 -->
@@ -179,10 +175,7 @@ async function create() {
 <style scoped>
 .wizard { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 24px; }
 .card { width: 100%; max-width: 460px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-modal); padding: 32px; box-shadow: var(--shadow-2); }
-.brand { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
-h1 { margin: 0; font-size: var(--font-title-2); font-weight: var(--weight-title); }
-h1 em { font-style: normal; font-size: var(--font-aux); color: var(--text-3); margin-left: 4px; }
-.sub { margin: 4px 0 0; font-size: var(--font-aux); color: var(--text-2); }
+.brand { display: flex; justify-content: center; margin-bottom: 20px; }
 /* 步骤指示：当前步用色块 + 文字，色弱用户也能靠位置读出进度。 */
 .steps { list-style: none; display: flex; gap: 8px; margin: 0 0 20px; padding: 0; }
 .step {

@@ -19,12 +19,12 @@ vi.mock('@/api/client', () => ({
 describe('Setup 视图', () => {
   it('渲染初始化向导（分步表单），不是登录表单', async () => {
     const w = mountView(Setup, [], {
-      global: { stubs: { RaccoonFace: { template: '<i class="stub-face" />' } } },
+      global: { stubs: { RaccoonLogo: { template: '<i class="stub-logo" />' } } },
     })
     await flushPromises()
 
-    expect(w.text()).toContain('首次使用')
-    expect(w.text()).toContain('第 1 / 2 步')
+    expect(w.find('.stub-logo').exists()).toBe(true)
+    expect(w.find('.step.on').text()).toContain('① 账号信息')
     // 向导有确认口令（登录没有）
     expect(w.findAll('input').length).toBe(3)
   })

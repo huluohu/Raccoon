@@ -5,10 +5,15 @@
 // 响应式四档（docs/07 §6）：
 //   ≥1280        侧导航常驻 + 双栏（默认）
 //   1024–1279    侧导航收图标栏（仅图标，文字隐藏）
-//   768–1023     侧导航收进抽屉，顶栏出汉堡按钮；表格降级卡片（各视图自行处理）
-//   <768         单栏 + 底部主操作栏，触控目标 ≥44px，内容留出底部安全区
-import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+//   768–1023     抽屉+表格降级卡片（各视图自行处理）
+//   <768         单栏+底部主操作栏，触控目标 ≥44px，内容留出底部安全区
+//
+// 视觉方向（docs/07 §2「结构色：树影蓝灰」的落地）：
+//   侧导航是结构色的大面积载体——深树影蓝灰底撑起品牌骨架，内容区留白。
+//   浅色模式 nav=#1B2430，深色模式 nav=#0B0E14（比内容区更暗，层次不翻转为浅）。
+//   围巾金只落在最高频动作上：顶栏提交按钮 + 当前导航项，全屏 ≤3 处。
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
@@ -18,13 +23,14 @@ import Setup from '@/views/Setup.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import RToast from '@/components/base/RToast.vue'
-import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
+import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
 
 const ui = useUiStore()
 const auth = useAuthStore()
 const tasks = useTasksStore()
 const notif = useNotificationsStore()
 const router = useRouter()
+const route = useRoute()
 
 const quickUrl = ref('')
 const quickErr = ref('')
@@ -41,6 +47,14 @@ const NAV_ITEMS = [
   { to: '/connections', label: '连接', icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
   { to: '/settings', label: '设置', icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
 ]
+
+/**
+ * 顶栏页面标题：路由 meta.title 是唯一来源。
+ * 原来每个视图自己在内容区顶一个 <h1> + 金色左边条（Word 文档风），
+ * 七页七种顶部留白；标题归属统一到顶栏后，「你在哪」由导航高亮 + 顶栏标题
+ * 双重锚定，内容区直接进入数据——这是布局比例重构的核心一步。
+ */
+const pageTitle = computed(() => (route.meta.title as string) ?? '')
 
 /** 768–1023 抽屉态：Esc 关闭（焦点即使跑出抽屉也能兜住）。 */
 function onNavKey(ev: KeyboardEvent) {
@@ -130,35 +144,35 @@ onUnmounted(() => {
       </button>
 
       <aside class="nav" :class="{ open: navOpen }">
+        <!-- 品牌区：RaccoonLogo 静态徽标（不是会变表情的 RaccoonFace——表情是状态角色，
+             徽标是识别符号）。深底上 --logo-fur 提亮一档，否则头会糊进导航底色。 -->
         <div class="brand">
-          <RaccoonFace face="working" :size="22" />
-          <span class="brand-name">浣熊 <em>Raccoon</em></span>
+          <RaccoonLogo :size="34" />
         </div>
         <nav @click="navOpen = false">
           <router-link v-for="item in NAV_ITEMS" :key="item.to" :to="item.to" :title="item.label">
-            <svg class="nav-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <svg class="nav-icon" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
               <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <span class="nav-link-text">{{ item.label }}</span>
           </router-link>
         </nav>
         <div class="nav-foot">
-          <!-- 用户名 + 连接状态一行：原来分两行刷下来，和上面 15 个导航项
-               连成一条长列表，像没写完。现在用户区自带分隔线，一眼是「账户区」。 -->
+          <!-- 用户名 + 连接状态一行：用户区自带分隔线，一眼是「账户区」而不是导航列表的尾巴。 -->
           <div class="user-row">
             <span class="user" :title="auth.user?.username">{{ auth.user?.username }}</span>
             <span class="conn" :class="tasks.connected ? 'on' : 'off'" :title="tasks.connected ? '实时连接正常' : '实时连接断开，正在重连'">
               {{ tasks.connected ? '实时' : '重连中' }}
             </span>
           </div>
-          <button class="theme-toggle" type="button" @click="ui.toggleTheme">
+          <button class="foot-btn" type="button" @click="ui.toggleTheme">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path v-if="ui.theme === 'dark'" d="M13 9.8A5.6 5.6 0 0 1 6.2 3a5.6 5.6 0 1 0 6.8 6.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
               <path v-else d="M8 3.2v1.6m0 6.4v1.6M3.2 8h1.6m6.4 0h1.6M4.8 4.8l1.1 1.1m4.2 4.2 1.1 1.1m0-6.4-1.1 1.1M5.9 10.1l-1.1 1.1M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
             </svg>
             <span class="btn-text">{{ ui.theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
           </button>
-          <button class="logout" type="button" @click="auth.logout()">
+          <button class="foot-btn" type="button" @click="auth.logout()">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path d="M6.4 3.6H3.8a1 1 0 0 0-1 1v6.8a1 1 0 0 0 1 1h2.6M10.4 5.6 13 8l-2.6 2.4M13 8H6.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
@@ -171,6 +185,8 @@ onUnmounted(() => {
 
       <div class="main">
         <header class="topbar">
+          <!-- 页面标题：路由 meta.title，全站唯一的「你在哪」文字锚点 -->
+          <h1 class="topbar-title">{{ pageTitle }}</h1>
           <QuickSubmit
             v-model="quickUrl"
             :error="quickErr"
@@ -208,27 +224,70 @@ onUnmounted(() => {
 
 <style scoped>
 .app { display: flex; min-height: 100vh; background: var(--bg); color: var(--text-1); }
-.nav { width: 208px; flex-shrink: 0; padding: 16px 12px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; }
-.brand { display: flex; align-items: center; gap: 8px; font-size: var(--font-title-3); font-weight: var(--weight-strong); }
-.brand-name em { font-style: normal; font-size: var(--font-aux); color: var(--text-3); margin-left: 2px; }
+
+/* ============ 侧导航：结构色大面积载体（树影蓝灰深底） ============ */
+.nav {
+  width: 240px;
+  flex-shrink: 0;
+  padding: 20px 14px 16px;
+  background: var(--nav-bg);
+  border-right: 1px solid var(--nav-border);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.brand { display: flex; align-items: center; padding: 0 6px; }
+/* 深底上的徽标：毛色提亮一档（浅底用的是 --accent 深蓝灰，深底上会糊），
+   面纹保持纸白、眼罩改近黑、字标反白。 */
+.brand .rlogo {
+  --logo-fur: var(--logo-fur-lift);
+  --logo-face: var(--logo-face-lift);
+  --logo-mask: var(--logo-mask-lift);
+  --logo-name: var(--nav-text-strong);
+  --logo-sub: var(--nav-text);
+}
 .nav nav { display: flex; flex-direction: column; gap: 2px; }
 /* 导航条目：正文档 16px。导航是主操作路径，7 个入口都用 aux(13.5px) 会让
    「当前在哪、点哪去」这条主路径看起来比次要说明还轻。 */
-.nav nav a { padding: 9px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-body); }
-.nav nav a:hover { background: var(--surface-2); }
-.nav nav a.router-link-active { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-semibold); }
+.nav nav a {
+  position: relative;
+  padding: 10px 12px;
+  border-radius: var(--radius-ctrl);
+  color: var(--nav-text);
+  text-decoration: none;
+  font-size: var(--font-body);
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+.nav nav a:hover { background: var(--nav-hover); color: var(--nav-text-strong); }
+/* 当前项：左侧金条 + 金色文字 + 淡金底——围巾金落在「当前位置」上，
+   和顶栏提交按钮两处，全屏金色 ≤3 处的额度刚好用完。 */
+.nav nav a.router-link-active {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+  font-weight: var(--weight-semibold);
+}
+.nav nav a.router-link-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--nav-active-text);
+}
 /* 用户区与导航列表之间必须有分隔：否则 admin / 实时 / 深色模式 / 退出登录
    会和上面 15 个导航项连成一条无尽列表，观感就是「这页面没做完」。 */
-.nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
+.nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--nav-border); padding-top: 14px; }
 .user-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; min-width: 0; }
-/* 用户名是「当前身份」，正文档 + 主文字色，不当辅助信息。 */
-.user { font-size: var(--font-body); font-weight: var(--weight-strong); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* 用户名是「当前身份」，正文档 + 反白，不当辅助信息。 */
+.user { font-size: var(--font-body); font-weight: var(--weight-strong); color: var(--nav-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* 实时连接状态：辅助档 13.5px（§2「12px 仅表头/徽章」，这是状态提示不是徽章）。 */
 .conn {
   font-size: var(--font-aux);
-  margin-left: 0;
   flex-shrink: 0;
-  color: var(--text-3);
+  color: var(--nav-text);
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -236,11 +295,30 @@ onUnmounted(() => {
 .conn::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--neutral); }
 .conn.on::before { background: var(--success); }
 .conn.off::before { background: var(--warning); }
-.theme-toggle, .logout { padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--surface); color: var(--text-2); cursor: pointer; font-size: var(--font-body); text-align: left; }
-.logout:hover { color: var(--danger); border-color: var(--danger); }
+/* 深底上的次级按钮：半透明描边 + 浅字，hover 出浅色蒙层。 */
+.foot-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--nav-btn-border);
+  border-radius: var(--radius-ctrl);
+  background: transparent;
+  color: var(--nav-text);
+  cursor: pointer;
+  font-size: var(--font-body);
+  text-align: left;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+.foot-btn:hover { background: var(--nav-hover); color: var(--nav-text-strong); }
+.foot-btn:last-child:hover { color: var(--danger); }
+
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.topbar { padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 8px; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; padding-top: 1px; }
+.topbar { padding: 0 24px; height: 64px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 20px; }
+/* 顶栏标题：title-1 24px/750。内容区各视图不再自己顶标题——
+   标题归属统一在这里，七页共用一条稳定的「你在哪」锚线。 */
+.topbar-title { font-size: var(--font-title-1); font-weight: var(--weight-title); color: var(--text-1); white-space: nowrap; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 /* 顶栏告警条：辅助档 13.5px（这是要读的一句话，不是表头）。 */
 .topbar-warn {
   max-width: 280px;
@@ -281,18 +359,18 @@ onUnmounted(() => {
 
 /* 1024–1279：侧导航收图标栏（图标居中，文字与尾部文字按钮隐藏） */
 @media (max-width: 1279px) and (min-width: 1024px) {
-  .nav { width: 60px; padding: 16px 6px; align-items: center; }
-  .brand { justify-content: center; }
-  .brand-name { display: none; }
+  .nav { width: 64px; padding: 20px 8px 16px; align-items: center; }
+  .brand { justify-content: center; padding: 0; }
   .nav nav { width: 100%; }
-  .nav nav a { justify-content: center; padding: 10px 0; }
+  .nav nav a { justify-content: center; padding: 11px 0; }
+  /* 图标栏态的金条改成圆点：竖条在 64px 窄栏里会戳出边界 */
+  .nav nav a.router-link-active::before { width: 18px; height: 3px; top: auto; bottom: 3px; transform: none; }
   .nav-link-text { display: none; }
   .nav-foot { align-items: center; }
   .nav-foot .user,
   .nav-foot .conn { display: none; }
   .nav-foot .btn-text { display: none; }
-  .theme-toggle,
-  .logout { padding: 10px; justify-content: center; }
+  .foot-btn { padding: 10px; justify-content: center; }
 }
 
 /* 768–1023：侧导航收进抽屉 + 顶栏汉堡；表格降级卡片由各视图自行处理 */
@@ -302,14 +380,14 @@ onUnmounted(() => {
     position: fixed;
     inset: 0 auto 0 0;
     z-index: 60;
-    width: 232px;
+    width: 248px;
     transform: translateX(-100%);
     transition: transform var(--motion-panel) var(--motion-panel-ease);
     box-shadow: var(--shadow-3);
   }
   .nav.open { transform: translateX(0); }
   .nav-mask { position: fixed; inset: 0; z-index: 50; background: var(--scrim); }
-  .topbar { padding-left: 12px; }
+  .topbar { padding: 0 12px; gap: 12px; }
 }
 
 /* <768：单栏 + 底部主操作栏；触控目标 ≥44px；内容留出底部安全区（375px 关键按钮不被挡） */
@@ -317,6 +395,10 @@ onUnmounted(() => {
   .nav,
   .nav-toggle,
   .nav-mask { display: none; }
+  /* 顶栏标题降档：375px 下 24px 标题 + 输入框 + 铃铛同行会挤爆，
+     标题让位给提交框（本页最高频动作），页面归属由底部 tabbar 高亮承担。 */
+  .topbar { padding: 0 12px; gap: 10px; height: 56px; }
+  .topbar-title { display: none; }
   .tabbar {
     position: fixed;
     inset: auto 0 0 0;
@@ -355,7 +437,6 @@ onUnmounted(() => {
   .tabbar a.router-link-active { color: var(--accent); background: var(--accent-soft); }
   /* 内容底部留出 tabbar 高度 + 间距，长页面最后一个按钮不会被挡住 */
   .content { padding: 16px 14px calc(16px + 52px + env(safe-area-inset-bottom, 0px)); }
-  .topbar { padding: 10px 14px; }
 }
 
 .nav-icon { flex-shrink: 0; }

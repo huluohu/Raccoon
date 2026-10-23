@@ -26,7 +26,7 @@ async function mountLogin(phase: 'setup' | 'login', routes: { path: string; comp
   const { wrapper, router } = mountViewWithRouter(Login as never, routes as never, {
     global: {
       stubs: {
-        RaccoonFace: { template: '<i class="stub-face" />' },
+        RaccoonLogo: { template: '<i class="stub-logo" />' },
         // 必须保留 type="submit"：否则点击 stub 不会触发表单 submit，submit() 根本不跑。
         RButton: { template: '<button type="submit" :disabled="disabled"><slot /></button>' },
       },
@@ -40,7 +40,7 @@ async function mountLogin(phase: 'setup' | 'login', routes: { path: string; comp
 describe('Login 视图', () => {
   it('登录页是两张表单（无确认密码）', async () => {
     const { wrapper: w } = await mountLogin('login')
-    expect(w.text()).toContain('请登录以继续')
+    expect(w.find('.stub-logo').exists()).toBe(true)
     expect(w.findAll('input').length).toBe(2)
   })
 
@@ -50,9 +50,9 @@ describe('Login 视图', () => {
     expect(w.text()).not.toContain('创建账号并进入')
   })
 
-  it('品牌区用 RaccoonFace 而不是 emoji（docs/07 §4/§5）', async () => {
+  it('品牌区用 RaccoonLogo 矢量徽标而不是 emoji（docs/07 §4/§5）', async () => {
     const { wrapper: w } = await mountLogin('login')
-    expect(w.find('.stub-face').exists()).toBe(true)
+    expect(w.find('.stub-logo').exists()).toBe(true)
     expect(w.html()).not.toContain('🦝')
   })
 

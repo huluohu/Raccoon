@@ -114,7 +114,6 @@ onMounted(load)
 <template>
   <section class="page">
     <header class="page-head">
-      <h1 class="page-title">媒体库</h1>
       <span class="count tnum">{{ total }} 个文件</span>
     </header>
 
@@ -221,7 +220,6 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .count { font-size: var(--font-aux); color: var(--text-3); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .search {

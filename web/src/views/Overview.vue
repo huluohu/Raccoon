@@ -141,7 +141,6 @@ onMounted(load)
 
 <template>
   <section class="overview">
-    <h1 class="page-title">总览</h1>
 
     <div v-if="errorMsg" class="error-card" role="alert">
       <p>加载失败：{{ errorMsg }}</p>
@@ -187,15 +186,19 @@ onMounted(load)
 
         <article class="card">
           <h2>连接</h2>
-          <div v-if="credSummary.total > 0" class="metric">
+          <!-- 和其他三张卡同构：大数字 + 标签 + 辅助行。
+               原来这张卡没有凭据时数字区整块缺失，四张卡高度不一、节奏散架。 -->
+          <div class="metric">
             <span class="metric-num tnum">{{ credSummary.active }}</span>
-            <span class="metric-label">个可用凭据</span>
+            <span class="metric-label">可用凭据</span>
           </div>
-          <p v-if="credSummary.problem > 0" class="warn-line">
+          <p v-if="credSummary.problem > 0" class="warn-line tnum">
             {{ credSummary.problem }} 个凭据需要处理（过期或即将过期）
           </p>
-          <p v-else-if="credSummary.total === 0" class="muted">还没配平台凭据，公开内容可直接下载。</p>
-          <p v-else class="muted">凭据状态正常。</p>
+          <p v-else-if="credSummary.total === 0" class="muted">
+            还没配平台凭据，公开内容可直接下载。
+          </p>
+          <p v-else class="muted tnum">共 {{ credSummary.total }} 个，状态正常。</p>
           <RButton variant="ghost" size="sm" @click="router.push('/connections')">去连接页 →</RButton>
         </article>
 
@@ -217,10 +220,11 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); margin-bottom: 20px; border-left: 4px solid var(--gold); padding-left: 12px; }
-/* 卡片网格：minmax 抬到 280px（方案 §6「≥1280 双栏」的最小可读宽度），
-   auto-fit 让空轨道塌陷——auto-fill 会给 2 个卡片也留 4 条轨道，右侧空一大片。 */
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-bottom: 18px; }
+/* 卡片网格：minmax 260px。侧导航从 208 加宽到 240 后，1440 主档内容区
+   净宽 1152，四张卡每张 (1152-54)/4≈274——下限 280 会挤爆轨道，
+   第 4 张（系统）孤悬换行。260 让主档四卡齐一行，窄档自然降为 3/2/1 列。
+   下限仍高于 §6「≥1280 双栏」最小可读宽度 240。 */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-bottom: 18px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px 24px; box-shadow: var(--shadow-1); }
 .card--wide { margin-bottom: 18px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }

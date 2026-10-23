@@ -22,7 +22,7 @@ vi.mock('@/api/client', () => ({
 }))
 
 const stubs = {
-  RaccoonFace: { template: '<i class="stub-face" />' },
+  RaccoonLogo: { template: '<i class="stub-logo" />' },
   // 必须保留 type="submit"：否则点击 stub 不会触发表单 submit。
   RButton: { template: '<button type="submit" :disabled="disabled"><slot /></button>' },
 }
@@ -35,7 +35,7 @@ function mountWizard() {
 describe('SetupWizard 组件', () => {
   it('初始是第 1 步「账号信息」，有三个输入框', () => {
     const w = mountWizard()
-    expect(w.text()).toContain('首次使用 · 第 1 / 2 步')
+    expect(w.find('.step.on').text()).toContain('① 账号信息')
     expect(w.findAll('input').length).toBe(3)
   })
 
@@ -95,7 +95,7 @@ describe('SetupWizard 组件', () => {
     await w.find('form').trigger('submit')
     await flushPromises()
 
-    expect(w.text()).toContain('第 2 / 2 步')
+    expect(w.find('.step.on').text()).toContain('② 确认创建')
     expect(w.text()).toContain('admin')
     // 说明后续入口：初始化是唯一一次从零开始的时刻，得告诉人以后去哪改
     expect(w.text()).toContain('设置 → 账号')
@@ -116,7 +116,7 @@ describe('SetupWizard 组件', () => {
     await back.trigger('click')
     await flushPromises()
 
-    expect(w.text()).toContain('第 1 / 2 步')
+    expect(w.find('.step.on').text()).toContain('① 账号信息')
   })
 
   it('第 2 步提交才真正创建账号', async () => {
@@ -154,7 +154,7 @@ describe('SetupWizard 组件', () => {
     await w.find('form').trigger('submit')
     await flushPromises()
 
-    expect(w.text()).toContain('第 1 / 2 步')
+    expect(w.find('.step.on').text()).toContain('① 账号信息')
     expect(w.find('.error').text()).toContain('用户名已存在')
   })
 
@@ -173,9 +173,9 @@ describe('SetupWizard 组件', () => {
     expect(useAuthStore().phase).toBe('ready')
   })
 
-  it('品牌区用 RaccoonFace 而不是 emoji（§4/§5）', () => {
+  it('品牌区用 RaccoonLogo 矢量徽标而不是 emoji（§4/§5）', () => {
     const w = mountWizard()
-    expect(w.find('.stub-face').exists()).toBe(true)
+    expect(w.find('.stub-logo').exists()).toBe(true)
     expect(w.html()).not.toContain('🦝')
   })
 })

@@ -6,7 +6,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
+import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -35,12 +35,10 @@ async function submit() {
 <template>
   <section class="auth">
     <div class="card">
+      <!-- 品牌区：RaccoonLogo full 变体（徽标 + 字标 + 一句话定位）。
+           登录页是品牌第一印象，用会变表情的 RaccoonFace 撑不起门面。 -->
       <div class="brand">
-        <RaccoonFace face="waiting" :size="52" />
-        <div>
-          <h1>浣熊 <em>Raccoon</em></h1>
-          <p class="sub">请登录以继续</p>
-        </div>
+        <RaccoonLogo :size="56" tagline="自托管多媒体下载中心" />
       </div>
 
       <form @submit.prevent="submit">
@@ -69,15 +67,14 @@ async function submit() {
    不占满的话会被 flex 收缩成内容宽并贴主轴起点（卡片缩在左上角）。 */
 .auth { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 24px; }
 .card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-modal); padding: 32px; box-shadow: var(--shadow-2); }
-.brand { display: flex; gap: 12px; align-items: center; margin-bottom: 24px; }
-h1 { margin: 0; font-size: var(--font-title-2); font-weight: var(--weight-title); }
-h1 em { font-style: normal; font-size: var(--font-aux); color: var(--text-3); margin-left: 4px; }
-.sub { margin: 4px 0 0; font-size: var(--font-aux); color: var(--text-2); }
+.brand { display: flex; justify-content: center; margin-bottom: 24px; }
 form { display: flex; flex-direction: column; gap: 14px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-aux); color: var(--text-2); }
 input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
 input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: var(--on-accent); font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
+/* 登录按钮：围巾金主 CTA（与顶栏提交按钮同一语义：本页最高频动作） */
+button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--cta-bg); color: var(--cta-fg); font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
+button:hover:not(:disabled) { background: var(--cta-bg-strong); }
 button:disabled { opacity: 0.6; cursor: progress; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-aux); }
 .hint { margin: 18px 0 0; font-size: var(--font-caption); color: var(--text-3); }

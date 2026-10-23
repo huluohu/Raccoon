@@ -153,7 +153,6 @@ onMounted(load)
   <section class="page">
     <header class="page-head">
       <div>
-        <h1 class="page-title">直播</h1>
         <p class="page-sub">
           直播源 {{ items.length }} 个，直播中 {{ liveCount }} 个 · {{ supportedNote }}
         </p>
@@ -221,7 +220,6 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 /* 页面副标题是正文档（16px）。 */
 .page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .platform-note {

@@ -641,6 +641,83 @@ def check_engine_detail_visible() -> None:
           "backend/internal/task/worker.go")
 
 
+def check_visual_direction() -> None:
+    """视觉方向层的验收点（用户第四次反馈「布局/比例/配色/Logo 与设计方向不符」后新增）。
+
+    背景：零件级 + 构图级断言全绿之后，界面仍然可以「看起来业余、小家子气」。
+    这一层查的是设计方向的三根支柱有没有真的立起来：
+
+    1. 品牌：有静态徽标（RaccoonLogo），不是拿会变五官的 RaccoonFace 当 Logo；
+    2. 结构色：树影蓝灰大面积落在侧导航上撑品牌骨架（不是只活在导航高亮文字里）；
+    3. 动作色：围巾金落在全站最高频动作（顶栏提交按钮）上；
+    4. 标题归属：七页共用顶栏标题锚点，不再每页自己顶一个 Word 风 h1。
+
+    断言全部落在可观测的代码形态上（变量引用 / 模板用法），不查注释。
+    """
+    # ① 品牌徽标组件存在且有独立用例
+    check("§5 品牌徽标组件存在（RaccoonLogo，静态识别符号）",
+          exists("components/brand/RaccoonLogo.vue"), "components/brand/RaccoonLogo.vue")
+    check("§5 品牌徽标有独立用例",
+          exists("components/brand/RaccoonLogo.spec.ts"), "components/brand/RaccoonLogo.spec.ts")
+
+    logo = read("components/brand/RaccoonLogo.vue")
+    # ② 识别三件套：眼罩斜带 / 围巾金 / 金色内耳
+    check("§5 徽标含眼罩识别元素（两条斜带）",
+          "M11 27" in logo and "M53 27" in logo, "components/brand/RaccoonLogo.vue")
+    check("§5 徽标含围巾金（品牌动作色）",
+          "var(--gold)" in logo and "var(--gold-strong)" in logo,
+          "components/brand/RaccoonLogo.vue")
+    # ③ 徽标配色走 --logo-* 变量：深底使用方要能提亮毛色，
+    #    组件写死色值的话侧导航深底上就是一团糊
+    check("§5 徽标配色走 --logo-* 变量（深底可覆盖）",
+          "var(--logo-fur)" in logo and "var(--logo-face)" in logo and "var(--logo-mask)" in logo,
+          "components/brand/RaccoonLogo.vue")
+
+    # ④ 三个品牌位都用徽标：侧导航 / 登录页 / 初始化向导
+    app = read("App.vue")
+    check("§5 侧导航品牌区用 RaccoonLogo（不拿状态表情当 Logo）",
+          "RaccoonLogo" in app and "brand" in app,
+          "App.vue")
+    login = read("views/Login.vue")
+    check("§5 登录页品牌区用 RaccoonLogo",
+          "RaccoonLogo" in login, "views/Login.vue")
+    wizard = read("components/auth/SetupWizard.vue")
+    check("§5 初始化向导品牌区用 RaccoonLogo",
+          "RaccoonLogo" in wizard, "components/auth/SetupWizard.vue")
+
+    # ⑤ 侧导航深底：结构色大面积载体
+    nav_css = app[app.find(".nav {"):app.find(".nav {") + 260]
+    check("§2 侧导航用结构色深底（树影蓝灰撑品牌骨架）",
+          "var(--nav-bg)" in nav_css, "App.vue .nav")
+    tokens = read("styles/tokens.css")
+    light = tokens[:tokens.find("[data-theme")]
+    dark = tokens[tokens.find("[data-theme"):]
+    check("§2 侧导航深底 token 浅色模式有定义", "--nav-bg:" in light, "styles/tokens.css")
+    check("§2 侧导航深底 token 深色模式有定义（比内容区再暗一档）",
+          "--nav-bg:" in dark, "styles/tokens.css")
+
+    # ⑥ 主 CTA 围巾金：全站最高频动作（顶栏提交按钮）
+    qs = read("components/shell/QuickSubmit.vue")
+    btn = qs[qs.find(".qsubmit-btn {"):qs.find(".qsubmit-btn {") + 320]
+    check("§2 顶栏主按钮用围巾金 CTA token",
+          "var(--cta-bg)" in btn and "var(--cta-fg)" in btn,
+          "components/shell/QuickSubmit.vue .qsubmit-btn")
+    check("§2 CTA token 浅色模式有定义", "--cta-bg:" in light, "styles/tokens.css")
+    check("§2 CTA token 深色模式有定义（文字随底色翻深墨）",
+          "--cta-fg:" in dark, "styles/tokens.css")
+
+    # ⑦ 顶栏页面标题 + 视图层不许再自己顶 h1
+    check("§8 顶栏有页面标题锚点（路由 meta.title 唯一来源）",
+          "topbar-title" in app and "route.meta.title" in app,
+          "App.vue .topbar-title")
+    stale = []
+    for v in ["Overview", "Tasks", "Media", "Subscriptions", "Live", "Connections", "Settings"]:
+        if "page-title" in read(f"views/{v}.vue"):
+            stale.append(v)
+    check("§8 七页标题归属统一在顶栏（视图层不得再留 page-title）",
+          not stale, f"仍带 page-title 的视图: {stale}")
+
+
 def check_link_validation() -> None:
     """提交前的链接格式闸：分享文案能提取，缺协议头有提示。
 
@@ -718,8 +795,8 @@ def check_layout_fixes() -> None:
           "views/Login.vue")
     app = read("App.vue")
     brand = re.search(r'<div class="brand">(.*?)</div>', app, re.S)
-    check("侧栏 Logo 用 RaccoonFace（非内联 SVG/emoji）",
-          bool(brand) and "RaccoonFace" in brand.group(1) and "<svg" not in brand.group(1),
+    check("侧栏 Logo 用 RaccoonLogo 品牌徽标（非内联 SVG/emoji）",
+          bool(brand) and "RaccoonLogo" in brand.group(1) and "<svg" not in brand.group(1),
           "App.vue .brand 块")
     # 导航图标用 SVG 线稿是 §4 的正当要求，但整页仍不许出现 emoji 冒充图标
     check("App.vue 模板无 emoji 冒充图标", not EMOJI_RE.search(
@@ -932,6 +1009,7 @@ def main() -> int:
     check_engine_detail_visible()
     check_link_validation()
     check_page_composition()
+    check_visual_direction()
     check_tokens()
     check_typography()
     check_typography_semantics()

@@ -383,7 +383,6 @@ onBeforeUnmount(() => {
 <template>
   <section class="page">
     <header class="page-head">
-      <h1 class="page-title">设置</h1>
       <div class="head-actions">
         <span v-if="isDirty" class="dirty-dot" title="有未保存的改动">● 未保存</span>
         <RButton variant="accent" :disabled="!isDirty || saving" @click="save">
@@ -596,7 +595,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .dirty-dot { color: var(--warning); font-size: var(--font-aux); }
 /* 左分组导航在 SettingsNav 组件内（含它的响应式折行规则）；

@@ -465,7 +465,6 @@ onBeforeUnmount(() => {
   <section class="page">
     <header class="page-head">
       <div>
-        <h1 class="page-title">下载</h1>
         <p class="page-sub">粘贴链接 → 解析预览 → 加入队列，进度实时推送</p>
       </div>
       <div class="conn" :class="tasks.connected ? 'ok' : 'off'">
@@ -689,7 +688,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.page-title { margin: 0; font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 /* 页面副标题是正文档（16px）：它解释这页在干什么，不是脚注。 */
 .page-sub { margin: 6px 0 0 16px; font-size: var(--font-body); color: var(--text-2); }
 .conn {

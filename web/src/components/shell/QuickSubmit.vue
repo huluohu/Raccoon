@@ -168,18 +168,20 @@ function submit(): void {
 }
 .qsubmit-btn {
   flex-shrink: 0;
-  padding: 9px 18px;
+  padding: 9px 20px;
   border: none;
   border-radius: var(--radius-ctrl);
-  background: var(--accent);
-  color: var(--on-accent);
+  /* 围巾金实底：全站最高频动作（提交下载）。深墨字压金底，
+     不用白字——白压金只有 1.9:1，根本读不清（tokens.css --cta-fg 注释同源）。 */
+  background: var(--cta-bg);
+  color: var(--cta-fg);
   font-size: var(--font-body);
   font-weight: var(--weight-semibold);
   cursor: pointer;
   transition: background 120ms ease-out;
 }
 .qsubmit-btn:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--cta-bg-strong);
 }
 .qsubmit-btn:disabled {
   opacity: 0.55;

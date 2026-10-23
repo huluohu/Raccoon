@@ -73,6 +73,28 @@
   --line-height-display: 1.25;
   --line-height-title: 1.25;
   --line-height-body: 1.75;
+  /* 主 CTA（围巾金实底 + 深墨字）：金色是动作色，只给全站最高频动作
+     （顶栏提交按钮），正文/标题/图标不得使用，全屏金色 ≤3 处。
+     深浅两套底色都用同一个金：深底下金底对比 10:1，不需要跟着模式翻成白。 */
+  --cta-bg: #F5B93C;
+  --cta-bg-strong: #E5A91F;
+  --cta-fg: #1B2133;
+  /* 侧导航（结构色大面积载体：树影蓝灰深底）。
+     浅色模式 nav 深于内容区，品牌骨架立得住；深色模式 nav 比 bg 再暗一档，
+     层次方向不翻转为浅（否则深色模式下导航会「飘」在内容前面）。 */
+  --nav-bg: #1B2430;
+  --nav-border: rgb(255 255 255 / 8%);
+  --nav-text: rgb(255 255 255 / 66%);
+  --nav-text-strong: #FFFFFF;
+  --nav-hover: rgb(255 255 255 / 7%);
+  --nav-active-bg: rgb(245 185 60 / 14%);
+  --nav-active-text: #F5B93C;
+  --nav-btn-border: rgb(255 255 255 / 14%);
+  /* 徽标在深底上的提亮变体：侧导航是 #1B2430 深底，默认毛色（--accent）
+     会糊进底色，提亮一档才有辨识度。面纹纸白、眼罩近黑不变。 */
+  --logo-fur-lift: #4A5A78;
+  --logo-face-lift: #F6F6F2;
+  --logo-mask-lift: #10141D;
 }
 
 [data-theme='dark'] {
@@ -111,6 +133,17 @@
   --shadow-1: none;
   --shadow-2: 0 0 0 1px var(--border);
   --shadow-3: 0 0 0 1px var(--border);
+  /* 深色模式侧导航：比 bg（#0F121B）再暗一档，方向不翻转 */
+  --nav-bg: #0B0E14;
+  --nav-border: #28304A;
+  --nav-text: #AEB6CD;
+  --nav-text-strong: #E9ECF5;
+  --nav-hover: rgb(255 255 255 / 5%);
+  --nav-active-bg: rgb(245 185 60 / 12%);
+  --nav-active-text: #F5B93C;
+  --nav-btn-border: #28304A;
+  /* 深色模式 CTA：金底不变，文字改深墨（对深底金 11.8:1） */
+  --cta-fg: #0F121B;
   --scrim: rgb(0 0 0 / 55%);
   --scrim-deep: rgb(0 0 0 / 70%);
 }

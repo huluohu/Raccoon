@@ -171,7 +171,6 @@ onMounted(load)
   <section class="page">
     <header class="page-head">
       <div>
-        <h1 class="page-title">订阅</h1>
         <p class="page-sub">
           收藏夹 / UP 主 / 播放列表定时检查 · 启用 {{ activeCount }} 个，队列待下 {{ totalQueued }} 条
         </p>
@@ -232,7 +231,6 @@ onMounted(load)
 
 <style scoped>
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-title { font-size: var(--font-title-1); font-weight: var(--weight-title); border-left: 4px solid var(--gold); padding-left: 12px; }
 /* 页面副标题是正文档（16px），不是脚注。 */
 .page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .alert { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-body); }

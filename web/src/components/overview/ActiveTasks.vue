@@ -48,7 +48,13 @@ function emptyHint(): string {
 <template>
   <article class="card card--wide">
     <header class="card-head">
-      <h2>正在搬的活</h2>
+      <h2>
+        <!-- working 表情（§5「眼罩推上头顶 + 叼金牌箭头」）：有任务在跑时才出现，
+             「正在搬的活」不只是文字——搬着的小浣熊就蹲在标题旁。
+             没有任务时不显示（空态有自己的表情位，每界面至多一处拟人）。 -->
+        <RaccoonFace v-if="tasks.length > 0" face="working" :size="22" />
+        正在搬的活
+      </h2>
       <RButton variant="ghost" size="sm" @click="emit('more')">查看全部 →</RButton>
     </header>
 
@@ -99,6 +105,9 @@ function emptyHint(): string {
 }
 /* 卡片标题：18px（--font-title-3），与正文拉开层级。 */
 .card-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: var(--font-title-3);
   font-weight: var(--weight-strong);
   color: var(--text-1);
