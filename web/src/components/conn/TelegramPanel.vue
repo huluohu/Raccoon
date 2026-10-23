@@ -26,7 +26,10 @@ const emit = defineEmits<{
 <template>
   <li class="int-card" :data-state="enabled ? 'ok' : 'unconfigured'">
     <header class="int-card-head">
-      <span class="int-name">Telegram</span>
+      <span class="int-name">
+        <span class="int-mark" aria-hidden="true">T</span>
+        Telegram
+      </span>
       <span class="int-state">
         <span class="int-glyph" aria-hidden="true">{{ enabled ? '✓' : '–' }}</span>
         {{ enabled ? '可用' : '未启用' }}
@@ -63,7 +66,21 @@ const emit = defineEmits<{
 }
 .int-card[data-state='ok'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
 .int-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
+.int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+/* 品牌字标：与 QbTestPanel 同一套（三个通道卡并列时对齐）。 */
+.int-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-strong);
+  flex-shrink: 0;
+}
 .int-state {
   display: inline-flex;
   align-items: center;

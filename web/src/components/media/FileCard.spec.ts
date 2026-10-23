@@ -10,6 +10,7 @@ import type { MediaFile } from '@/api/types'
  * 1) 图片才用缩略图；视频/音频用类型化占位——不给假图。
  * 2) 缩略图 URL 由父组件注入（组件不直接依赖 api 层，便于单测）。
  * 3) 文件名 + 大小 + 时长都是真实数据，不编。
+ * 4) 占位不是英文 kind 原词：SVG 类型图标 + 中文类型名，底色注入平台品牌色。
  */
 const stubs = {
   PlatformBadge: { props: ['platform'], template: '<i class="stub-badge" :data-platform="platform" />' },
@@ -64,7 +65,24 @@ describe('FileCard 组件', () => {
       global: { stubs },
     })
     expect(w.find('.file-thumb-img img').exists()).toBe(false)
-    expect(w.find('.file-kind').text()).toBe('video')
+    // 占位不是英文原词：中文类型名 + 类型图标
+    expect(w.find('.file-kind').text()).toBe('视频')
+    expect(w.find('.file-kind-icon').exists()).toBe(true)
+  })
+
+  it('占位底色注入平台品牌色（卡片在网格里可辨认是谁家的）', () => {
+    const w = mount(FileCard, {
+      props: { file: makeFile({ platform: 'bilibili' }), previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    // platformTone('bilibili') 是 B 站品牌色，color-mix 淡化后进 linear-gradient
+    expect(w.find('.file-thumb').attributes('style')).toContain('linear-gradient')
+    // 图片类不走品牌色注入（有真图）
+    const img = mount(FileCard, {
+      props: { file: makeFile({ kind: 'image', name: 'a.png' }), previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    expect(img.find('.file-thumb').attributes('style')).toBeUndefined()
   })
 
   it('没有时长就不显示时长（不显示 0:00 骗人）', () => {

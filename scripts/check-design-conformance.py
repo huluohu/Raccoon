@@ -868,6 +868,54 @@ def check_responsive() -> None:
           "App.vue tabbar 模板")
 
 
+def check_page_composition() -> None:
+    """页面构图层的验收点（§8.1 ①「存在性 ≠ 像个产品」的盲区）。
+
+    背景：零件级断言可以全绿——组件在、被视图引用、有独立 spec——
+    但页面照样能塌，而且塌的地方只有「渲染出来是个页面」才看得见：
+
+    - IssuesPanel 无失败任务时整块消失 → 总览页首屏空半屏（§7 明令不展示空白页）；
+    - 媒体库非图片占位直接渲染英文 kind 原词（video/audio）→ 观感就是没做完；
+    - 侧导航用户区和上面 15 个导航项无分隔 → 像一条没写完的列表。
+
+    所以闸门要查构图，不只查零件。
+    """
+    # ① 总览 IssuesPanel：无失败时必须有正面态，不许整块消失
+    issues = read("components/overview/IssuesPanel.vue")
+    check("§7 IssuesPanel 无失败时有正面态（总览页不留结构空洞）",
+          "v-else" in issues and "ok-panel" in issues and "没有失败的任务" in issues,
+          "components/overview/IssuesPanel.vue")
+    check("§5 IssuesPanel 正面态用 done 表情（按状态取用）",
+          'face="done"' in issues,
+          "components/overview/IssuesPanel.vue")
+
+    # ② 媒体库占位：非图片不许扔英文 kind 原词
+    card = read("components/media/FileCard.vue")
+    check("§4 媒体库占位不渲染英文 kind 原词",
+          "{{ file.kind }}" not in card and "kindText" in card,
+          "components/media/FileCard.vue")
+    check("§4 媒体库占位有类型 SVG 图标（禁 emoji 冒充）",
+          "file-kind-icon" in card and "<svg" in card,
+          "components/media/FileCard.vue")
+    check("§4 媒体库占位底色注入平台品牌色（网格里可辨认）",
+          "platformTone" in card and "color-mix" in card,
+          "components/media/FileCard.vue")
+
+    # ③ 侧导航用户区与导航项之间必须有分隔线
+    app = read("App.vue")
+    foot = app[app.find(".nav-foot"):app.find(".nav-foot") + 220]
+    check("§6 侧导航用户区与导航项有分隔线（不成无尽列表）",
+          "border-top" in foot,
+          "App.vue .nav-foot")
+
+    # ④ 订阅计数徽章要有淡色底（四个计数不能糊成一片）
+    sub = read("components/subs/SubList.vue")
+    cnt = sub[sub.find(".cnt {"):sub.find(".cnt {") + 700]
+    check("§4 订阅计数徽章有淡色底（分群可读）",
+          "color-mix" in cnt and cnt.count("background") >= 4,
+          "components/subs/SubList.vue .cnt")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--verbose", action="store_true")
@@ -883,6 +931,7 @@ def main() -> int:
     check_setup_wizard()
     check_engine_detail_visible()
     check_link_validation()
+    check_page_composition()
     check_tokens()
     check_typography()
     check_typography_semantics()

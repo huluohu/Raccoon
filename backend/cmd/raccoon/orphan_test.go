@@ -68,22 +68,31 @@ func alive(pid int) bool {
 // 仍保留条目等父进程 wait），macOS 又没有 /proc 可读状态位。所以这里用
 // Wait4 非阻塞收割——测试进程本就是这些假引擎的父进程，收割后 PID 立即失效，
 // 判定才准确。
+//
+// 为什么要轮询：SIGKILL 是异步的，syscall.Kill 返回不等于进程已经退出——
+// 内核要等目标进程被调度到才处理信号。立刻 Wait4 会拿到 (0, nil)（还在跑），
+// 把「已杀」误判成「没杀」。实测这个竞态让本文件 10 跑 8 败。轮询到 2s 超时。
 func killedAndReaped(t *testing.T, pid int) bool {
 	t.Helper()
-	var ws syscall.WaitStatus
-	// WNOHANG：子进程若还活着立刻返回 (0, nil)，不阻塞。
-	wpid, err := syscall.Wait4(pid, &ws, syscall.WNOHANG, nil)
-	switch {
-	case err == syscall.ECHILD:
-		// 已经不是本测试的子进程（早已被收割）→ 视为已死
-		return true
-	case err != nil:
-		t.Fatalf("Wait4 失败：%v", err)
-		return false
-	case wpid == 0:
-		return false // 仍在运行
-	default:
-		return true // 收割成功，说明已退出
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var ws syscall.WaitStatus
+		// WNOHANG：子进程若还活着立刻返回 (0, nil)，不阻塞。
+		wpid, err := syscall.Wait4(pid, &ws, syscall.WNOHANG, nil)
+		switch {
+		case err == syscall.ECHILD:
+			// 已经不是本测试的子进程（早已被收割）→ 视为已死
+			return true
+		case err != nil:
+			t.Fatalf("Wait4 失败：%v", err)
+			return false
+		case wpid != 0:
+			return true // 收割成功，说明已退出
+		}
+		if !time.Now().Before(deadline) {
+			return false // 仍在运行（真的没被杀）
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

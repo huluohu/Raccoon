@@ -228,7 +228,6 @@ func (g *GalleryDL) Download(ctx context.Context, url string, opts DownloadOpts,
 
 	args := []string{
 		"--no-input",
-		"--quiet",
 		"--dest", opts.SaveDir,
 		// 进度行格式：%|total|%|now|%|speed|%|eta| —— 与 yt-dlp 不同，故单独解析。
 		"--option", "progress.hook=PROGRESS|%(total)d|%(now)d|%(speed)d|%(eta)d",
@@ -242,12 +241,20 @@ func (g *GalleryDL) Download(ctx context.Context, url string, opts DownloadOpts,
 	args = append(args, url)
 
 	var tail []string
+	var skipped []string
 	err := RunCmd(ctx, g.Bin, args, func(line string) {
 		if strings.HasPrefix(line, galleryProgressPrefix) {
 			if p, ok := parseGalleryProgress(line); ok && onProgress != nil {
 				onProgress(p)
 			}
 			return
+		}
+		// gallery-dl 对「文件已存在、跳过」的打印是 `# <相对路径>`（下载中的文件是裸路径）。
+		// 默认行为跳过已存在文件且退出码为 0，目录里不会出现新文件——只靠目录 diff
+		// 会误判 NO_OUTPUT（用户重复下同一图集，看到的是失败，其实图早就在）。
+		// 注意：--quiet 会连这行一起吞掉，所以这里不能加 --quiet。
+		if p := gallerySkipPath(line); p != "" {
+			skipped = append(skipped, p)
 		}
 		tail = append(tail, line)
 		if len(tail) > 40 {
@@ -259,11 +266,28 @@ func (g *GalleryDL) Download(ctx context.Context, url string, opts DownloadOpts,
 	}
 
 	files := newFilesSince(opts.SaveDir, before)
+	// 被跳过的已存在文件同样是本次任务的产物——任务的目标是
+	// 「这个链接的内容在本地」，不在于这一次有没有真的发生网络传输。
+	files = append(files, collectFiles(skipped, before, opts.SaveDir)...)
 	if len(files) == 0 {
 		return nil, &EngineError{Code: "NO_OUTPUT", Message: "gallery-dl 退出成功但未发现产物文件"}
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	return files, nil
+}
+
+// gallerySkipPath 从 gallery-dl 输出行里提取「已存在被跳过」的文件路径。
+//
+// gallery-dl 对下载中的文件打印裸路径，对「文件已存在、跳过」的打印
+// `# <相对路径>`（相对 --dest）。默认行为跳过已存在文件且退出码为 0，
+// 目录里不会出现新文件——只靠目录 diff 收集产物会把这种情况误判成
+// NO_OUTPUT。返回空串表示这一行不是跳过提示。
+func gallerySkipPath(line string) string {
+	p, ok := strings.CutPrefix(line, "# ")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(p)
 }
 
 // parseGalleryProgress 解析 gallery-dl 进度行；total 未知时 percent 记 -1（禁估算）。

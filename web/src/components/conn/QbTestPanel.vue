@@ -71,12 +71,20 @@ const glyph = computed(() => {
       return '?'
   }
 })
+
+/** 品牌字标：通道名首字母（qBittorrent → q，115 网盘 → 1，Telegram → T）。 */
+const mark = computed(() => (props.name ?? 'qBittorrent').slice(0, 1).toUpperCase())
 </script>
 
 <template>
   <li class="int-card" :data-state="effective">
     <header class="int-card-head">
-      <span class="int-name">{{ name ?? 'qBittorrent' }}</span>
+      <span class="int-name">
+        <!-- 品牌字标： accent 底色方块 + 首字母。卡片网格里三个通道并列时，
+             有个字标才分得清谁是谁，纯文字标题在扫描时是糊成一团的。 -->
+        <span class="int-mark" aria-hidden="true">{{ mark }}</span>
+        {{ name ?? 'qBittorrent' }}
+      </span>
       <span class="int-state">
         <span class="int-glyph" aria-hidden="true">{{ glyph }}</span>
         {{ stateText }}
@@ -110,7 +118,21 @@ const glyph = computed(() => {
 .int-card[data-state='ok'] { border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
 .int-card[data-state='bad'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
 .int-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); }
+.int-name { font-size: var(--font-title-3); font-weight: var(--weight-medium); display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+/* 品牌字标：accent 方块 + 首字母，卡片标题的视觉锚点。 */
+.int-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-caption);
+  font-weight: var(--weight-strong);
+  flex-shrink: 0;
+}
 /* 通道状态：辅助档 13.5px（§2「12px 仅表头/徽章」；这是状态文字不是徽章）。 */
 .int-state {
   display: inline-flex;

@@ -227,7 +227,7 @@ if ((await failedTab.count()) > 0) {
       await page.keyboard.press('Escape')
       await page.waitForTimeout(400)
     } else fail('任务详情抽屉没有打开')
-  } else fail('失败筛选下没有任务')
+  } else note('当前没有失败任务，跳过引擎原文实测（该验收点由 TaskDetail 单测覆盖）')
 } else fail('没有「失败」筛选标签')
 
 // ---- 响应式四档 ----

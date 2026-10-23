@@ -143,10 +143,14 @@ onUnmounted(() => {
           </router-link>
         </nav>
         <div class="nav-foot">
-          <span class="user" :title="auth.user?.username">{{ auth.user?.username }}</span>
-          <span class="conn" :class="tasks.connected ? 'on' : 'off'" :title="tasks.connected ? '实时连接正常' : '实时连接断开，正在重连'">
-            {{ tasks.connected ? '实时' : '重连中' }}
-          </span>
+          <!-- 用户名 + 连接状态一行：原来分两行刷下来，和上面 15 个导航项
+               连成一条长列表，像没写完。现在用户区自带分隔线，一眼是「账户区」。 -->
+          <div class="user-row">
+            <span class="user" :title="auth.user?.username">{{ auth.user?.username }}</span>
+            <span class="conn" :class="tasks.connected ? 'on' : 'off'" :title="tasks.connected ? '实时连接正常' : '实时连接断开，正在重连'">
+              {{ tasks.connected ? '实时' : '重连中' }}
+            </span>
+          </div>
           <button class="theme-toggle" type="button" @click="ui.toggleTheme">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path v-if="ui.theme === 'dark'" d="M13 9.8A5.6 5.6 0 0 1 6.2 3a5.6 5.6 0 1 0 6.8 6.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
@@ -213,12 +217,17 @@ onUnmounted(() => {
 .nav nav a { padding: 9px 12px; border-radius: var(--radius-ctrl); color: var(--text-2); text-decoration: none; font-size: var(--font-body); }
 .nav nav a:hover { background: var(--surface-2); }
 .nav nav a.router-link-active { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-semibold); }
-.nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
-.user { font-size: var(--font-aux); color: var(--text-3); padding-left: 12px; overflow: hidden; text-overflow: ellipsis; }
+/* 用户区与导航列表之间必须有分隔：否则 admin / 实时 / 深色模式 / 退出登录
+   会和上面 15 个导航项连成一条无尽列表，观感就是「这页面没做完」。 */
+.nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
+.user-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; min-width: 0; }
+/* 用户名是「当前身份」，正文档 + 主文字色，不当辅助信息。 */
+.user { font-size: var(--font-body); font-weight: var(--weight-strong); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* 实时连接状态：辅助档 13.5px（§2「12px 仅表头/徽章」，这是状态提示不是徽章）。 */
 .conn {
   font-size: var(--font-aux);
-  margin-left: 12px;
+  margin-left: 0;
+  flex-shrink: 0;
   color: var(--text-3);
   display: inline-flex;
   align-items: center;

@@ -48,6 +48,19 @@ const emit = defineEmits<{
       </li>
     </ul>
   </article>
+
+  <!-- 无失败时的正面态。
+       方案 §7「空态/加载/错误三分——不展示空白页」：这一块整块消失的话，
+       总览页 = 空活卡 + 状态条 + 指标卡之后直接到底，首屏塌掉半屏。
+       正面态不是空卡——它明确回答用户上总览要看的问题：「有没有失败任务」。
+       表情按 §5 取 done（成功态），边框走成功色淡边，和失败卡一眼区分。 -->
+  <article v-else class="card card--wide ok-panel">
+    <RaccoonFace face="done" :size="32" />
+    <div class="ok-main">
+      <h2>没有失败的任务</h2>
+      <p class="ok-hint">失败、缺凭据、引擎报错的任务会出现在这里，并带一键重试。</p>
+    </div>
+  </article>
 </template>
 
 <style scoped>
@@ -73,6 +86,20 @@ const emit = defineEmits<{
 }
 /* 失败卡：边框带危险色，和普通卡片一眼区分开。 */
 .issue-panel { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+/* 正面态卡：成功色淡边，横向排（表情 + 文案），占住失败卡的同一块版面位置。 */
+.ok-panel {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-color: color-mix(in srgb, var(--success) 32%, var(--border));
+}
+.ok-main h2 {
+  font-size: var(--font-title-3);
+  font-weight: var(--weight-strong);
+  color: var(--text-1);
+  margin: 0 0 2px;
+}
+.ok-hint { margin: 0; font-size: var(--font-aux); color: var(--text-3); }
 .issue-list {
   list-style: none;
   margin: 0;

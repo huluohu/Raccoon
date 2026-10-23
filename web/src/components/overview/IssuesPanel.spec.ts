@@ -9,7 +9,7 @@ import { makeTask } from '@/test/fixtures'
  * 关键验收点：
  * 1) 失败原因要带「错误码 + 原文」两件套（§5 讲事实 + 给下一步）。
  * 2) 表情固定用 failed（§5 按状态取用）。
- * 3) 没有失败任务时不占位（不留一张空卡）。
+ * 3) 没有失败任务时显示正面态，不整块消失——否则总览页首屏塌掉半屏（§7 不展示空白页）。
  * 4) 重试抛的是任务 id，父组件据此决定重试哪条。
  */
 const stubs = {
@@ -58,9 +58,14 @@ describe('IssuesPanel 组件', () => {
     expect(w.text()).toContain('https://example.com/x')
   })
 
-  it('没有失败任务时整块不渲染（不留空卡）', () => {
+  it('没有失败任务时显示正面态（页面不留结构空洞）', () => {
     const w = mount(IssuesPanel, { props: { tasks: [] }, global: { stubs } })
+    // 失败列表不渲染
     expect(w.find('.issue-panel').exists()).toBe(false)
+    // 但正面态必须在：总览页少这一块就塌半屏
+    expect(w.find('.ok-panel').exists()).toBe(true)
+    expect(w.text()).toContain('没有失败的任务')
+    expect(w.find('.stub-face').attributes('data-face')).toBe('done')
   })
 
   it('点重试抛出对应任务 id', async () => {

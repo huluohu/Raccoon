@@ -331,6 +331,13 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 		if strings.HasPrefix(line, "[download] Destination:") {
 			destinations = append(destinations, strings.TrimSpace(strings.TrimPrefix(line, "[download] Destination:")))
 		}
+		// yt-dlp 默认不覆盖已存在文件：命中时打印「xxx has already been downloaded」
+		// （合并场景带 and merged 后缀）并正常退出——既不打印 Destination 行，
+		// 也不产生新文件。不接住这一行，重复下载同一个视频会被误判 NO_OUTPUT：
+		// 用户看到「下载失败」，而文件明明早就躺在下载目录里。
+		if p := alreadyDownloadedPath(line); p != "" {
+			destinations = append(destinations, p)
+		}
 		if strings.Contains(line, "[Merger]") || strings.Contains(line, "[FixupM3u8]") {
 			merging = true
 		}
@@ -461,6 +468,28 @@ func dirSnapshot(dir string) map[string]bool {
 		m[e.Name()] = true
 	}
 	return m
+}
+
+// alreadyDownloadedPath 从 yt-dlp 输出行里提取「文件已存在」的路径。
+//
+// yt-dlp 默认不覆盖已存在文件，命中时打印其中一种并正常退出（exit 0）：
+//
+//	[download] /path/file.mp4 has already been downloaded
+//	[download] /path/file.mkv has already been downloaded and merged
+//
+// 这两种行都不带 "Destination:" 前缀，也不产生新文件——只认 Destination 的
+// 收集逻辑会把这种情况误判成 NO_OUTPUT（引擎退出成功但未发现产物文件）。
+// 用户重复下同一个视频时看到的是「这单没成」，属于纯粹的误报。
+// 返回空串表示这一行不是「已存在」提示。路径可能是相对路径（-o 为相对模板、
+// 子进程 cwd=SaveDir），由 collectFiles 负责拼回与存在性校验。
+func alreadyDownloadedPath(line string) string {
+	if !strings.Contains(line, "has already been downloaded") {
+		return ""
+	}
+	p := strings.TrimSpace(strings.TrimPrefix(line, "[download]"))
+	p = strings.TrimSpace(strings.TrimSuffix(p, "and merged"))
+	p = strings.TrimSpace(strings.TrimSuffix(p, "has already been downloaded"))
+	return p
 }
 
 // collectFiles 收集产物：存在的 Destination + 目录内非 .part 新文件。

@@ -170,16 +170,20 @@ function sourceTypeText(s: Subscription): string {
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .counts { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 计数徽章：淡色底 + 同色系文字。原来只有文字色，四个计数在白底上糊成一片，
+   分不出「已下载 / 待下载 / 失败」是几个独立信息——加了底才读得出结构。 */
 .cnt {
   font-size: var(--font-caption);
-  padding: 1px 8px;
+  font-weight: var(--weight-medium);
+  padding: 2px 10px;
   border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
-.cnt.done { color: var(--success); }
-.cnt.queued { color: var(--info); }
-.cnt.failed { color: var(--danger); }
+.cnt.done { color: var(--success); background: color-mix(in srgb, var(--success) 12%, var(--surface)); }
+.cnt.queued { color: var(--info); background: color-mix(in srgb, var(--info) 12%, var(--surface)); }
+.cnt.failed { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
 .cnt.skip { color: var(--text-3); }
 .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 20px; }
 /* 元信息（上次检查/下次/画质/周期）：辅助档 13.5px。 */
