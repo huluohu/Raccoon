@@ -2,7 +2,7 @@
 
 [![Docker Version](https://img.shields.io/docker/v/fooololo/raccoon-server?sort=semver&label=Docker%20Hub)](https://hub.docker.com/r/fooololo/raccoon-server)
 [![Platforms](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-blue)](https://hub.docker.com/r/fooololo/raccoon-server)
-[![License](https://img.shields.io/badge/license-TBD-lightgrey)](#许可证)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 自托管的一站式下载服务：粘贴链接（B站 / YouTube / 抖音 / X / 小红书等 yt-dlp、gallery-dl 支持的站点），
 自动解析 → 入队 → 下载 → 后处理（格式转换 / 封面 / 元数据），Web 界面实时看进度，
@@ -182,5 +182,4 @@ Raccoon/
 
 ## 许可证
 
-尚未选择开源许可证（License: TBD）。仓库公开仅供学习参考，在许可证确定前，
-默认保留所有权利——如需引用或二次开发请先联系作者。
+[MIT](LICENSE) — 可自由使用、修改、分发与二次开发，仅需保留版权与许可声明。
