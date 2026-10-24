@@ -71,11 +71,12 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | /tasks | 列表：status/platform/source/q/kind 过滤，游标分页；附 `counts` 各状态计数（总览页用） |
-| POST | /tasks | 创建：`{items:[{url,quality?,save_path?,options?}], preview:false, parent_id?}`；`preview:true` 不落库只返回解析结果。重复提交 409 + `existing_task_id` |
+| POST | /tasks | 创建：`{items:[{url,quality?,save_path?,convert_to?,options?}], preview:false, parent_id?}`；`preview:true` 不落库只返回解析结果。重复提交 409 + `existing_task_id`。`convert_to`：产物目标格式，缺省=源格式，可选 `mp4`（post 阶段优先无损 remux，编解码不兼容才 H.264 转码）/ `mp3`（提取音轨）；转换失败保留源格式并记 warn 事件，不推翻下载成功 |
 | GET | /tasks/{id} | 详情（含子任务计数、当前配置版本、尝试次数、失败修复提示） |
 | GET | /tasks/{id}/events | 事件流（结构化 + 引擎日志 warn/error），游标分页 |
 | POST | /tasks/{id}/cancel | 取消（幂等：终态任务返回当前状态 200） |
-| POST | /tasks/{id}/retry | 重试（仅 failed/cancelled；保留原配置版本，attempt+1） |
+| POST | /tasks/{id}/priority | 置顶/取消置顶（仅 waiting；`{"priority":0|1..100}`，调度按 priority DESC + created_at 领取） |
+| POST | /tasks/{id}/retry | 重试。body 可选：缺省 = 普通重试（failed/cancelled；waiting+auto_retry 为立即重试，跳过剩余退避）；`{"kind":"n115"}` = 手动换通道重试（本地下载失败转 115 离线，failed/auto_retry 可用；115 未配置 409 如实拒绝）。保留原配置版本；failed 起步 attempt+1 |
 | DELETE | /tasks/{id} | 删除任务记录（不删文件；二次确认在前端；`?delete_files=1` 走文件删除端点） |
 | POST | /tasks/batch | 批量：`{action: cancel/retry/delete, ids: []}` → `{succeeded:[], failed:[{id,reason}]}` |
 | GET | /tasks/{id}/files | 产物列表 |
@@ -110,6 +111,8 @@
 | PUT | /credentials/{id} | 更新内容或标签 |
 | DELETE | /credentials/{id} | 删除 |
 | POST | /credentials/{id}/check | 健康检查（能连通平台接口则 active→expiring/expired） |
+| POST | /credentials/bilibili/qrcode/start | B 站扫码登录：申请二维码 → `{url, qrcode_key, expires_in}`（前端离线渲染二维码，约 3 分钟有效） |
+| POST | /credentials/bilibili/qrcode/poll | 轮询扫码：`{qrcode_key}` → `{status: waiting_scan/scanned/success/expired}`；success 时登录 Cookie 已加密入凭据中心（响应只回凭据元信息，永不回明文） |
 
 ### 2.6 订阅 `subscriptions`
 

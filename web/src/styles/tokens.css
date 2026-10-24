@@ -1,68 +1,100 @@
-/* 浣熊设计 Token（docs/07 §2，与方案 v2.4 §10.10 同源）。
-   全站唯一色值来源：组件禁止写死色值，新语义先加变量。 */
+/* 浣熊设计 Token（docs/07 §2「四套浣熊主题」）。
+   全站唯一色值来源：组件禁止写死色值，新语义先加变量。
+
+   四主题 = 四只浣熊（Ottr 思路：换主题就是换皮）：
+     night  夜行（默认）——深蓝黑夜空 + 荧光薄荷强调，藏蓝浣熊系薄荷围巾
+     scarf  围巾          ——暖黑褐 + 围巾金强调，金围巾是品牌原色成为完整主题
+     snow   雪绒（浅色）——冷灰白 + 墨青强调，银灰浣熊
+     berry  浆果          ——深李紫 + 浆果珊瑚强调，紫调浣熊系珊瑚围巾
+
+   每套主题必须自带完整核心组（画布/文字/强调/导航底/CTA/遮罩/浣熊形象），
+   闸门按主题逐块断言；主题不是「改一个强调色」，是整只浣熊换皮。 */
 
 :root {
-  /* 结构色：树影蓝灰 */
-  --accent: #2B3644;
-  --accent-strong: #1B2430;
-  --accent-soft: #E6EAF0;
-  --accent-softer: #F2F4F7;
-  /* 压在 --accent 实色块上的文字色。
-     浅色：accent 是深蓝灰 → 白字（对比度 12.6:1）。
-     深色：accent 变成金色 → 必须换成深墨色，白字压金底只有 1.9:1，根本读不清。
-     这就是「实色按钮上的文字色」不能写死 #fff 的原因。 */
-  --on-accent: #FFFFFF;
-  /* 动作色：围巾金（全屏金色 ≤3 处） */
+  /* ===== night 夜行（默认主题）===== */
+
+  /* 画布：深蓝黑夜空 */
+  --bg: #0A0E17;
+  --surface: #101624;
+  --surface-2: #161E30;
+  --surface-3: #1D2740;
+  --border: #232E4A;
+  /* 文字（对比度 vs surface：14.9 / 7.3 / 5.1） */
+  --text-1: #F2F5FA;
+  --text-2: #BCC6D9;
+  --text-3: #93A0B9;
+  /* 强调：荧光薄荷——活跃态 / 主行动 / 实时指示 */
+  --accent: #35E0A6;
+  --accent-strong: #6BEFC4;
+  --accent-soft: rgb(53 224 166 / 12%);
+  --accent-softer: rgb(53 224 166 / 7%);
+  /* 品牌金：点缀（徽章/徽标 Scarf 主题强调），不是动作色 */
   --gold: #F5B93C;
-  --gold-strong: #B8871A;
-  --gold-soft: #FDF3DC;
-  /* 画布 */
-  --bg: #F6F6F2;
-  --surface: #FFFFFF;
-  --surface-2: #EEF0F7;
-  --surface-3: #E4E6EC;
-  --border: #E2E5EF;
-  /* 文字（对比度：15.4 / 8.2 / 4.7） */
-  --text-1: #1B2133;
-  --text-2: #4D5670;
-  --text-3: #7E879F;
-  /* 语义状态（饱和度较原蓝紫降 10%） */
-  --success: #0F8A55;
-  --warning: #A9740A;
-  --danger: #CF4257;
-  --info: #2F7DE1;
-  --neutral: #667089;
-  /* 压在语义色实色块上的文字色。
-     语义色在深色模式下会自动变亮（如 success → #4CC38A），
-     实色块上的文字必须跟着换：浅色模式用白字，深色模式用深墨字。
-     这三个变量由 --success/--danger/--info/--neutral 派生，但写死成字面量
-     是为了让「块上文字」这个语义独立可调（对比度不达标时只改这里）。 */
-  --on-success: #FFFFFF;
-  --on-danger: #FFFFFF;
-  --on-info: #FFFFFF;
-  --on-neutral: #FFFFFF;
-  --on-warning: #FFFFFF;
-  /* 圆角（v2.4「胖半号」三档） */
+  --gold-strong: #F8CD77;
+  --gold-soft: rgb(245 185 60 / 14%);
+  /* 语义状态 */
+  --success: #34C983;
+  --warning: #E8B34B;
+  --danger: #F2728A;
+  --info: #6FA8F0;
+  --neutral: #8B94AD;
+  /* 二维码专用纸墨色：不随主题换色——扫码器对深底透出的码识别率不可靠，
+     任何主题下二维码都必须是纸白底 + 深墨点（BiliQrLogin 前端离线渲染用）。 */
+  --qr-paper: #FFFFFF;
+  --qr-ink: #1C1F26;
+  /* 实色块上的文字色：night 的强调/语义色都是亮色，块上文字用深墨 */
+  --on-accent: #08130E;
+  --on-success: #08130E;
+  --on-danger: #08130E;
+  --on-info: #08130E;
+  --on-neutral: #08130E;
+  --on-warning: #08130E;
+  /* 圆角三档 */
   --radius-ctrl: 8px;
   --radius-card: 14px;
   --radius-modal: 20px;
   --radius-pill: 999px;
-  /* 阴影：树影色投影，禁纯黑 */
-  --shadow-1: 0 1px 2px rgb(43 54 68 / 6%);
-  --shadow-2: 0 8px 24px rgb(43 54 68 / 10%);
-  --shadow-3: 0 16px 48px rgb(43 54 68 / 16%);
-  /* 字阶（docs/07 §2「字阶（docs/§10.3）」）。
-     注意：方案原文写成 `--font-title-1:24px 750` 的 font 简写形式，但本仓组件
-     一律以 `font-size: var(--font-title-1)` + 单独 font-weight 使用，故按
-     「字号 / 字重 / 行高」拆成独立变量，保证 token 值可直接用于 font-size。 */
+  /* 阴影：深色画布上用描边环代替投影（投影在暗底上不可见） */
+  --shadow-1: none;
+  --shadow-2: 0 0 0 1px var(--border);
+  --shadow-3: 0 0 0 1px var(--border);
+  /* 主 CTA（强调色实底 + 深墨字）：只给全站最高频动作（顶栏提交按钮） */
+  --cta-bg: #35E0A6;
+  --cta-bg-strong: #2BCA93;
+  --cta-fg: #08130E;
+  /* 侧导航（比 bg 再暗一档的控制台骨架） */
+  --nav-bg: #070B12;
+  --nav-border: rgb(255 255 255 / 6%);
+  --nav-text: #97A2B8;
+  --nav-text-strong: #F2F5FA;
+  --nav-hover: rgb(255 255 255 / 5%);
+  --nav-active-bg: rgb(53 224 166 / 10%);
+  --nav-active-text: #35E0A6;
+  --nav-btn-border: #232E4A;
+  /* 遮罩：深色主题压纯黑（浅色遮罩压深界面会「发灰发白」） */
+  --scrim: rgb(4 7 13 / 60%);
+  --scrim-deep: rgb(0 0 0 / 68%);
+  /* 浣熊形象：藏蓝毛 + 薄荷围巾 */
+  --logo-fur: #3A4A66;
+  --logo-face: #EEF2F8;
+  --logo-mask: #10141D;
+  --logo-scarf: #35E0A6;
+  --logo-scarf-strong: #6BEFC4;
+  --logo-ear: #35E0A6;
+
+  /* ===== 与主题无关的骨架 Token（字体不随皮换，四主题共用）===== */
+
+  /* 字阶：字号 / 字重 / 行高拆成独立变量，值可直接用于 font-size。 */
   --font-display: 30px;
   --font-title-1: 24px;
   --font-title-2: 20px;
   --font-title-3: 18px;
   --font-body: 16px;
-  --font-aux: 13.5px;
-  --font-caption: 12px;
-  /* 字重与行高（禁在组件里写死数值） */
+  --font-aux: 14.5px;
+  --font-caption: 13px;
+  /* 等宽：眉题 / 时间戳 / ID / 路径 / 日志（系统栈，不引字体文件） */
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
   --weight-display: 800;
   --weight-title: 750;
   --weight-strong: 700;
@@ -70,80 +102,176 @@
   --weight-medium: 650;
   --weight-body: 400;
   --weight-caption: 500;
+
   --line-height-display: 1.25;
   --line-height-title: 1.25;
   --line-height-body: 1.75;
-  /* 主 CTA（围巾金实底 + 深墨字）：金色是动作色，只给全站最高频动作
-     （顶栏提交按钮），正文/标题/图标不得使用，全屏金色 ≤3 处。
-     深浅两套底色都用同一个金：深底下金底对比 10:1，不需要跟着模式翻成白。 */
-  --cta-bg: #F5B93C;
-  --cta-bg-strong: #E5A91F;
-  --cta-fg: #1B2133;
-  /* 侧导航（结构色大面积载体：树影蓝灰深底）。
-     浅色模式 nav 深于内容区，品牌骨架立得住；深色模式 nav 比 bg 再暗一档，
-     层次方向不翻转为浅（否则深色模式下导航会「飘」在内容前面）。 */
-  --nav-bg: #1B2430;
-  --nav-border: rgb(255 255 255 / 8%);
-  --nav-text: rgb(255 255 255 / 66%);
-  --nav-text-strong: #FFFFFF;
-  --nav-hover: rgb(255 255 255 / 7%);
-  --nav-active-bg: rgb(245 185 60 / 14%);
-  --nav-active-text: #F5B93C;
-  --nav-btn-border: rgb(255 255 255 / 14%);
-  /* 徽标在深底上的提亮变体：侧导航是 #1B2430 深底，默认毛色（--accent）
-     会糊进底色，提亮一档才有辨识度。面纹纸白、眼罩近黑不变。 */
-  --logo-fur-lift: #4A5A78;
-  --logo-face-lift: #F6F6F2;
-  --logo-mask-lift: #10141D;
 }
 
-[data-theme='dark'] {
-  --bg: #0F121B;
-  --surface: #161A26;
-  --surface-2: #1D2231;
-  --surface-3: #232A3C;
-  --border: #28304A;
-  --text-1: #E9ECF5;
-  --text-2: #AEB6CD;
-  --text-3: #7E8AA5;
+[data-theme='scarf'] {
+  /* ===== scarf 围巾：暖黑褐 + 围巾金（品牌原色成为完整主题）===== */
+  --bg: #141009;
+  --surface: #1B160C;
+  --surface-2: #231C0F;
+  --surface-3: #2C2314;
+  --border: #3A2F1B;
+  --text-1: #F7F1E5;
+  --text-2: #D2C6AE;
+  --text-3: #AB9F82;
   --accent: #F5B93C;
   --accent-strong: #F8CD77;
-  --accent-soft: #2E3746;
-  --accent-softer: #28303F;
-  /* 深色模式下 accent 是金色，实色块上的文字改深墨色（对比度 11.8:1）。 */
-  --on-accent: #0F121B;
-  --gold: #E8EDF3;
-  --gold-strong: #FFFFFF;
-  --gold-soft: #28303F;
+  --accent-soft: rgb(245 185 60 / 12%);
+  --accent-softer: rgb(245 185 60 / 7%);
+  --gold: #F5B93C;
+  --gold-strong: #F8CD77;
+  --gold-soft: rgb(245 185 60 / 14%);
   --success: #4CC38A;
   --warning: #E0A84A;
   --danger: #F2728A;
   --info: #6FA8F0;
-  --neutral: #8B94AD;
-  /* 深色模式下语义色变亮 → 块上文字改深墨字（对比度 ≥ 7:1）。 */
-  --on-success: #0F121B;
-  --on-danger: #0F121B;
-  --on-info: #0F121B;
-  --on-neutral: #0F121B;
-  --on-warning: #0F121B;
-  /* 抽屉/遮罩层：树影蓝灰半透明。深色模式改用纯黑压暗，
-     否则浅色遮罩压在深色界面上会「发灰发白」，看着像弹窗没加载完。 */
-  --scrim: rgb(27 33 51 / 32%);
-  --scrim-deep: rgb(0 0 0 / 55%);
+  --neutral: #A29578;
+  --on-accent: #1B1408;
+  --on-success: #141009;
+  --on-danger: #141009;
+  --on-info: #141009;
+  --on-neutral: #141009;
+  --on-warning: #141009;
+  --radius-ctrl: 8px;
+  --radius-card: 14px;
+  --radius-modal: 20px;
+  --radius-pill: 999px;
   --shadow-1: none;
   --shadow-2: 0 0 0 1px var(--border);
   --shadow-3: 0 0 0 1px var(--border);
-  /* 深色模式侧导航：比 bg（#0F121B）再暗一档，方向不翻转 */
-  --nav-bg: #0B0E14;
-  --nav-border: #28304A;
-  --nav-text: #AEB6CD;
-  --nav-text-strong: #E9ECF5;
+  --cta-bg: #F5B93C;
+  --cta-bg-strong: #E5A91F;
+  --cta-fg: #1B1408;
+  --nav-bg: #0E0B05;
+  --nav-border: rgb(245 185 60 / 8%);
+  --nav-text: #A29578;
+  --nav-text-strong: #F7F1E5;
   --nav-hover: rgb(255 255 255 / 5%);
-  --nav-active-bg: rgb(245 185 60 / 12%);
+  --nav-active-bg: rgb(245 185 60 / 10%);
   --nav-active-text: #F5B93C;
-  --nav-btn-border: #28304A;
-  /* 深色模式 CTA：金底不变，文字改深墨（对深底金 11.8:1） */
-  --cta-fg: #0F121B;
-  --scrim: rgb(0 0 0 / 55%);
-  --scrim-deep: rgb(0 0 0 / 70%);
+  --nav-btn-border: #3A2F1B;
+  --scrim: rgb(10 7 3 / 60%);
+  --scrim-deep: rgb(0 0 0 / 68%);
+  --logo-fur: #5C4630;
+  --logo-face: #F6EFDF;
+  --logo-mask: #1A130A;
+  --logo-scarf: #F5B93C;
+  --logo-scarf-strong: #F8CD77;
+  --logo-ear: #F5B93C;
+}
+
+[data-theme='snow'] {
+  /* ===== snow 雪绒：冷灰白 + 墨青（浅色主题，银灰浣熊）===== */
+  --bg: #F3F5F7;
+  --surface: #FFFFFF;
+  --surface-2: #E9EDF1;
+  --surface-3: #DEE4EA;
+  --border: #D8DFE6;
+  --text-1: #17222B;
+  --text-2: #3A4B5B;
+  --text-3: #5D6E7D;
+  --accent: #0E7C6E;
+  --accent-strong: #0A5F55;
+  --accent-soft: rgb(14 124 110 / 10%);
+  --accent-softer: rgb(14 124 110 / 6%);
+  --gold: #B8871A;
+  --gold-strong: #8F6A12;
+  --gold-soft: #FBEFD6;
+  --success: #0F8A55;
+  --warning: #A9740A;
+  --danger: #CF4257;
+  --info: #2F7DE1;
+  --neutral: #5E6B7A;
+  --on-accent: #FFFFFF;
+  --on-success: #FFFFFF;
+  --on-danger: #FFFFFF;
+  --on-info: #FFFFFF;
+  --on-neutral: #FFFFFF;
+  --on-warning: #FFFFFF;
+  --radius-ctrl: 8px;
+  --radius-card: 14px;
+  --radius-modal: 20px;
+  --radius-pill: 999px;
+  --shadow-1: 0 1px 2px rgb(23 34 43 / 6%);
+  --shadow-2: 0 8px 24px rgb(23 34 43 / 10%);
+  --shadow-3: 0 16px 48px rgb(23 34 43 / 16%);
+  --cta-bg: #0E7C6E;
+  --cta-bg-strong: #0A5F55;
+  --cta-fg: #FFFFFF;
+  --nav-bg: #17222B;
+  --nav-border: rgb(255 255 255 / 7%);
+  --nav-text: #9FB0BC;
+  --nav-text-strong: #F2F5F7;
+  --nav-hover: rgb(255 255 255 / 6%);
+  --nav-active-bg: rgb(78 216 194 / 14%);
+  --nav-active-text: #4FD8C2;
+  --nav-btn-border: rgb(255 255 255 / 14%);
+  --scrim: rgb(23 34 43 / 32%);
+  --scrim-deep: rgb(0 0 0 / 45%);
+  --logo-fur: #55616E;
+  --logo-face: #F8FAFB;
+  --logo-mask: #1A2530;
+  --logo-scarf: #0E7C6E;
+  --logo-scarf-strong: #0A5F55;
+  --logo-ear: #0E7C6E;
+}
+
+[data-theme='berry'] {
+  /* ===== berry 浆果：深李紫 + 浆果珊瑚（紫调浣熊）===== */
+  --bg: #120E1B;
+  --surface: #191326;
+  --surface-2: #221A33;
+  --surface-3: #2C2242;
+  --border: #3A2D55;
+  --text-1: #F5F1FA;
+  --text-2: #CEC3DE;
+  --text-3: #A397BC;
+  --accent: #FF7A85;
+  --accent-strong: #FF9AA2;
+  --accent-soft: rgb(255 122 133 / 12%);
+  --accent-softer: rgb(255 122 133 / 7%);
+  --gold: #F5B93C;
+  --gold-strong: #F8CD77;
+  --gold-soft: rgb(245 185 60 / 14%);
+  --success: #4CC38A;
+  --warning: #E0A84A;
+  --danger: #F2728A;
+  --info: #9D8CFF;
+  --neutral: #9A8FAF;
+  --on-accent: #23090D;
+  --on-success: #120E1B;
+  --on-danger: #120E1B;
+  --on-info: #120E1B;
+  --on-neutral: #120E1B;
+  --on-warning: #120E1B;
+  --radius-ctrl: 8px;
+  --radius-card: 14px;
+  --radius-modal: 20px;
+  --radius-pill: 999px;
+  --shadow-1: none;
+  --shadow-2: 0 0 0 1px var(--border);
+  --shadow-3: 0 0 0 1px var(--border);
+  --cta-bg: #FF7A85;
+  --cta-bg-strong: #FF6672;
+  --cta-fg: #23090D;
+  --nav-bg: #0C0914;
+  --nav-border: rgb(255 122 133 / 8%);
+  --nav-text: #9A8FAF;
+  --nav-text-strong: #F5F1FA;
+  --nav-hover: rgb(255 255 255 / 5%);
+  --nav-active-bg: rgb(255 122 133 / 10%);
+  --nav-active-text: #FF7A85;
+  --nav-btn-border: #3A2D55;
+  --scrim: rgb(6 4 10 / 60%);
+  --scrim-deep: rgb(0 0 0 / 68%);
+  --logo-fur: #4A3B63;
+  --logo-face: #F1ECF7;
+  --logo-mask: #150F20;
+  --logo-scarf: #FF7A85;
+  --logo-scarf-strong: #FF9AA2;
+  --logo-ear: #FF7A85;
 }

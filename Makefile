@@ -2,19 +2,22 @@
 GO      ?= go
 NODE    ?= node
 NPM     ?= npm
-VERSION ?= 0.1.0
+VERSION ?= 1.0.0
 LDFLAGS = -s -w -X github.com/huluohu/raccoon/internal/server.version=$(VERSION)
 # -buildvcs=false：部分沙箱/容器内 Go 的 VCS 戳采集会失败（git 归属权检查），构建产物不需要 VCS 信息
 GOBUILD = $(GO) build -buildvcs=false
 GOTEST  = $(GO) test -buildvcs=false
 
-.PHONY: help backend-build backend-run backend-test web-install web-dev web-build verify docker-build fmt vet
+.PHONY: help backend-build cli-build backend-run backend-test web-install web-dev web-build verify docker-build docker-release fmt vet
 
 help: ## 显示帮助
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-16s %s\n", $$1, $$2}'
 
 backend-build: ## 编译后端（产物 bin/raccoon）
 	cd backend && $(GOBUILD) -ldflags "$(LDFLAGS)" -o ../bin/raccoon ./cmd/raccoon
+
+cli-build: ## 编译 CLI（产物 bin/rc；--json/--jsonl 供脚本与 AI Agent 管道使用）
+	cd backend && $(GOBUILD) -ldflags "$(LDFLAGS)" -o ../bin/rc ./cmd/rc
 
 backend-run: backend-build ## 本地运行（数据目录 ./data，监听 :8530）
 	RACCOON_DATA_DIR=./data RACCOON_SERVER_ADDR=:8530 ./bin/raccoon
@@ -44,4 +47,10 @@ vet: ## go vet
 	cd backend && $(GO) vet ./...
 
 docker-build: ## 构建镜像（amd64/arm64 由 --platform 指定）
-	docker build -t raccoon:$(VERSION) .
+	docker build --build-arg VERSION=$(VERSION) -t raccoon-server:$(VERSION) .
+
+HUB_NS ?= fooololo          # Docker Hub 命名空间（docker login 的账号）
+docker-release: ## 构建多架构镜像并推 Docker Hub（make docker-release VERSION=1.0.0）
+	docker buildx build --platform linux/amd64,linux/arm64 \
+		--build-arg VERSION=$(VERSION) \
+		-t $(HUB_NS)/raccoon-server:$(VERSION) -t $(HUB_NS)/raccoon-server:latest --push .

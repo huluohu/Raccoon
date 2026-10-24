@@ -6,8 +6,35 @@ package tgbot
 // 上层拿到 Command 之后决定要不要提交下载任务。这样命令解析可以纯函数测试。
 
 import (
+	"regexp"
 	"strings"
 )
+
+// urlPattern 提取消息里的可下载链接（http/https 与磁力）。
+// 「直接把链接发到聊天里就能下载」是 Bot 的核心体验——比 /add 更顺手；
+// 一条消息里贴多个链接 = 批量提交（SaveXTube 功能墙的对齐项）。
+var urlPattern = regexp.MustCompile(`https?://[^\s<>"']+|magnet:\?xt=urn:btih:[A-Za-z0-9]+`)
+
+// ExtractURLs 从自由文本中提取全部可下载链接（去重，保序）。
+func ExtractURLs(text string) []string {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	hits := urlPattern.FindAllString(text, -1)
+	out := make([]string, 0, len(hits))
+	seen := map[string]bool{}
+	trailing := func(r rune) bool {
+		return strings.ContainsRune(".,;:!?)、。）），", r)
+	}
+	for _, h := range hits {
+		h = strings.TrimRightFunc(h, trailing)
+		if !seen[h] {
+			seen[h] = true
+			out = append(out, h)
+		}
+	}
+	return out
+}
 
 // Command 命令名。
 type Command string
@@ -127,7 +154,8 @@ func HelpText() string {
 		"/help   — 显示这份帮助",
 		"/status <任务ID> — 查询任务状态",
 		"/list   — 列出任务",
-		"/add <下载链接> — 提交下载任务",
+		"/add <下载链接> — 提交下载任务（多个链接用空格分隔即批量）",
+		"直接发送一个或多个链接（无需命令）也能加入队列",
 		"/cancel <任务ID> — 取消任务",
 		"/media <检索词> — 检索媒体库",
 	}, "\n")

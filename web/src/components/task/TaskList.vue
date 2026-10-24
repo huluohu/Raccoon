@@ -82,6 +82,8 @@ const emit = defineEmits<{
   remove: [task: Task]
   /** 重试父任务的失败子项。 */
   'retry-failed-children': [parent: Task]
+  /** 置顶/取消置顶（仅 waiting）。 */
+  pin: [task: Task]
   /** 批量操作：动作 + 任务 ID 列表。 */
   batch: [action: 'cancel' | 'retry' | 'delete', ids: string[]]
 }>()
@@ -194,6 +196,7 @@ function clearSelection(): void {
           :selected="isSelected(t.id)"
           @open="emit('open', $event)"
           @select="(task, ev) => emit('select', task, ev)"
+          @pin="emit('pin', $event)"
         >
           <template v-if="!readonly" #actions>
             <RButton size="sm" variant="ghost" @click.stop="emit('toggle-expand', t.id)">
@@ -229,6 +232,7 @@ function clearSelection(): void {
           :selected="isSelected(t.id)"
           @open="emit('open', $event)"
           @select="(task, ev) => emit('select', task, ev)"
+          @pin="emit('pin', $event)"
         >
           <template v-if="!readonly" #actions>
             <RButton

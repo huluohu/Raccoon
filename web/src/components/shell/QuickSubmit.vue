@@ -13,7 +13,7 @@
 // 4) 提交前先做格式校验（utils/link.ts）：分享文案粘进来能自动提取链接，
 //    缺协议头 / 没链接时当场给提示，不用等一个网络往返才知道错在哪。
 import { computed, ref } from 'vue'
-import { checkLink } from '@/utils/link'
+import { checkLink, extractUrls } from '@/utils/link'
 
 const props = withDefaults(
   defineProps<{
@@ -32,15 +32,15 @@ const props = withDefaults(
     /** 输入框 id：同一页面可能有多个提交框，id 必须可区分（`/` 快捷键靠它聚焦）。 */
     inputId?: string
     /**
-     * 操作区布局：
+     * 操作区布局（只影响排列，不影响插槽内容，见模板里的共用 outlet）：
      *   'inline'（默认）按钮与输入框同一行——顶栏用，横向空间要留给通知按钮。
-     *   'row'     按钮另起一行——下载页用：三个动作按钮挤在同一行会把
-     *              URL 输入框压到 200px，长链接根本看不全。
+     *   'row'     按钮另起一行——主页引导卡与下载页用：三个动作按钮挤在同一行会把
+     *              URL 输入框压到 200px，长链接根本看不全；输入框独占整行更好读。
      */
     actionsLayout?: 'inline' | 'row'
   }>(),
   {
-    placeholder: '粘贴链接下载（回车直接提交）',
+    placeholder: '',
     submitting: false,
     error: '',
     maxWidth: 640,
@@ -52,7 +52,10 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
+  /** 单链接提交（提取后的规范 URL）。 */
   (e: 'submit', value: string): void
+  /** 批量提交（输入里含多个链接时；链接已提取去重）。 */
+  (e: 'submit-batch', urls: string[]): void
 }>()
 
 defineSlots<{
@@ -61,6 +64,12 @@ defineSlots<{
 }>()
 
 const inputEl = ref<HTMLInputElement | null>(null)
+
+/** 站点提示占位（与后端 platformOf 白名单同源的平台族）：给「能下什么」一个锚。 */
+const DEFAULT_PLACEHOLDER = '粘贴链接下载，多个链接换行分隔也行（YouTube · B站 · 抖音 · X · 小红书）'
+const dynamicPlaceholder = computed(() =>
+  linkCount.value >= 2 ? `检测到 ${linkCount.value} 个链接，回车批量下载` : DEFAULT_PLACEHOLDER,
+)
 
 /**
  * 格式校验提示（本地判断，不发请求）。
@@ -90,45 +99,55 @@ function onInput(ev: Event): void {
 
 /**
  * 提交前先过格式闸。
- * 通过时抛的是**提取后**的链接——分享文案里的裸链接会被规范化成纯 URL，
+ * 多链接批量：输入里提取到 >1 个链接时走 submit-batch（上层一次入队并汇总回执）；
+ * 单链接沿用 submit——分享文案里的裸链接会被规范化成纯 URL，
  * 引擎拿到干净地址，不必自己去啃一整段中文。
  */
 function submit(): void {
   const target = props.modelValue.trim()
   if (!target || props.submitting) return
   touched.value = true
+  const urls = extractUrls(target)
+  if (urls.length > 1) {
+    emit('submit-batch', urls)
+    return
+  }
   const r = checkLink(target)
   if (!r.ok) return
   emit('submit', r.url)
 }
+
+/** 输入里链接条数（≥2 时占位提示切换为批量口径）。 */
+const linkCount = computed(() => extractUrls(props.modelValue).length)
 </script>
 
 <template>
   <div class="qsubmit" :style="{ maxWidth: maxWidth + 'px' }">
-    <div class="qsubmit-row">
+    <!-- 动作区只有一个出口。
+         早先 inline / row 两种布局各写一个 <slot name="actions">，而默认按钮
+         （fallback）只写在了 inline 那个 outlet 里——row 布局且调用方没传 #actions
+         时（主页引导卡正是这种用法）整个动作区渲染为空，首屏 CTA 凭空消失，
+         而 inline 布局的调用方一切正常，所以症状只在主页出现、极难发现。
+         现在两种布局共用同一个 outlet，布局差异交给 CSS 换行，
+         fallback 也只有一份——不可能再出现「某一档布局下按钮没了」。 -->
+    <div class="qsubmit-row" :class="{ 'qsubmit-row--stack': actionsLayout === 'row' }">
       <input
         ref="inputEl"
         :id="inputId"
         class="qsubmit-input"
         type="url"
         :value="modelValue"
-        :placeholder="placeholder"
+        :placeholder="placeholder || dynamicPlaceholder"
         :disabled="submitting"
         aria-label="粘贴链接下载"
         @input="onInput"
         @keyup.enter="submit"
       />
-      <template v-if="actionsLayout === 'inline'">
-        <slot name="actions" :submit="submit" :disabled="submitting || !modelValue.trim()">
-          <button class="qsubmit-btn" type="button" :disabled="submitting || !modelValue.trim()" @click="submit">
-            {{ submitting ? '提交中…' : buttonText }}
-          </button>
-        </slot>
-      </template>
-    </div>
-    <!-- actionsLayout='row'：动作按钮另起一行，输入框独占整行宽度。 -->
-    <div v-if="actionsLayout === 'row'" class="qsubmit-ops">
-      <slot name="actions" :submit="submit" :disabled="submitting || !modelValue.trim()" />
+      <slot name="actions" :submit="submit" :disabled="submitting || !modelValue.trim()">
+        <button class="qsubmit-btn" type="button" :disabled="submitting || !modelValue.trim()" @click="submit">
+          {{ submitting ? '提交中…' : buttonText }}
+        </button>
+      </slot>
     </div>
     <!-- 错误内联在输入框正下方，不弹浮层：提交失败时用户的视线还在输入框附近。
          格式错误（本地判断）优先于接口错误：格式错的时候根本发不出请求，
@@ -187,13 +206,11 @@ function submit(): void {
   opacity: 0.55;
   cursor: not-allowed;
 }
-.qsubmit-ops {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
+/* row 布局：输入框独占整行，动作按钮换行到下一行。
+   输入框 flex-basis 给 100%，按钮必然被挤到第二行——不需要为两种布局各开一个容器
+   （两个容器就要写两份 slot fallback，主页那份漏掉就是这里踩的坑）。 */
+.qsubmit-row--stack { flex-wrap: wrap; }
+.qsubmit-row--stack .qsubmit-input { flex: 1 1 100%; }
 .qsubmit-err {
   margin: 6px 0 0;
   color: var(--danger);

@@ -183,12 +183,12 @@ async function create() {
   background: var(--surface-2); color: var(--text-3);
   font-size: var(--font-aux); text-align: center;
 }
-.step.on { background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-semibold); }
+.step.on { background: var(--accent-soft); color: var(--text-1); font-weight: var(--weight-semibold); }
 .step.done { color: var(--success); }
 form { display: flex; flex-direction: column; gap: 14px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-aux); color: var(--text-2); }
 input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--accent); color: var(--on-accent); font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
 button:disabled { opacity: 0.6; cursor: progress; }
 button.ghost { background: var(--surface-2); color: var(--text-1); border: 1px solid var(--border); }

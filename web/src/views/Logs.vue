@@ -15,6 +15,7 @@ import { api } from '@/api/client'
 import type { LogItem } from '@/api/types'
 import { errorText, formatTime } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
 
 /** 单页条数：接口上限 500，取 200——一屏约 20 行，200 条足够翻十屏且响应体不至于太大。 */
@@ -223,10 +224,11 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="logs">
-    <header class="page-head">
-      <h1>运行日志</h1>
-      <span class="count tnum">已加载 {{ items.length }} 条</span>
-    </header>
+    <PageHeader eyebrow="LOGS" title="运行日志">
+      <template #actions>
+        <span class="count tnum">已加载 {{ items.length }} 条</span>
+      </template>
+    </PageHeader>
 
     <div class="toolbar">
       <div class="chips" role="group" aria-label="日志级别（可多选）">
@@ -323,17 +325,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-.page-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-.page-head h1 {
-  font-size: var(--font-title-2);
-  font-weight: var(--weight-title);
-  color: var(--text-1);
 }
 .count {
   font-size: var(--font-caption);
@@ -455,9 +446,11 @@ onBeforeUnmount(() => {
   padding: 0 6px;
   border: 1px solid currentcolor;
   border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
   font-size: var(--font-caption);
   font-weight: var(--weight-caption);
-  text-transform: lowercase;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .lv-badge--debug {
   color: var(--text-3);

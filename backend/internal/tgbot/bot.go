@@ -196,10 +196,32 @@ func (b *Bot) HandleUpdate(ctx context.Context, u Update) error {
 		}
 	}
 	if req == nil {
-		// 不是命令：普通聊天内容，忽略（Bot 不做闲聊）。
-		return nil
+		// 不是命令：看是不是「裸链接」消息（一条或多条）——
+		// 直接发链接即可下载是核心体验，比 /add 更顺手；无链接的闲聊仍忽略。
+		urls := ExtractURLs(msg.Text)
+		if len(urls) == 0 {
+			return nil
+		}
+		return b.dispatchLinks(ctx, chatID, user, urls)
 	}
 	return b.dispatch(ctx, chatID, user, req)
+}
+
+// dispatchLinks 裸链接消息 → 批量提交（与 /add 同一条提交路径）。
+func (b *Bot) dispatchLinks(ctx context.Context, chatID int64, user *User, urls []string) error {
+	if b.handler == nil {
+		_ = b.reply(ctx, chatID, "机器人尚未配置业务处理器，暂时无法处理。")
+		return ErrNoHandler
+	}
+	text, err := b.handler.OnAddBatch(ctx, chatID, user, urls)
+	if err != nil {
+		_ = b.reply(ctx, chatID, "提交失败："+err.Error())
+		return err
+	}
+	if text != "" {
+		_ = b.reply(ctx, chatID, text)
+	}
+	return nil
 }
 
 // dispatch 按命令分发给 Handler。
@@ -221,7 +243,12 @@ func (b *Bot) dispatch(ctx context.Context, chatID int64, user *User, req *Comma
 	case CmdHelp:
 		text = HelpText()
 	case CmdAdd:
-		text, err = b.handler.OnAdd(ctx, chatID, user, req.Arg)
+		// /add 后面可能贴了多个链接（空格/换行分隔）——全部入队，不只是第一个。
+		if urls := ExtractURLs(req.Raw); len(urls) > 1 {
+			text, err = b.handler.OnAddBatch(ctx, chatID, user, urls)
+		} else {
+			text, err = b.handler.OnAdd(ctx, chatID, user, req.Arg)
+		}
 	case CmdStatus:
 		text, err = b.handler.OnStatus(ctx, chatID, user, req.Arg)
 	case CmdList:

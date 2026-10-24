@@ -46,6 +46,7 @@ type Engine interface {
 type (
 	ResolveOpts struct {
 		Cookies string // cookie 文件路径（凭据中心派生，可为空）
+		Proxy   string // 网络代理（net.proxy，空=直连）。解析与下载必须同出口，否则会「解析成功、下载超时」
 	}
 	DownloadOpts struct {
 		Cookies   string
@@ -56,6 +57,10 @@ type (
 		WriteDesc bool
 		EmbedSubs bool
 		HTTPProxy string
+		// WriteThumbnail 封面图落盘（--write-thumbnail；有 ffmpeg 时转 jpg）。
+		WriteThumbnail bool
+		// EmbedMetadata 标题/作者写入媒体文件（--embed-metadata）。
+		EmbedMetadata bool
 	}
 )
 

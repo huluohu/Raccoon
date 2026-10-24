@@ -7,13 +7,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
-import type { Credential, IntegrationChannelStatus, IntegrationStatus, TelegramStatus } from '@/api/types'
+import type { ConfigItem, Credential, IntegrationChannelStatus, IntegrationStatus, TelegramStatus } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import RInput from '@/components/base/RInput.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import CredentialList from '@/components/conn/CredentialList.vue'
 import QbTestPanel from '@/components/conn/QbTestPanel.vue'
 import TelegramPanel from '@/components/conn/TelegramPanel.vue'
+import BiliQrLogin from '@/components/conn/BiliQrLogin.vue'
 
 const toast = useToastStore()
 
@@ -102,7 +105,7 @@ interface ChannelView {
 function channelView(key: 'qb' | 'n115'): ChannelView {
   const st: IntegrationChannelStatus | undefined = integrations.value?.[key]
   if (!st || !st.configured) {
-    return { state: 'unconfigured', stateText: '未配置', detail: '在设置页填写连接参数后启用' }
+    return { state: 'unconfigured', stateText: '未配置', detail: '点「填写参数」就地配置后启用' }
   }
   if (st.ok === undefined) {
     return { state: 'unknown', stateText: '状态不明', detail: '已配置，尚未探测到实探结果' }
@@ -133,6 +136,99 @@ async function loadIntegrations() {
     tgStatus.value = res.data
   } catch {
     tgStatus.value = null
+  }
+}
+
+// ---- 通道参数表单（参数在「连接」页就地填写；设置页不再放通道组）----
+//
+// 敏感项语义（与后端打码一致）：GET /config 对 sensitive 项返回 "xx****yy"，
+// 表单里敏感项一律留空 = 保持不变；提交时跳过空值——绝不能把打码串或空串写回。
+
+/** 通道 key → 表单字段定义。sensitive 字段用 password 输入 + 留空保持。 */
+const CHANNEL_FIELDS: Record<string, { key: string; label: string; sensitive?: boolean; placeholder: string }[]> = {
+  qb: [
+    { key: 'qb.url', label: 'WebUI 地址', placeholder: '如 http://127.0.0.1:8080' },
+    { key: 'qb.username', label: '用户名', placeholder: 'qB 的登录用户名' },
+    { key: 'qb.password', label: '密码', sensitive: true, placeholder: 'qB 的登录密码' },
+  ],
+  n115: [
+    { key: 'n115.client_id', label: '应用 ID（client_id）', placeholder: '115 开放平台应用 ID' },
+    { key: 'n115.access_token', label: 'Access Token', sensitive: true, placeholder: '115 开放平台 access token' },
+    { key: 'n115.refresh_token', label: 'Refresh Token', sensitive: true, placeholder: '115 开放平台 refresh token' },
+  ],
+  telegram: [
+    { key: 'telegram.bot_token', label: 'Bot Token', sensitive: true, placeholder: '从 @BotFather 拿到的 token' },
+    { key: 'telegram.allowed_users', label: '允许的用户 ID', placeholder: '逗号分隔，如 123,456；留空不限制' },
+    { key: 'telegram.allowed_chats', label: '允许的会话 ID', placeholder: '逗号分隔；留空不限制' },
+  ],
+}
+
+const CHANNEL_TITLES: Record<string, string> = {
+  qb: 'qBittorrent 参数',
+  n115: '115 网盘参数',
+  telegram: 'Telegram 参数',
+}
+
+const paramsChannel = ref<'qb' | 'n115' | 'telegram' | null>(null)
+const paramsLoading = ref(false)
+const paramsSaving = ref(false)
+/** 表单值：key → 字符串。敏感项加载时置空（占位提示当前是否已设置）。 */
+const paramsForm = ref<Record<string, string>>({})
+/** 敏感项当前是否已有值（决定占位文案「已设置 · 留空保持不变」）。 */
+const sensitiveSet = ref<Record<string, boolean>>({})
+
+const paramsFields = computed(() => (paramsChannel.value ? CHANNEL_FIELDS[paramsChannel.value] : []))
+
+async function openParams(key: 'qb' | 'n115' | 'telegram') {
+  paramsChannel.value = key
+  paramsLoading.value = true
+  paramsForm.value = {}
+  sensitiveSet.value = {}
+  try {
+    const res = await api.getConfig()
+    const items = res.items ?? []
+    for (const f of CHANNEL_FIELDS[key]) {
+      const it: ConfigItem | undefined = items.find((i) => i.key === f.key)
+      if (f.sensitive) {
+        sensitiveSet.value[f.key] = Boolean(it && typeof it.value === 'string' && it.value !== '')
+        paramsForm.value[f.key] = ''
+      } else {
+        paramsForm.value[f.key] = typeof it?.value === 'string' ? it.value : ''
+      }
+    }
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '读取通道参数失败')
+  } finally {
+    paramsLoading.value = false
+  }
+}
+
+async function saveParams() {
+  if (!paramsChannel.value) return
+  const key = paramsChannel.value
+  const settings: Record<string, unknown> = {}
+  for (const f of CHANNEL_FIELDS[key]) {
+    const v = paramsForm.value[f.key]?.trim() ?? ''
+    // 敏感项留空 = 保持不变（不打码串回写、也不清空）
+    if (f.sensitive && v === '') continue
+    settings[f.key] = v
+  }
+  if (Object.keys(settings).length === 0) {
+    paramsChannel.value = null
+    return
+  }
+  paramsSaving.value = true
+  try {
+    await api.saveConfig(settings)
+    toast.success(`${CHANNEL_TITLES[key]}已保存，下个任务生效`)
+    paramsChannel.value = null
+    // 保存后立即实探一次：用户不用再手点「测试连接」
+    if (key === 'qb' || key === 'n115') await testChannel(key)
+    else await loadIntegrations()
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '保存失败')
+  } finally {
+    paramsSaving.value = false
   }
 }
 
@@ -265,12 +361,16 @@ onMounted(() => {
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <div>
-        <p class="page-sub">平台凭据中心 · 内容 AES-256-GCM 加密落库，界面只回打码预览</p>
-      </div>
-      <RButton variant="accent" @click="resetForm">新建凭据</RButton>
-    </header>
+    <PageHeader
+      eyebrow="CHANNELS"
+      title="连接"
+      sub="平台凭据中心 · 内容 AES-256-GCM 加密落库，界面只回打码预览"
+    >
+      <template #actions>
+        <BiliQrLogin @done="load" />
+        <RButton variant="accent" @click="resetForm">新建凭据</RButton>
+      </template>
+    </PageHeader>
 
     <!-- 外部集成通道 -->
     <section class="integrations">
@@ -296,6 +396,7 @@ onMounted(() => {
           :testing="testingChannel === 'qb'"
           :result="channelTest.qb ?? null"
           @test="testChannel('qb')"
+          @params="openParams('qb')"
         />
         <!-- 115 网盘通道：主动探测 -->
         <QbTestPanel
@@ -306,6 +407,7 @@ onMounted(() => {
           :testing="testingChannel === 'n115'"
           :result="channelTest.n115 ?? null"
           @test="testChannel('n115')"
+          @params="openParams('n115')"
         />
         <!-- Telegram 通道：读配置状态，没有测试端点（方案 §3 TelegramPanel） -->
         <TelegramPanel
@@ -313,6 +415,7 @@ onMounted(() => {
           :allowlist="tgStatus?.allowlist ?? 0"
           :loading="integrationsLoading"
           @refresh="loadIntegrations"
+          @params="openParams('telegram')"
         />
       </ul>
     </section>
@@ -394,13 +497,49 @@ onMounted(() => {
         </div>
       </form>
     </DetailDrawer>
+
+    <!-- 通道参数抽屉：连接参数就地填写（设置页不再放通道组）。
+         敏感项留空 = 保持不变；保存后自动实探一次。 -->
+    <DetailDrawer
+      :open="paramsChannel !== null"
+      :title="paramsChannel ? CHANNEL_TITLES[paramsChannel] : '通道参数'"
+      @close="paramsChannel = null"
+    >
+      <p class="params-note">
+        参数保存在本机配置中心，保存后立即实探一次；实探结果如实显示，不假装可用。
+      </p>
+      <div v-if="paramsLoading" class="params-loading">读取中…</div>
+      <form v-else-if="paramsChannel" class="params-form" @submit.prevent="saveParams">
+        <RInput
+          v-for="f in paramsFields"
+          :key="f.key"
+          v-model="paramsForm[f.key]"
+          :label="f.label"
+          :type="f.sensitive ? 'password' : 'text'"
+          :placeholder="f.sensitive && sensitiveSet[f.key] ? '已设置 · 留空保持不变' : f.placeholder"
+          :hint="f.sensitive ? '已设置时留空表示保持现有值不变' : ''"
+          autocomplete="off"
+        />
+        <div class="params-actions">
+          <RButton variant="ghost" type="button" @click="paramsChannel = null">取消</RButton>
+          <RButton variant="accent" type="submit" :disabled="paramsSaving">
+            {{ paramsSaving ? '保存中…' : '保存并测试' }}
+          </RButton>
+        </div>
+      </form>
+    </DetailDrawer>
+
   </section>
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+/* 通道参数抽屉：与凭据抽屉同一套节奏（说明句 + 表单 + 底部动作区）。 */
+.params-note { margin: 0 0 14px; font-size: var(--font-aux); color: var(--text-3); line-height: 1.7; }
+.params-loading { padding: 24px 0; font-size: var(--font-aux); color: var(--text-3); }
+.params-form { display: flex; flex-direction: column; gap: 14px; }
+.params-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+
 /* 页面副标题是正文档（16px）。 */
-.page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .alert {
   padding: 12px 16px;
   margin-bottom: 16px;
@@ -446,7 +585,7 @@ onMounted(() => {
   box-sizing: border-box;
 }
 .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
-.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .field input:disabled, .field select:disabled { opacity: 0.6; }
 .field-hint { font-size: var(--font-aux); color: var(--text-3); }
 .form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border); }

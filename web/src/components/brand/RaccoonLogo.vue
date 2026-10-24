@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// RaccoonLogo：品牌徽标（docs/07 §5 浣熊识别特征：眼罩 / 围巾 / 爪印）。
+// RaccoonLogo：品牌徽标（docs/07 §5 浣熊识别特征：连体眼罩 / 环尾 / 围巾）。
 //
 // 为什么不能拿 RaccoonFace 当 Logo：
 // RaccoonFace 是「状态表情」——给空态、失败态、通知用的拟人角色，
 // 六套五官随时切换，缩到 22px 就是一团糊。品牌徽标是静态、对称、
-// 缩任何尺寸都清晰的识别符号：正面浣熊头 + 眼罩 + 围巾飘带。
-// 两者共用一套视觉语言（树影蓝灰毛色 + 围巾金），但职责不同。
+// 缩任何尺寸都清晰的识别符号：正面浣熊头 + 连体眼罩 + 环纹尾 + 围巾飘带。
+// 两者共用一套视觉语言（四主题换皮的浣熊形象变量），但职责不同。
 //
 // 两个变体：
 //   mark  仅徽标图形（favicon、空态角标、窄屏）
@@ -38,27 +38,56 @@ const nameSize = computed(() => Math.round(props.size * 0.52))
       role="img"
       aria-label="浣熊 Raccoon"
     >
-      <!-- 耳朵：外深内金（金内耳是品牌点缀，和围巾呼应） -->
-      <circle cx="13" cy="13" r="8.5" fill="var(--logo-fur)" />
-      <circle cx="51" cy="13" r="8.5" fill="var(--logo-fur)" />
-      <circle cx="13" cy="13" r="4.2" fill="var(--gold)" />
-      <circle cx="51" cy="13" r="4.2" fill="var(--gold)" />
-      <!-- 头 -->
-      <ellipse cx="32" cy="33" rx="23" ry="21" fill="var(--logo-fur)" />
+      <!-- 环尾（浣熊第二识别物，先画压在头后）：
+           基线粗描边 = 尾身，虚线描边同路径 = 环纹（dasharray 沿路径分段成环）。
+           早期版本没有尾巴、眼罩是两条细斜带——缩到 22px 就是一只哈士奇；
+           连体眼罩 + 环尾才把「浣熊」钉死。 -->
+      <path
+        d="M 44 51 Q 60 46 58.5 27"
+        stroke="var(--logo-fur)"
+        stroke-width="9"
+        fill="none"
+        stroke-linecap="round"
+      />
+      <path
+        d="M 44 51 Q 60 46 58.5 27"
+        stroke="var(--logo-mask)"
+        stroke-width="9"
+        fill="none"
+        stroke-dasharray="4 4.5"
+      />
+      <!-- 耳朵：圆角三角（外毛内耳），不是圆——圆耳是熊 -->
+      <path d="M 12.5 22 Q 9.5 8.5 21 10.5 Q 26.5 11.8 28 18 Z" fill="var(--logo-fur)" />
+      <path d="M 51.5 22 Q 54.5 8.5 43 10.5 Q 37.5 11.8 36 18 Z" fill="var(--logo-fur)" />
+      <path d="M 16 18.5 Q 15 11.5 21.5 13 Q 24.5 14 25.5 17.5 Z" fill="var(--logo-ear)" />
+      <path d="M 48 18.5 Q 49 11.5 42.5 13 Q 39.5 14 38.5 17.5 Z" fill="var(--logo-ear)" />
+      <!-- 头：偏左给尾巴让位 -->
+      <ellipse cx="30" cy="35" rx="20" ry="19" fill="var(--logo-fur)" />
       <!-- 面部浅色区（浣熊面纹） -->
-      <ellipse cx="32" cy="38" rx="16.5" ry="13.5" fill="var(--logo-face)" />
-      <!-- 眼罩：浣熊的识别特征，两条深色斜带横过眼部 -->
-      <path d="M11 27 Q22 22.5 30 29.5 L29 34.5 Q21 30 11 33.5 Z" fill="var(--logo-mask)" />
-      <path d="M53 27 Q42 22.5 34 29.5 L35 34.5 Q43 30 53 33.5 Z" fill="var(--logo-mask)" />
-      <!-- 眼睛：眼罩带上的两个浅点 -->
-      <circle cx="21" cy="30" r="2.3" fill="var(--logo-face)" />
-      <circle cx="43" cy="30" r="2.3" fill="var(--logo-face)" />
+      <ellipse cx="30" cy="40" rx="15" ry="12" fill="var(--logo-face)" />
+      <!-- 眼罩：整块连体（鼻梁处微收），浣熊的眼罩是一体的，分开的两条是哈士奇 -->
+      <path
+        d="M 10.5 28.5 Q 20 22.5 30 27 Q 40 22.5 49.5 28.5 Q 50.5 35.5 42.5 37 Q 36 38 31.5 33.5 Q 30.5 32.5 29.5 33.5 Q 25 38 18.5 37 Q 9.5 35.5 10.5 28.5 Z"
+        fill="var(--logo-mask)"
+      />
+      <!-- 眼睛：眼罩上的两个浅点 -->
+      <circle cx="21.5" cy="30" r="2.7" fill="var(--logo-face)" />
+      <circle cx="40.5" cy="30" r="2.7" fill="var(--logo-face)" />
       <!-- 鼻与微笑 -->
-      <ellipse cx="32" cy="41" rx="2.8" ry="1.9" fill="var(--logo-mask)" />
-      <path d="M27 45 Q32 48.5 37 45" stroke="var(--logo-mask)" stroke-width="1.8" fill="none" stroke-linecap="round" />
-      <!-- 围巾（品牌金）+ 飘带 -->
-      <path d="M13 51.5 Q32 58.5 51 51.5 L51 55.5 Q32 62.5 13 55.5 Z" fill="var(--gold)" />
-      <path d="M45 54.5 L53.5 59.5 L49.5 61.5 L43 57 Z" fill="var(--gold-strong)" />
+      <path
+        d="M 27.5 41.5 L 32.5 41.5 Q 33.5 41.5 32.9 42.5 L 31 45.2 Q 30 46.3 29 45.2 L 27.1 42.5 Q 26.5 41.5 27.5 41.5 Z"
+        fill="var(--logo-mask)"
+      />
+      <path
+        d="M 30 46.5 L 30 48 M 30 48 Q 27.5 50 25.5 48.3 M 30 48 Q 32.5 50 34.5 48.3"
+        stroke="var(--logo-mask)"
+        stroke-width="1.6"
+        fill="none"
+        stroke-linecap="round"
+      />
+      <!-- 围巾（随主题换皮：night=薄荷 / scarf=金 / snow=墨青 / berry=珊瑚） -->
+      <path d="M 12.5 52.5 Q 30 59 47.5 52.5 L 47.5 56.5 Q 30 63 12.5 56.5 Z" fill="var(--logo-scarf)" />
+      <path d="M 43.5 55.5 L 52 60.5 L 48 62.5 L 41.5 58 Z" fill="var(--logo-scarf-strong)" />
     </svg>
 
     <span v-if="variant === 'full'" class="rlogo-word">
@@ -70,16 +99,13 @@ const nameSize = computed(() => Math.round(props.size * 0.52))
 </template>
 
 <style scoped>
-/* 徽标配色用独立变量而不是直接用 --accent：
-   侧导航是深树影蓝灰底，徽标若也用 --accent 会糊进底色；
-   登录页是浅底。--logo-* 由使用方按底色覆盖，组件本身不猜环境。 */
+/* 徽标配色全部走 --logo-* 换皮变量（docs/07 §2 四主题）：
+   颜色由 tokens.css 按主题定义，组件本身不猜环境、不设本地默认——
+   换主题时这只浣熊整体换皮（毛色/眼罩/围巾/耳色）。 */
 .rlogo {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  --logo-fur: var(--accent);
-  --logo-face: var(--surface);
-  --logo-mask: var(--accent-strong);
 }
 .rlogo-mark { display: block; flex-shrink: 0; }
 .rlogo-word { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }

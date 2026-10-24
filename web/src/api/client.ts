@@ -122,13 +122,19 @@ export const api = {
     const qs = new URLSearchParams(params).toString()
     return request<import('./types').TaskListResult>('/tasks' + (qs ? '?' + qs : ''))
   },
-  createTasks: (items: { url: string; quality?: string; save_path?: string }[], preview = false) =>
+  createTasks: (
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
+    preview = false,
+  ) =>
     request<import('./types').CreateTasksResponse>('/tasks', {
       method: 'POST',
       body: JSON.stringify({ items, preview }),
     }),
   /** 父子批量（docs/05 §5）：父任务 + 子任务树，父卡聚合子进度。 */
-  createParentTasks: (items: { url: string; quality?: string; save_path?: string }[], quality?: string) =>
+  createParentTasks: (
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
+    quality?: string,
+  ) =>
     request<import('./types').CreateParentTasksResponse>('/tasks/parent', {
       method: 'POST',
       body: JSON.stringify({ items, quality }),
@@ -148,7 +154,18 @@ export const api = {
   taskEvents: (id: string, after = 0) =>
     request<{ items: import('./types').TaskEvent[] | null }>(`/tasks/${id}/events?after=${after}`),
   cancelTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
-  retryTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}/retry`, { method: 'POST' }),
+  /** 置顶/取消置顶（仅 waiting 任务；priority 0=普通 1=置顶）。 */
+  setTaskPriority: (id: string, priority: number) =>
+    request<{ ok: boolean; priority: number }>(`/tasks/${id}/priority`, {
+      method: 'POST',
+      body: JSON.stringify({ priority }),
+    }),
+  /** kind 缺省 = 普通重试；传 "n115" = 手动换通道重试（docs/05 §7，115 未配置时后端 409 如实拒绝）。 */
+  retryTask: (id: string, kind?: 'n115') =>
+    request<{ ok: boolean }>(`/tasks/${id}/retry`, {
+      method: 'POST',
+      body: kind ? JSON.stringify({ kind }) : undefined,
+    }),
   deleteTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
   parseUrl: (url: string) =>
     request<{ data: import('./types').ParsePreview }>('/parse', {
@@ -213,6 +230,20 @@ export const api = {
       method: 'POST',
     }),
 
+  // ---- B 站扫码登录（免手动 Cookie 的凭据获取通道）----
+  biliQrStart: () =>
+    request<{ data: { url: string; qrcode_key: string; expires_in: number } }>(
+      '/credentials/bilibili/qrcode/start',
+      { method: 'POST', body: '{}' },
+    ),
+  biliQrPoll: (qrcodeKey: string) =>
+    request<{
+      data: { status: 'waiting_scan' | 'scanned' | 'success' | 'expired' | 'unknown'; message: string }
+    }>('/credentials/bilibili/qrcode/poll', {
+      method: 'POST',
+      body: JSON.stringify({ qrcode_key: qrcodeKey }),
+    }),
+
   // ---- 媒体库（docs/04 §2.8）----
   listFiles: (params: Record<string, string> = {}) => {
     const qs = new URLSearchParams(params).toString()
@@ -275,6 +306,7 @@ export const api = {
     title?: string
     quality?: string
     record_plan?: string
+    schedule_json?: string
     segment_min?: number
     check_interval_sec?: number
     credential_id?: string
@@ -289,6 +321,7 @@ export const api = {
       title?: string
       quality?: string
       record_plan?: string
+      schedule_json?: string
       segment_min?: number
       check_interval_sec?: number
       enabled?: boolean

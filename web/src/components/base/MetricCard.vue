@@ -79,11 +79,13 @@ function onClick() {
 
 <style scoped>
 .mcard {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
-  padding: 18px 20px;
+  padding: 18px 20px 16px;
+  overflow: hidden;
   text-align: left;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -98,20 +100,23 @@ function onClick() {
 .mcard--link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .mcard-icon {
   flex-shrink: 0;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-ctrl);
 }
-.mcard-icon svg { width: 20px; height: 20px; }
-.mcard-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-/* 大数字：display 档 + 表格数字（docs/07 §2 铁律：数字必须 tabular-nums）。 */
+.mcard-icon svg { width: 19px; height: 19px; }
+.mcard-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* 大数字：等宽族 + display 档 + 表格数字（docs/07 §2 铁律）。
+   控制台方向：数据是等宽的，读数不抖、气质冷峻。 */
 .mcard-value {
+  font-family: var(--font-mono);
   font-size: var(--font-display);
-  font-weight: var(--weight-title);
+  font-weight: var(--weight-display);
   line-height: 1.1;
+  letter-spacing: -0.01em;
   color: var(--text-1);
 }
 .mcard-label { font-size: var(--font-aux); color: var(--text-2); }

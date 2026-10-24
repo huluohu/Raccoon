@@ -241,14 +241,15 @@ function confirm() {
   justify-content: center;
   padding: 20px;
 }
-/* 遮罩色用 text-1 按 32% 混入 transparent 派生（Material 3 的 scrim 做法）：
-   浅色下 text-1 = #1B2133，混出来与项目既有 DetailDrawer 的遮罩完全一致；
-   深色下 text-1 变亮，遮罩随之变浅——深色主题里「压暗」本来也不该靠纯黑。
-   这样遮罩不需要在 tokens.css 里单开一个变量（.css 由他人并行修改，不碰）。 */
+/* 遮罩色取 tokens.css 的 --scrim：抽屉 / 对话框 / 汉堡导航 /「更多」面板
+   四个遮罩必须同源，否则会出现「同一操作两处深浅不一样」。
+   早先这里用 color-mix(var(--text-1) 32%) 现算，而 DetailDrawer/App 用 var(--scrim)，
+   两套算法在深浅两模式下都各自漂移；且 --scrim 当初只定义在 [data-theme='dark']，
+   浅色模式下现算的这版反而成了唯一能看见的那个——同源之后才谈得上可调。 */
 .rdialog-mask {
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--text-1) 32%, transparent);
+  background: var(--scrim);
 }
 .rdialog {
   position: relative;

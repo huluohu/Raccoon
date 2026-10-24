@@ -4,8 +4,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/huluohu/raccoon/internal/engine"
 	"github.com/huluohu/raccoon/internal/httpx"
+	"github.com/huluohu/raccoon/internal/live"
 	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
 	"github.com/huluohu/raccoon/internal/subscription"
@@ -44,6 +47,11 @@ func (s *Server) setupTasks() {
 	s.subs = subscription.New(s.store, s.cfg, eng, tm, s.log.With("subscription"))
 	go s.subs.Start(ctx)
 
+	// 直播守护：按计划的检测间隔探测开播，开播即自动录制；
+	// 「下播即成品」的收尾在 worker 任务终态（回写录制记录 + 复位源状态）。
+	s.liveSvc = live.New(s.store, s.cfg, tm, s.log.With("live"))
+	go s.liveSvc.Start(ctx)
+
 	// tasks REST（docs/04 §2.2）。
 	s.router.GET("/api/v1/tasks", s.requireAuth(s.handleTasksList))
 	s.router.POST("/api/v1/tasks", s.requireAuth(s.csrfForSession(s.handleTasksCreate)))
@@ -51,6 +59,7 @@ func (s *Server) setupTasks() {
 	s.router.GET("/api/v1/tasks/:id/events", s.requireAuth(s.handleTaskEvents))
 	s.router.POST("/api/v1/tasks/:id/cancel", s.requireAuth(s.csrfForSession(s.handleTaskCancel)))
 	s.router.POST("/api/v1/tasks/:id/retry", s.requireAuth(s.csrfForSession(s.handleTaskRetry)))
+	s.router.POST("/api/v1/tasks/:id/priority", s.requireAuth(s.csrfForSession(s.handleTaskPriority)))
 	s.router.DELETE("/api/v1/tasks/:id", s.requireAuth(s.csrfForSession(s.handleTaskDelete)))
 	s.router.POST("/api/v1/tasks/batch", s.requireAuth(s.csrfForSession(s.handleTasksBatch)))
 	// 父子批量（播放列表/频道展开）。必须注册在 GET /tasks/:id 之前吗？——不需要：
@@ -98,9 +107,10 @@ type createTasksReq struct {
 }
 
 type submitItemJSON struct {
-	URL      string `json:"url"`
-	Quality  string `json:"quality"`
-	SavePath string `json:"save_path"`
+	URL       string `json:"url"`
+	Quality   string `json:"quality"`
+	SavePath  string `json:"save_path"`
+	ConvertTo string `json:"convert_to"` // ""=源格式 / mp4 / mp3
 }
 
 func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error {
@@ -135,7 +145,10 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 	}
 	items := make([]task.SubmitItem, 0, len(req.Items))
 	for _, it := range req.Items {
-		items = append(items, task.SubmitItem{URL: it.URL, Quality: it.Quality, SavePath: it.SavePath})
+		if !task.ValidConvertTargets[strings.ToLower(strings.TrimSpace(it.ConvertTo))] && strings.TrimSpace(it.ConvertTo) != "" {
+			return httpx.Validation("convert_to 需为 mp4 / mp3")
+		}
+		items = append(items, task.SubmitItem{URL: it.URL, Quality: it.Quality, SavePath: it.SavePath, ConvertTo: it.ConvertTo})
 	}
 	u := userFrom(r)
 	source := task.SourceWeb
@@ -193,14 +206,56 @@ func (s *Server) handleTaskRetry(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.store.GetTask(id); err != nil {
 		return taskErrToHTTP(err)
 	}
-	if err := s.tasks.Retry(id); err != nil {
+	// body 可选（向后兼容：老客户端/扩展不带头即普通重试）；
+	// {"kind":"n115"} = 手动换通道重试（docs/05 §7）。
+	var body struct {
+		Kind string `json:"kind"`
+	}
+	if r.Body != nil {
+		if raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<10)); err == nil && len(raw) > 0 {
+			_ = json.Unmarshal(raw, &body)
+		}
+	}
+	var err error
+	if body.Kind != "" {
+		err = s.tasks.RetryVia(id, body.Kind)
+	} else {
+		err = s.tasks.Retry(id)
+	}
+	if err != nil {
 		var notAllowed *task.ErrRetryNotAllowed
 		if errors.As(err, &notAllowed) {
-			return httpx.Conflict("仅失败或已取消的任务可以重试")
+			return httpx.Conflict("仅失败、已取消或等待自动重试的任务可以重试")
+		}
+		var notConfigured *task.ErrChannelNotConfigured
+		if errors.As(err, &notConfigured) {
+			return httpx.Conflict(notConfigured.Error())
 		}
 		return taskErrToHTTP(err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "waiting"})
+	return nil
+}
+
+// handleTaskPriority 置顶/取消置顶（仅 waiting；docs/05 §3 优先级领取）。
+func (s *Server) handleTaskPriority(w http.ResponseWriter, r *http.Request) error {
+	id := param(r, "id")
+	var req struct {
+		Priority int `json:"priority"`
+	}
+	if r.Body != nil {
+		if raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<10)); err == nil && len(raw) > 0 {
+			_ = json.Unmarshal(raw, &req)
+		}
+	}
+	if err := s.tasks.SetPriority(id, req.Priority); err != nil {
+		var notAllowed *task.ErrRetryNotAllowed
+		if errors.As(err, &notAllowed) {
+			return httpx.Conflict("只有排队中的任务可以置顶（运行/终态任务没有排队位置）")
+		}
+		return taskErrToHTTP(err)
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "priority": req.Priority})
 	return nil
 }
 
@@ -248,7 +303,10 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) error {
 	if err := validateOutboundURL(req.URL); err != nil {
 		return err
 	}
-	if err := s.tasks.Engines().YTDLP.Available(); err != nil {
+	// 可用性检查与 Preview 同引擎口径：图片站走 gallery-dl，
+	// 只检 yt-dlp 会让「gallery-dl 缺失」的预览一路跑进 PARSE_FAILED 才暴露。
+	eng := s.tasks.Engines().EngineFor(strings.TrimSpace(req.URL))
+	if err := eng.Available(); err != nil {
 		return &httpx.Error{HTTP: http.StatusServiceUnavailable, Code: httpx.CodeNoEngine, Message: err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)

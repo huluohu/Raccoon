@@ -197,4 +197,114 @@ describe('TaskDetail', () => {
     })
     expect(w.find('.td-engine-detail').text()).toBe('第二次的报错')
   })
+
+  // ---- 重试等待期（waiting + auto_retry）：错误可见 + 立即重试（docs/05 §7） ----
+
+  it('重试等待期显示错误与倒计时结论，重试按钮是「不等了，立即重试」', () => {
+    // 后端在 auto_retry 分支把 error_code/scheduled_at 落库并随 SSE 广播，
+    // 前端不等 failed 终态就要能把「错在哪、还有多久重试」讲清楚。
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({
+          status: 'waiting',
+          wait_reason: 'auto_retry',
+          attempt: 1,
+          max_attempts: 3,
+          error_code: 'NET_TIMEOUT',
+          error_message: '网络连接失败或被重置，稍后自动重试',
+          scheduled_at: Date.now() + 25_000,
+        }),
+      },
+      global: { stubs },
+    })
+    expect(w.text()).not.toContain('本次没有错误记录')
+    // 结论讲事实：第几次没成 + 什么时候再试；语气是「在等」不是「完了」。
+    expect(w.text()).toContain('第 2 次没搬成')
+    expect(w.text()).toContain('秒后自动再试')
+    // 还没终态化，不摆失败腔。
+    expect(w.text()).not.toContain('这单没成。')
+    const retry = w.findAll('button').find((b) => b.text().includes('立即重试'))
+    expect(retry).toBeTruthy()
+  })
+
+  it('重试等待期点「立即重试」emit retry（跳过退避）', async () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({
+          status: 'waiting',
+          wait_reason: 'auto_retry',
+          attempt: 1,
+          error_code: 'NET_TIMEOUT',
+          error_message: '网络连接失败或被重置',
+          scheduled_at: Date.now() + 120_000,
+        }),
+      },
+      global: { stubs },
+    })
+    const retry = w.findAll('button').find((b) => b.text().includes('立即重试'))
+    await retry!.trigger('click')
+    expect(w.emitted('retry')?.[0]?.[0]).toMatchObject({ id: 't-1' })
+  })
+
+  // ---- 换通道重试（转 115，docs/05 §7）：网络类错误才给出口，平台类错误不骚扰 ----
+
+  it('网络类失败的本地下载任务显示「转 115 通道重试」并 emit retry-via', async () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({
+          status: 'failed',
+          kind: 'download',
+          error_code: 'NET_TIMEOUT',
+          error_message: '网络连接失败或被重置',
+        }),
+      },
+      global: { stubs },
+    })
+    const reroute = w.findAll('button').find((b) => b.text().includes('转 115'))
+    expect(reroute).toBeTruthy()
+    await reroute!.trigger('click')
+    const emitted = w.emitted('retry-via')
+    expect(emitted).toBeTruthy()
+    expect((emitted![0] as unknown[])[0]).toMatchObject({ id: 't-1' })
+    expect((emitted![0] as unknown[])[1]).toBe('n115')
+  })
+
+  it('重试等待期的网络错误同样给换通道出口', () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({
+          status: 'waiting',
+          wait_reason: 'auto_retry',
+          kind: 'download',
+          error_code: 'HTTP_5XX',
+          error_message: '对方服务临时不可用',
+          scheduled_at: Date.now() + 60_000,
+        }),
+      },
+      global: { stubs },
+    })
+    expect(w.findAll('button').some((b) => b.text().includes('转 115'))).toBe(true)
+  })
+
+  it('平台类错误（登录/404）不显示换通道按钮（换道无意义）', () => {
+    for (const code of ['AUTH_REQUIRED', 'NOT_FOUND', 'FORMAT_UNAVAILABLE']) {
+      const w = mount(TaskDetail, {
+        props: {
+          task: makeTask({ status: 'failed', kind: 'download', error_code: code, error_message: 'x' }),
+        },
+        global: { stubs },
+      })
+      expect(w.findAll('button').some((b) => b.text().includes('转 115'))).toBe(false)
+    }
+  })
+
+  it('非本地下载任务（已在 115 通道）不显示换通道按钮', () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({ status: 'failed', kind: 'n115', error_code: 'NET_TIMEOUT', error_message: 'x' }),
+      },
+      global: { stubs },
+    })
+    expect(w.findAll('button').some((b) => b.text().includes('转 115'))).toBe(false)
+  })
 })

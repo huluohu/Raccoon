@@ -27,7 +27,8 @@ import StatusDot from './StatusDot.vue'
 import TaskProgress from './TaskProgress.vue'
 import PlatformBadge from './PlatformBadge.vue'
 import type { Task } from '@/api/types'
-import { formatBytes, formatRelative, formatSpeed, WAIT_REASON_TEXT } from '@/utils/format'
+import { formatBytes, formatRelative, formatSpeed, waitReasonWithCountdown } from '@/utils/format'
+import { useNowTick } from '@/utils/now'
 
 const props = withDefaults(
   defineProps<{
@@ -83,11 +84,9 @@ const child = computed<TaskChildStats | null>(() => {
   return { total: props.task.child_total, failed: props.task.child_failed ?? 0 }
 })
 
-/** 等待原因（StatusDot 只表达状态，等待原因要单独讲清楚）。 */
-const waitReason = computed(() => {
-  if (props.task.status !== 'waiting' || !props.task.wait_reason) return ''
-  return WAIT_REASON_TEXT[props.task.wait_reason] ?? ''
-})
+/** 等待原因（StatusDot 只表达状态，等待原因要单独讲清楚；auto_retry 带秒级倒计时）。 */
+const nowTick = useNowTick()
+const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.value))
 </script>
 
 <template>
@@ -194,10 +193,10 @@ const waitReason = computed(() => {
   background: var(--surface-2);
 }
 .tcard.is-selected {
-  background: var(--gold-soft);
-  border-color: var(--gold);
+  background: var(--accent-soft);
+  border-color: var(--accent);
   /* 左侧金条：选中态在深浅底色下都靠形状识别，不只靠颜色（禁颜色唯一载体）。 */
-  box-shadow: inset 3px 0 0 var(--gold);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .tcard-top {

@@ -134,6 +134,9 @@ func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*Res
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}
+	if opts.Proxy != "" {
+		args = append(args, "--proxy", opts.Proxy)
+	}
 	args = append(args, url)
 	var raw strings.Builder
 	err := RunCmd(ctx, y.Bin, args, func(l string) {
@@ -308,6 +311,19 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 	}
 	if y.FFmpeg != "" {
 		args = append(args, "--ffmpeg-location", filepath.Dir(y.FFmpeg))
+	}
+	// 产物增强（docs/06 配置开关，默认关）：
+	// 封面落盘无额外依赖；转 jpg 需要 ffmpeg（缺 ffmpeg 时保留原始格式）。
+	// 元数据内嵌对 mp4/m4a 走 mutagen、mkv/webm 走 ffmpeg，两者缺位时
+	// yt-dlp 会以后处理器告警收场（不中断下载本身）。
+	if opts.WriteThumbnail {
+		args = append(args, "--write-thumbnail")
+		if y.FFmpeg != "" {
+			args = append(args, "--convert-thumbnails", "jpg")
+		}
+	}
+	if opts.EmbedMetadata {
+		args = append(args, "--embed-metadata")
 	}
 	if opts.HTTPProxy != "" {
 		args = append(args, "--proxy", opts.HTTPProxy)
@@ -672,7 +688,9 @@ func platformOf(extractorKey, url string) string {
 		return "tiktok"
 	case strings.Contains(k, "douyin"):
 		return "douyin"
-	case strings.Contains(k, "twitter"), strings.Contains(k, "x"):
+	// 「x」必须整词匹配：Contains(k,"x") 会把 Generic 等任意含 x 的 extractor
+	// 键误判成 X 平台，凭据中心就会错拿 twitter Cookie 去请求别的站。
+	case strings.Contains(k, "twitter"), k == "x":
 		return "twitter"
 	case strings.Contains(k, "instagram"):
 		return "instagram"
@@ -719,6 +737,12 @@ func platformOf(extractorKey, url string) string {
 		return "weibo"
 	case strings.Contains(host, "xiaohongshu.com"):
 		return "xiaohongshu"
+	case strings.Contains(host, "youku.com"):
+		return "youku"
+	case strings.Contains(host, "v.qq.com"), strings.Contains(host, "qq.com/nv"):
+		return "tencent"
+	case strings.Contains(host, "iqiyi.com"):
+		return "iqiyi"
 	}
 	return "web"
 }

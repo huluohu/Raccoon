@@ -32,6 +32,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   /** 发起测试。 */
   test: []
+  /** 打开通道参数表单（参数在「连接」页就地填写，不再跳设置页）。 */
+  params: []
 }>()
 
 /**
@@ -99,7 +101,7 @@ const mark = computed(() => (props.name ?? 'qBittorrent').slice(0, 1).toUpperCas
       <RButton size="sm" :disabled="testing" @click="emit('test')">
         {{ testing ? '测试中…' : '测试连接' }}
       </RButton>
-      <RouterLink class="int-link" to="/settings">去设置页填写参数 →</RouterLink>
+      <RButton size="sm" variant="ghost" @click="emit('params')">填写参数</RButton>
     </footer>
   </li>
 </template>
@@ -174,6 +176,4 @@ const mark = computed(() => (props.name ?? 'qBittorrent').slice(0, 1).toUpperCas
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
-.int-link { color: var(--text-3); font-size: var(--font-aux); text-decoration: none; }
-.int-link:hover { color: var(--accent); }
 </style>

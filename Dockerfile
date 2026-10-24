@@ -12,12 +12,14 @@ RUN npm run build
 FROM golang:1.22-bookworm AS go-build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
+# 应用版本（打进 server.version；发布命令见 Makefile docker-release / docs/17）。
+ARG VERSION=1.0.0
 WORKDIR /src
 COPY backend/ ./
 # 前端产物进包（embed.FS，ADR-5）
 COPY --from=web-build /w/dist ./internal/web/dist
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/huluohu/raccoon/internal/server.version=0.1.0" \
+    go build -buildvcs=false -trimpath -ldflags "-s -w -X github.com/huluohu/raccoon/internal/server.version=${VERSION}" \
     -o /out/raccoon ./cmd/raccoon
 
 # ---- 阶段 3：运行镜像（非 root，内置引擎）----
@@ -41,7 +43,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # but no impersonate target is available"。装上后 yt-dlp 会自动走 impersonation。
     # 固定版本随镜像走，升级需重建镜像。
     && pip3 install --no-cache-dir --break-system-packages "curl_cffi==${CURLCFFI_VERSION}" \
-    && python3 -c "import curl_cffi; print('curl_cffi', curl_cffi.__version__)"
+    && python3 -c "import curl_cffi; print('curl_cffi', curl_cffi.__version__)" \
+    # mutagen：yt-dlp --embed-metadata 写 mp4/m4a 标签时用它（mkv/webm 走 ffmpeg）。
+    # 没它时 mp4 元数据内嵌会以后处理器告警失败。
+    && pip3 install --no-cache-dir --break-system-packages "mutagen==1.47.0" \
+    && python3 -c "import mutagen; print('mutagen', mutagen.version_string)"
 
 COPY --from=go-build /out/raccoon /usr/local/bin/raccoon
 # 非 root 运行（方案 §7.1）

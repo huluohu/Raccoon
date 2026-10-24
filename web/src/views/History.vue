@@ -16,6 +16,7 @@ import { useToastStore } from '@/stores/toast'
 import { useTaskTree, type FilterKey, type FilterOption } from '@/composables/useTaskTree'
 import { formatBytes } from '@/utils/format'
 import REmpty from '@/components/base/REmpty.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import TaskList from '@/components/task/TaskList.vue'
 import TaskDetail from '@/components/task/TaskDetail.vue'
@@ -158,9 +159,7 @@ onMounted(async () => {
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <p class="page-sub">已完成 / 失败 / 已取消的记录，只读回看</p>
-    </header>
+    <PageHeader eyebrow="HISTORY" title="历史" sub="已完成 / 失败 / 已取消的记录，只读回看" />
 
     <!-- 日期范围：浏览行为，和任务页的状态筛选并列但互不替代 -->
     <div class="ranges" role="group" aria-label="时间范围">
@@ -247,18 +246,6 @@ onMounted(async () => {
   flex-direction: column;
   gap: 14px;
 }
-.page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-/* 页面副标题是正文档（16px）：它解释这页在干什么，不是脚注。 */
-.page-sub {
-  margin: 0;
-  font-size: var(--font-body);
-  color: var(--text-2);
-}
 .err {
   margin: 0;
   color: var(--danger);
@@ -314,10 +301,11 @@ onMounted(async () => {
   font-size: var(--font-aux);
   color: var(--text-2);
 }
-/* 数字比标签重一档：这块就是给人看数的，数不该和单位一样弱 */
+/* 数字比标签重一档：等宽 + 加大（控制台读数，数字不抖）。 */
 .sm-num {
-  font-size: var(--font-title-3);
-  font-weight: var(--weight-semibold);
+  font-family: var(--font-mono);
+  font-size: var(--font-title-2);
+  font-weight: var(--weight-display);
   color: var(--text-1);
 }
 .sm-note {

@@ -184,6 +184,28 @@ func (s *Store) FinishLiveRecording(id, status, errorNote string, segments int, 
 	return err
 }
 
+// GetLiveRecordingByTask 按任务 ID 取录制记录（worker 终态回写用）。
+// 找不到返回 nil（普通下载任务没有录制记录，不是错误）。
+func (s *Store) GetLiveRecordingByTask(taskID string) (*LiveRecording, error) {
+	var r LiveRecording
+	var errorNote sql.NullString
+	var endedAt sql.NullInt64
+	err := s.RO.QueryRow(`SELECT id, source_id, task_id, started_at, ended_at, segments, size, status, error_note
+		FROM live_recordings WHERE task_id=? ORDER BY started_at DESC LIMIT 1`, taskID).
+		Scan(&r.ID, &r.SourceID, &r.TaskID, &r.StartedAt, &endedAt, &r.Segments, &r.Size, &r.Status, &errorNote)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	r.ErrorNote = errorNote.String
+	if endedAt.Valid {
+		r.EndedAt = &endedAt.Int64
+	}
+	return &r, nil
+}
+
 // ListLiveRecordings 列出演制历史。
 func (s *Store) ListLiveRecordings(sourceID string, limit int) ([]*LiveRecording, error) {
 	if limit <= 0 || limit > 500 {

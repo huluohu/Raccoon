@@ -56,6 +56,10 @@ export const useTasksStore = defineStore('tasks', () => {
   let source: EventSource | null = null
   let retryIdx = 0
   let reconnectTimer: number | undefined
+  /** 断线宽限定时器：onerror 后 8s 内保持「已连接」显示（SSE 正常时
+   *  1~2s 内就重连成功；无宽限的话每次网络抖动/心跳间隙抖动都会闪
+   *  「重连中」，观感就是「老是重连中」）。 */
+  let graceTimer: number | undefined
 
   async function refresh(): Promise<void> {
     loading.value = true
@@ -98,6 +102,10 @@ export const useTasksStore = defineStore('tasks', () => {
     source = new EventSource('/api/v1/events', { withCredentials: true })
 
     source.onopen = () => {
+      if (graceTimer) {
+        window.clearTimeout(graceTimer)
+        graceTimer = undefined
+      }
       connected.value = true
       retryIdx = 0
       // 重连后全量对账一次，补齐断连期间丢的帧。
@@ -105,9 +113,16 @@ export const useTasksStore = defineStore('tasks', () => {
     }
 
     source.onerror = () => {
-      connected.value = false
       source?.close()
       source = null
+      // 宽限：8s 内暂不翻「重连中」（短暂断流重连很快，闪烁只是噪音）；
+      // 持续失败才如实显示离线。
+      if (graceTimer === undefined) {
+        graceTimer = window.setTimeout(() => {
+          graceTimer = undefined
+          connected.value = false
+        }, 8000)
+      }
       const step = RECONNECT_STEPS[Math.min(retryIdx, RECONNECT_STEPS.length - 1)]
       retryIdx += 1
       reconnectTimer = window.setTimeout(connect, step * 1000)
@@ -120,10 +135,24 @@ export const useTasksStore = defineStore('tasks', () => {
         wait_reason?: string
         child_total?: number
         child_failed?: number
+        /** auto_retry 帧携带：重试等待期就能看到「错误与建议」与倒计时，不等 failed 终态。 */
+        attempt?: number
+        max_attempts?: number
+        error_code?: string
+        error_message?: string
+        scheduled_at?: number
       }
       const row = items.value.find((t) => t.id === d.task_id)
       bumpCounts(row?.status, d.status, d.task_id)
-      patch(d.task_id, { status: d.status, wait_reason: d.wait_reason })
+      const fields: Partial<Task> = { status: d.status, wait_reason: d.wait_reason }
+      if (d.error_code !== undefined) {
+        fields.error_code = d.error_code
+        fields.error_message = d.error_message ?? ''
+      }
+      if (d.attempt !== undefined) fields.attempt = d.attempt
+      if (d.max_attempts !== undefined) fields.max_attempts = d.max_attempts
+      if (d.scheduled_at !== undefined) fields.scheduled_at = d.scheduled_at
+      patch(d.task_id, fields)
       // 父任务聚合帧带子项计数（backend internal/task/parent.go）。
       if (d.child_total !== undefined) {
         patch(d.task_id, { child_total: d.child_total, child_failed: d.child_failed })
@@ -189,6 +218,10 @@ export const useTasksStore = defineStore('tasks', () => {
 
   function disconnect(): void {
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    if (graceTimer) {
+      window.clearTimeout(graceTimer)
+      graceTimer = undefined
+    }
     source?.close()
     source = null
     connected.value = false
@@ -196,10 +229,10 @@ export const useTasksStore = defineStore('tasks', () => {
 
   // ---- 操作 ----
 
-  async function submit(url: string, quality?: string): Promise<void> {
+  async function submit(url: string, quality?: string, convertTo?: string): Promise<void> {
     error.value = ''
     try {
-      await api.createTasks([{ url, quality }])
+      await api.createTasks([{ url, quality, convert_to: convertTo || undefined }])
       await refresh()
     } catch (e) {
       error.value = e instanceof ApiError ? e.message : '提交失败'
@@ -209,7 +242,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** 提交父任务（批量）：父卡 + 子任务树（docs/05 §5）。 */
   async function submitParent(
-    items: { url: string; quality?: string; save_path?: string }[],
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
     quality?: string,
   ): Promise<CreateParentTasksResponse> {
     error.value = ''
@@ -230,7 +263,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** 普通批量提交（POST /tasks，一次多条，冲突项单独报出）。 */
   async function submitBatch(
-    items: { url: string; quality?: string; save_path?: string }[],
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
   ): Promise<CreateTasksResponse> {
     error.value = ''
     try {
@@ -265,13 +298,25 @@ export const useTasksStore = defineStore('tasks', () => {
     await refresh()
   }
 
-  async function retry(id: string): Promise<void> {
+  async function retry(id: string, kind?: 'n115'): Promise<void> {
     error.value = ''
     try {
-      await api.retryTask(id)
+      await api.retryTask(id, kind)
       await refresh()
     } catch (e) {
       error.value = e instanceof ApiError ? e.message : '重试失败'
+      throw e
+    }
+  }
+
+  /** 置顶（仅 waiting）：后端 409 时把原因抛给 toast。 */
+  async function setPriority(id: string, priority: number): Promise<void> {
+    error.value = ''
+    try {
+      await api.setTaskPriority(id, priority)
+      await refresh()
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.message : '置顶失败'
       throw e
     }
   }
@@ -307,6 +352,7 @@ export const useTasksStore = defineStore('tasks', () => {
     preview,
     cancel,
     retry,
+    setPriority,
     remove,
     events,
   }

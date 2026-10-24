@@ -145,7 +145,7 @@ describe('Overview 视图', () => {
     expect(w.findAll('.trend-tab')[1].classes()).toContain('on')
   })
 
-  it('监控不可用时如实说明，不画假环（诚实原则）', async () => {
+  it('监控不可用时如实说明，资源瓦片显示「—」不画假数（诚实原则）', async () => {
     const { api } = await import('@/api/client')
     vi.mocked(api.monitorSnapshot).mockResolvedValueOnce({
       ok: false,
@@ -155,13 +155,21 @@ describe('Overview 视图', () => {
     const w = mountOverview()
     await flushPromises()
     expect(w.text()).toContain('当前平台不支持资源监控')
-    expect(w.findAll('.donut').length).toBe(0)
+    // 资源行还在（结构稳定），但数值是「—」：不可用就是不可用，不编 0%
+    const pcts = w.findAll('.res-pct').map((n) => n.text())
+    expect(pcts).toEqual(['—', '—', '—'])
+    // 成功率环照常（它来自统计接口，与资源监控无关）
+    expect(w.text()).toContain('成功率')
   })
 
-  it('监控可用时三环 + 带宽数字都在', async () => {
+  it('监控可用时资源瓦片出数值 + 带宽数字都在', async () => {
     const w = mountOverview()
     await flushPromises()
-    expect(w.findAll('.donut').length).toBe(3)
+    // 成功率环 1 个（系统健康卡）；资源占用走瓦片条不再画三环
+    expect(w.findAll('.donut').length).toBe(1)
+    const pcts = w.findAll('.res-pct').map((n) => n.text())
+    expect(pcts.length).toBe(3)
+    expect(pcts).not.toContain('—')
     expect(w.text()).toContain('Mbps')
   })
 

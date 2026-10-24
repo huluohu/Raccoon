@@ -13,6 +13,7 @@ import { useToastStore } from '@/stores/toast'
 import { formatRelative } from '@/utils/format'
 import type { ApiToken, ConfigHistoryEntry, ConfigItem, Effective } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import RInput from '@/components/base/RInput.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import REmpty from '@/components/base/REmpty.vue'
@@ -36,7 +37,6 @@ const tokens = ref<ApiToken[]>([])
 const newTokenName = ref('')
 const newTokenScope = ref(3)
 const newTokenPlain = ref('')
-const testing = ref(false)
 
 /** 分组（按 key 前缀）。 */
 const GROUPS: { key: string; label: string }[] = [
@@ -48,9 +48,8 @@ const GROUPS: { key: string; label: string }[] = [
   { key: 'notify', label: '通知' },
   { key: 'log', label: '日志' },
   { key: 'server', label: '服务' },
-  { key: 'qb', label: 'qBittorrent' },
-  { key: 'n115', label: '115 网盘' },
-  { key: 'telegram', label: 'Telegram' },
+  // qBittorrent / 115 / Telegram 的连接参数与通道测试已归位「连接」页
+  //（通道参数是「连到哪」不是「系统行为」，与凭据中心同域；docs/07 §3）。
 ]
 
 const grouped = computed(() =>
@@ -63,14 +62,13 @@ const grouped = computed(() =>
 /**
  * 左分组导航的分组清单（方案 §3「SettingsNav（左分组）」）。
  *
- * 顺序 = 导航项顺序 = 文档顺序（账号 → 各配置分组 → 通道测试 → 令牌 → 历史）。
+ * 顺序 = 导航项顺序 = 文档顺序（账号 → 各配置分组 → 诊断 → 令牌 → 历史）。
  * scrollspy 的判定线、底部兜底、点击锁定三机制在 SettingsNav 组件内部实现，
  * 这里只负责把「有哪些分组」如实告诉它。
  */
 const navSections = computed<SettingsSection[]>(() => [
   { id: 'account', label: '账号' },
   ...grouped.value.map((g) => ({ id: g.key, label: g.label })),
-  { id: 'conn', label: '通道测试' },
   { id: 'diag', label: '诊断' },
   { id: 'tokens', label: 'API 令牌' },
   { id: 'history', label: '配置历史' },
@@ -213,33 +211,7 @@ async function rollback(entry: ConfigHistoryEntry) {
   }
 }
 
-/** 通道测试结果（用服务端已保存的配置实探，不模拟、不假装成功）。 */
-const channelResult = ref<Record<string, { ok: boolean; message: string }>>({})
 
-async function testChannel(key: 'qb' | 'n115' | 'telegram') {
-  testing.value = true
-  try {
-    if (key === 'telegram') {
-      // Telegram 没有 test 端点：用 /integrations/telegram/status 的 enabled 如实表达。
-      const res = await api.telegramStatus()
-      const msg = res.data.enabled
-        ? `通道已启用，白名单 ${res.data.allowlist} 人`
-        : '通道未启用（需配置 bot token 且白名单非空）'
-      channelResult.value = { ...channelResult.value, [key]: { ok: res.data.enabled, message: msg } }
-    } else {
-      const res = key === 'qb' ? await api.testQB() : await api.testN115()
-      const msg = res.ok ? (res.version ? `连接正常（版本 ${res.version}）` : '连接正常') : '连接失败'
-      channelResult.value = { ...channelResult.value, [key]: { ok: res.ok, message: msg } }
-    }
-  } catch (e) {
-    channelResult.value = {
-      ...channelResult.value,
-      [key]: { ok: false, message: e instanceof Error ? e.message : '测试失败' },
-    }
-  } finally {
-    testing.value = false
-  }
-}
 
 async function createToken() {
   const name = newTokenName.value.trim()
@@ -382,14 +354,14 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <div class="head-actions">
+    <PageHeader eyebrow="SETTINGS" title="设置">
+      <template #actions>
         <span v-if="isDirty" class="dirty-dot" title="有未保存的改动">● 未保存</span>
         <RButton variant="accent" :disabled="!isDirty || saving" @click="save">
           {{ saving ? '保存中…' : '保存改动' }}
         </RButton>
-      </div>
-    </header>
+      </template>
+    </PageHeader>
 
     <div v-if="errorMsg" class="error-card" role="alert">
       <p>{{ errorMsg }}</p>
@@ -497,27 +469,6 @@ onBeforeUnmount(() => {
             />
           </article>
 
-          <!-- 外部集成通道测试 -->
-          <article id="conn" class="group">
-            <h2 class="group-title">外部集成通道测试</h2>
-            <p class="group-desc">
-              用服务端已保存的配置实探一次外部通道；未配置会如实报「未配置」，不假装可用。
-            </p>
-            <div class="conn-row">
-              <RButton size="sm" :disabled="testing" @click="testChannel('qb')">测 qBittorrent</RButton>
-              <RButton size="sm" :disabled="testing" @click="testChannel('n115')">测 115</RButton>
-              <RButton size="sm" :disabled="testing" @click="testChannel('telegram')">查 Telegram 状态</RButton>
-            </div>
-            <p
-              v-for="(r, k) in channelResult"
-              :key="k"
-              class="conn-result"
-              :class="r.ok ? 'ok' : 'bad'"
-            >
-              {{ r.ok ? '✓' : '✕' }} {{ r.message }}
-            </p>
-          </article>
-
           <!-- 诊断入口（方案 §3「诊断入口在设置页」） -->
           <article id="diag" class="group">
             <h2 class="group-title">诊断</h2>
@@ -594,7 +545,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .head-actions { display: flex; align-items: center; gap: 10px; }
 .dirty-dot { color: var(--warning); font-size: var(--font-aux); }
 /* 左分组导航在 SettingsNav 组件内（含它的响应式折行规则）；

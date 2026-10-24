@@ -99,13 +99,14 @@ func TestIsActive(t *testing.T) {
 }
 
 // TestIsRetryable 可重试错误码白名单（docs/05 §7）。
+// NET_RESET 不在清单：classify 把 connection reset 归入 NET_TIMEOUT，该码从未被产生。
 func TestIsRetryable(t *testing.T) {
-	for _, c := range []string{"NET_TIMEOUT", "NET_RESET", "HTTP_5XX", "RATE_LIMITED", "ENGINE_CRASH", "WORKER_PANIC"} {
+	for _, c := range []string{"NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED", "ENGINE_CRASH", "WORKER_PANIC", "ENGINE_ERROR", "TIMEOUT"} {
 		if !IsRetryable(c) {
 			t.Errorf("%s 应可自动重试", c)
 		}
 	}
-	for _, c := range []string{"AUTH_REQUIRED", "GEO_BLOCKED", "QB_UNAVAILABLE", "N115_SUBMIT_FAILED", ""} {
+	for _, c := range []string{"NET_RESET", "AUTH_REQUIRED", "GEO_BLOCKED", "QB_UNAVAILABLE", "N115_SUBMIT_FAILED", ""} {
 		if IsRetryable(c) {
 			t.Errorf("%s 不应自动重试（重试无意义，只会拖延用户看到 fix_hint）", c)
 		}

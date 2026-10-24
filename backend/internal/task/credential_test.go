@@ -123,13 +123,36 @@ func TestCookieDomainFor(t *testing.T) {
 		"xiaohongshu": ".xiaohongshu.com",
 		"netease":     ".music.163.com",
 		"youtube":     ".youtube.com",
-		"unknown":     ".com", // 兜底：宁可他站不匹配，也不写死单一站点
-		"":            ".com",
+		"youku":       ".youku.com",
+		"tencent":     ".v.qq.com",
+		"iqiyi":       ".iqiyi.com",
+		"tiktok":      ".tiktok.com",
+		// 未收录平台返回空串：写 ".com" 会让 yt-dlp 把凭据发给全网 .com 站点
+		//（跨站泄漏）；空串让 writeCookieFile 不产文件、引擎按无凭据跑。
+		"unknown": "",
+		"":        "",
 	}
 	for platform, want := range cases {
 		if got := cookieDomainFor(platform); got != want {
 			t.Errorf("cookieDomainFor(%q) = %q，期望 %q", platform, got, want)
 		}
+	}
+}
+
+// TestWriteCookieFile_未知平台不产文件：无域可绑的凭据宁可不带，也不跨站泄漏。
+func TestWriteCookieFile_未知平台不产文件(t *testing.T) {
+	w := cookieFileWriter{dir: t.TempDir()}
+	path, err := w.writeCookieFile("some-unknown-platform", "SESSDATA=abc; bili_jct=xyz")
+	if err != nil {
+		t.Fatalf("writeCookieFile 失败: %v", err)
+	}
+	if path != "" {
+		t.Fatalf("未知平台不应产 cookie 文件，实际 %q", path)
+	}
+	// 自带 domain= 属性则可以：用户明确指定了发送范围。
+	path, err = w.writeCookieFile("some-unknown-platform", "domain=.example.com; SESSDATA=abc")
+	if err != nil || path == "" {
+		t.Fatalf("带 domain 属性的未知平台凭据应产文件: path=%q err=%v", path, err)
 	}
 }
 

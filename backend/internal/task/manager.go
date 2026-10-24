@@ -289,28 +289,120 @@ func (m *Manager) Cancel(taskID string) error {
 	return nil
 }
 
-// Retry 手动重试（仅 failed/cancelled → waiting，attempt+1，保留原 config_version）。
+// Retry 手动重试（保留原 config_version）：
+//   - failed/cancelled → waiting，attempt+1，清错误三件套与 wait_reason；
+//   - waiting+auto_retry → 跳过剩余退避，scheduled_at 提前到立即到期（不消耗 attempt，
+//     次数在下次失败时由 worker 递增）。
 func (m *Manager) Retry(taskID string) error {
 	t, err := m.st.GetTask(taskID)
 	if err != nil {
 		return err
 	}
-	if t.Status != "failed" && t.Status != "cancelled" {
+	switch {
+	case t.Status == "failed" || t.Status == "cancelled":
+		if err := m.st.UpdateTaskFields(taskID, map[string]any{
+			"status":           "waiting",
+			"wait_reason":      "",
+			"attempt":          t.Attempt + 1,
+			"error_code":       nil,
+			"error_message":    nil,
+			"fix_hint":         nil,
+			"cancel_requested": false,
+			"scheduled_at":     nil,
+		}, t.Status); err != nil {
+			return err
+		}
+		_ = m.st.AppendEvent(taskID, "info", "retry", fmt.Sprintf("手动重试（第 %d 次尝试）", t.Attempt+1), "")
+		m.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "waiting", "wait_reason": ""})
+	case t.Status == "waiting" && t.WaitReason == "auto_retry":
+		now := time.Now().UnixMilli()
+		if err := m.st.UpdateTaskFields(taskID, map[string]any{
+			"scheduled_at": now,
+		}, t.Status); err != nil {
+			return err
+		}
+		_ = m.st.AppendEvent(taskID, "info", "retry", "已跳过退避等待，立即重试", "")
+		m.hub.Broadcast("task.status", map[string]any{
+			"task_id": taskID, "status": "waiting", "wait_reason": "auto_retry", "scheduled_at": now,
+		})
+	default:
 		return &ErrRetryNotAllowed{Status: t.Status}
 	}
-	if err := m.st.UpdateTaskFields(taskID, map[string]any{
-		"status":           "waiting",
-		"attempt":          t.Attempt + 1,
+	return nil
+}
+
+// SetPriority 置顶/取消置顶：只对 waiting 任务生效（运行中的任务改优先级
+// 没有可观察效果，只会造成「点了没反应」的困惑）。
+func (m *Manager) SetPriority(taskID string, priority int) error {
+	if priority < 0 || priority > 100 {
+		return fmt.Errorf("priority 需在 0–100 之间")
+	}
+	t, err := m.st.GetTask(taskID)
+	if err != nil {
+		return err
+	}
+	if t.Status != StatusWaiting {
+		return &ErrRetryNotAllowed{Status: t.Status}
+	}
+	if err := m.st.UpdateTaskFields(taskID, map[string]any{"priority": priority}, t.Status); err != nil {
+		return err
+	}
+	m.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": t.Status, "priority": priority})
+	return nil
+}
+
+// ErrChannelNotConfigured 换通道的目标未配置（如实拒绝，不假装受理）。
+type ErrChannelNotConfigured struct{ Channel string }
+
+func (e *ErrChannelNotConfigured) Error() string {
+	return e.Channel + " 通道未配置，请先在「连接」页完成配置再换道"
+}
+
+// rerouteableKinds 允许手动换道的目标通道。当前仅 115 离线：
+// 它的抓取发生在 115 云端（另一条网络路径），正是本地 NET_TIMEOUT 的出路；
+// qB 只收磁力/种子，而本地下载任务都是直链，转 qB 无意义。
+var rerouteableKinds = map[string]bool{KindN115: true}
+
+// RetryVia 手动换通道重试：失败或退避中的任务改走指定通道重新入队。
+// 状态门槛与 Retry 一致（failed / waiting+auto_retry）；115 未配置如实拒绝；
+// 改 kind、route_path 追补换道痕迹、清错误三件套。attempt 语义与 Retry 相同：
+// failed 起步 +1（终态重开），auto_retry 起步不变（退避期只是换路，不重开）。
+func (m *Manager) RetryVia(taskID, kind string) error {
+	if !rerouteableKinds[kind] {
+		return fmt.Errorf("不支持换到 %s 通道", kind)
+	}
+	t, err := m.st.GetTask(taskID)
+	if err != nil {
+		return err
+	}
+	if t.Status != StatusFailed && !(t.Status == StatusWaiting && t.WaitReason == "auto_retry") {
+		return &ErrRetryNotAllowed{Status: t.Status}
+	}
+	if t.Kind == kind {
+		return fmt.Errorf("任务已经在该通道上，无需换道")
+	}
+	if m.external == nil || m.external.n115 == nil {
+		return &ErrChannelNotConfigured{Channel: "115"}
+	}
+	updates := map[string]any{
+		"kind":             kind,
+		"status":           StatusWaiting,
+		"wait_reason":      "",
 		"error_code":       nil,
 		"error_message":    nil,
 		"fix_hint":         nil,
 		"cancel_requested": false,
 		"scheduled_at":     nil,
-	}, t.Status); err != nil {
+		"route_path":       AppendRoutePath(t.RoutePath, "本地下载失败 → 转 115"),
+	}
+	if t.Status == StatusFailed {
+		updates["attempt"] = t.Attempt + 1
+	}
+	if err := m.st.UpdateTaskFields(taskID, updates, t.Status); err != nil {
 		return err
 	}
-	_ = m.st.AppendEvent(taskID, "info", "retry", fmt.Sprintf("手动重试（第 %d 次尝试）", t.Attempt+1), "")
-	m.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "waiting"})
+	_ = m.st.AppendEvent(taskID, "info", "retry", "手动换通道：本地下载失败，转 115 离线重新入队", "")
+	m.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "waiting", "wait_reason": ""})
 	return nil
 }
 
@@ -323,12 +415,16 @@ func (m *Manager) RunningCount() int {
 
 // SubmitItem 创建入参（docs/04 §2.2 POST /tasks items[]）。
 type SubmitItem struct {
-	URL      string         `json:"url"`
-	Quality  string         `json:"quality,omitempty"`
-	SavePath string         `json:"save_path,omitempty"`
-	Kind     string         `json:"kind,omitempty"`
-	Options  map[string]any `json:"options,omitempty"`
+	URL       string         `json:"url"`
+	Quality   string         `json:"quality,omitempty"`
+	SavePath  string         `json:"save_path,omitempty"`
+	ConvertTo string         `json:"convert_to,omitempty"` // ""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
+	Kind      string         `json:"kind,omitempty"`
+	Options   map[string]any `json:"options,omitempty"`
 }
+
+// ValidConvertTargets 任务产物允许的目标格式（白名单；防拼参数注入）。
+var ValidConvertTargets = map[string]bool{"mp4": true, "mp3": true}
 
 // SubmitResult 创建结果（含幂等冲突的 existing_task_id）。
 type SubmitResult struct {
@@ -368,6 +464,10 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 		if quality == "" {
 			quality = m.cfg.GetString("download.default_quality")
 		}
+		convertTo := strings.ToLower(strings.TrimSpace(it.ConvertTo))
+		if !ValidConvertTargets[convertTo] {
+			convertTo = "" // 非白名单目标按「保持源格式」处理（老客户端/手滑都不至于 500）
+		}
 		t := &store.Task{
 			ID:            store.NewTaskID(),
 			Kind:          kind,
@@ -379,6 +479,7 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 			Status:        StatusWaiting, // 回填：CreateTask 固定落 'waiting'
 			Quality:       quality,
 			SavePath:      it.SavePath,
+			ConvertTo:     convertTo,
 			RoutePath:     InitialRoutePath(kind, m.cfg.GetString("storage.strategy")),
 			ConfigVersion: cfgVersion,
 			MaxAttempts:   maxAttempts,
@@ -430,8 +531,16 @@ func (m *Manager) SetExternalExecutor(e *ExternalExecutor) { m.external = e }
 func (m *Manager) External() *ExternalExecutor { return m.external }
 
 // Preview 解析预览（POST /parse 行动作，不落库）。
+// 引擎路由 / 网络代理 / 平台凭据三件事都与任务执行保持同一口径：
+// 预览走 yt-dlp 而任务走 gallery-dl、或预览直连而任务走代理，都会造成
+// 「预览成功、下载失败」（或反过来）的错位——预览的意义是让用户提前看清
+// 这单能不能成，口径不一致它就在撒谎。
 func (m *Manager) Preview(ctx context.Context, url string) (*store.ParsePreview, error) {
-	res, err := m.engines.YTDLP.Resolve(ctx, url, engine.ResolveOpts{})
+	eng := m.engines.EngineFor(url)
+	proxy := m.cfg.GetString("net.proxy")
+	cookieFile := m.previewCookieFile(url)
+	defer m.cookieWriter().removeCookieFile(cookieFile)
+	res, err := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: proxy})
 	if err != nil {
 		return nil, err
 	}
@@ -459,6 +568,28 @@ func (m *Manager) Preview(ctx context.Context, url string) (*store.ParsePreview,
 }
 
 func storeTaskTerminal(s string) bool { return s == "done" || s == "cancelled" }
+
+// previewCookieFile 按 URL 平台猜测取凭据 → 临时 cookie 文件（无凭据返回空串，不阻断）。
+// 与 worker.prepareCookieFile 同一套解析口径：预览时就能发现「需要登录」，
+// 而不是等任务建好跑一遍才报 AUTH_REQUIRED。
+func (m *Manager) previewCookieFile(url string) string {
+	if m.creds == nil {
+		return ""
+	}
+	platform := engine.PlatformGuess(url)
+	if platform == "" {
+		return ""
+	}
+	plain, err := m.creds.PlatformCredential(context.Background(), platform)
+	if err != nil || plain == "" {
+		return ""
+	}
+	path, err := m.cookieWriter().writeCookieFile(platform, plain)
+	if err != nil {
+		return ""
+	}
+	return path
+}
 
 func nilIfZero(v int64) *int64 {
 	if v == 0 {

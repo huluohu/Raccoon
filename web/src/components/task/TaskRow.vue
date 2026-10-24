@@ -16,7 +16,8 @@ import StatusDot from './StatusDot.vue'
 import TaskProgress from './TaskProgress.vue'
 import PlatformBadge from './PlatformBadge.vue'
 import type { Task } from '@/api/types'
-import { formatBytes, formatRelative, formatSpeed, WAIT_REASON_TEXT } from '@/utils/format'
+import { formatBytes, formatRelative, formatSpeed, waitReasonWithCountdown } from '@/utils/format'
+import { useNowTick } from '@/utils/now'
 import type { TaskChildStats } from './TaskCard.vue'
 
 const props = withDefaults(
@@ -44,6 +45,8 @@ const emit = defineEmits<{
   (e: 'select', task: Task, ev: MouseEvent): void
   /** 打开详情。 */
   (e: 'open', task: Task): void
+  /** 置顶/取消置顶（仅 waiting 行渲染按钮）。 */
+  (e: 'pin', task: Task): void
 }>()
 
 defineSlots<{
@@ -71,11 +74,9 @@ const child = computed<TaskChildStats | null>(() => {
   return { total: props.task.child_total, failed: props.task.child_failed ?? 0 }
 })
 
-/** 等待原因（StatusDot 只表达状态，等待原因要单独讲清楚）。 */
-const waitReason = computed(() => {
-  if (props.task.status !== 'waiting' || !props.task.wait_reason) return ''
-  return WAIT_REASON_TEXT[props.task.wait_reason] ?? ''
-})
+/** 等待原因（StatusDot 只表达状态，等待原因要单独讲清楚；auto_retry 带秒级倒计时）。 */
+const nowTick = useNowTick()
+const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.value))
 </script>
 
 <template>
@@ -174,10 +175,10 @@ const waitReason = computed(() => {
   background: var(--surface-2);
 }
 .trow.is-selected {
-  background: var(--gold-soft);
-  border-color: var(--gold);
+  background: var(--accent-soft);
+  border-color: var(--accent);
   /* 左侧金条：选中态在深浅底色下都靠形状识别，不只靠颜色（禁颜色唯一载体）。 */
-  box-shadow: inset 3px 0 0 var(--gold);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 /* 选择框：几何勾号，非 emoji（docs/07 §4 禁 emoji 冒充图标）。 */
@@ -286,6 +287,23 @@ const waitReason = computed(() => {
 }
 /* 行内操作区：横排。三个动作挤成一竖列会把右侧栏撑到 120px，
    主内容区被挤窄，整行的视觉重心跑到右边去了。 */
+.trow-pin {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  padding: 1px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+.trow-pin:hover { color: var(--accent); border-color: var(--accent); }
+.trow-pin.on {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
 .trow-ops {
   display: flex;
   flex-direction: row;

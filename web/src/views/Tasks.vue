@@ -15,6 +15,7 @@ import type { ParsePreview, Task, TaskEvent, TaskFile, TaskStatus } from '@/api/
 import { ApiError } from '@/api/types'
 import { errorText, formatBytes, formatDuration } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import RDialog from '@/components/base/RDialog.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
@@ -33,6 +34,8 @@ const submitting = ref(false)
 const parseErr = ref('')
 const preview = ref<ParsePreview | null>(null)
 const chosenQuality = ref('')
+/** 产物格式：''=源格式（默认）/ mp4 / mp3；post 阶段由 ffmpeg remux 或转码。 */
+const chosenFormat = ref('')
 
 async function onPreview(target?: string) {
   // 用 QuickSubmit 抛上来的链接（它已做过格式校验 + 分享文案提取），
@@ -60,7 +63,7 @@ async function onAddToDownload() {
   submitting.value = true
   parseErr.value = ''
   try {
-    await tasks.submit(preview.value.url, chosenQuality.value)
+    await tasks.submit(preview.value.url, chosenQuality.value, chosenFormat.value)
     preview.value = null
     url.value = ''
     toast.success('已加入下载队列')
@@ -236,7 +239,7 @@ async function openDetail(t: Task) {
   detailFiles.value = []
   try {
     const ev = await tasks.events(t.id)
-    const files = await fetchDetailFiles(t.id)
+    const files = await fetchDetail(t.id)
     // 期间可能已切换到别的任务，丢弃过期响应。
     if (detail.value?.id !== t.id) return
     detailEvents.value = ev
@@ -246,9 +249,13 @@ async function openDetail(t: Task) {
   }
 }
 
-async function fetchDetailFiles(id: string): Promise<TaskFile[]> {
+/** 拉详情并同步最新任务体：列表行是快照，error/scheduled_at 等字段可能在打开期间已变
+ *  （如重试等待期的 auto_retry 错误），详情区必须以 GET /tasks/{id} 的最新值为准。
+ *  用 Object.assign 合并而非整体替换：detail 与列表行是同一对象，SSE patch 才能继续生效。 */
+async function fetchDetail(id: string): Promise<TaskFile[]> {
   const { api } = await import('@/api/client')
   const res = await api.taskDetail(id)
+  if (res.data && detail.value?.id === res.data.id) Object.assign(detail.value, res.data)
   return res.files ?? []
 }
 
@@ -270,6 +277,16 @@ async function runAction(id: string, fn: (taskId: string) => Promise<void>) {
 }
 
 /** 父卡「重试失败项」：一次 batch 调用，只传失败的子任务 ID（docs/05 §5）。 */
+/** 置顶/取消置顶（仅 waiting）。 */
+async function pinTask(t: Task) {
+  try {
+    await tasks.setPriority(t.id, (t.priority ?? 0) > 0 ? 0 : 1)
+    toast.success((t.priority ?? 0) > 0 ? '已取消置顶' : '已置顶：下一个空位优先领取')
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '置顶失败')
+  }
+}
+
 async function retryFailedChildren(parent: Task) {
   const failedChildren = childrenOf(parent.id).filter((c) => c.status === 'failed')
   if (!failedChildren.length) {
@@ -471,7 +488,7 @@ async function confirmDeleteDetailFile() {
   try {
     const { api } = await import('@/api/client')
     await api.deleteTaskFile(t.id, file.id)
-    detailFiles.value = await fetchDetailFiles(t.id)
+    detailFiles.value = await fetchDetail(t.id)
     toast.success('文件已删除')
   } catch (e) {
     toast.error(e instanceof ApiError ? e.message : '文件删除失败')
@@ -500,15 +517,14 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <div>
-        <p class="page-sub">粘贴链接 → 解析预览 → 加入队列，进度实时推送</p>
-      </div>
-      <div class="conn" :class="tasks.connected ? 'ok' : 'off'">
-        <span class="dot" aria-hidden="true" />
-        {{ tasks.connected ? '实时已连接' : '实时未连接' }}
-      </div>
-    </header>
+    <PageHeader eyebrow="TASKS" title="下载" sub="粘贴链接 → 解析预览 → 加入队列，进度实时推送">
+      <template #actions>
+        <div class="conn" :class="tasks.connected ? 'ok' : 'off'">
+          <span class="dot" aria-hidden="true" />
+          {{ tasks.connected ? '实时已连接' : '实时未连接' }}
+        </div>
+      </template>
+    </PageHeader>
 
     <p v-if="tasks.warning" class="alert">{{ tasks.warning }}</p>
 
@@ -567,6 +583,24 @@ onBeforeUnmount(() => {
             @click="chosenQuality = f.quality"
           >
             {{ f.quality }}<em v-if="f.size">{{ formatBytes(f.size) }}</em>
+          </button>
+        </div>
+        <!-- 产物格式：默认源格式零开销；MP4 优先无损 remux（不兼容才转码）、MP3 提取音轨。 -->
+        <div class="fmt-row" role="radiogroup" aria-label="产物格式">
+          <span class="fmt-label">格式</span>
+          <button
+            v-for="opt in [
+              { v: '', label: '源格式' },
+              { v: 'mp4', label: 'MP4' },
+              { v: 'mp3', label: 'MP3' },
+            ]"
+            :key="opt.v"
+            type="button"
+            class="q fmt"
+            :class="{ on: chosenFormat === opt.v }"
+            @click="chosenFormat = opt.v"
+          >
+            {{ opt.label }}
           </button>
         </div>
       </div>
@@ -677,6 +711,7 @@ onBeforeUnmount(() => {
       @cancel="(id) => runAction(id, tasks.cancel)"
       @remove="(t) => (pendingDelete = t)"
       @retry-failed-children="retryFailedChildren"
+      @pin="pinTask"
       @batch="onBatch"
     />
 
@@ -715,6 +750,7 @@ onBeforeUnmount(() => {
         @goto-connections="gotoConnections"
         @goto-settings="router.push('/settings')"
         @retry="(t) => runAction(t.id, tasks.retry)"
+        @retry-via="(t, kind) => runAction(t.id, (id) => tasks.retry(id, kind))"
         @cancel="(t) => runAction(t.id, tasks.cancel)"
         @remove="(t) => runAction(t.id, tasks.remove)"
         @delete-file="(f) => (pendingDetailFile = f)"
@@ -735,9 +771,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 18px; }
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-/* 页面副标题是正文档（16px）：它解释这页在干什么，不是脚注。 */
-.page-sub { margin: 6px 0 0 16px; font-size: var(--font-body); color: var(--text-2); }
 .conn {
   display: flex; align-items: center; gap: 6px; font-size: var(--font-caption); color: var(--text-2);
   padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface);
@@ -747,7 +780,8 @@ onBeforeUnmount(() => {
 .conn.off .dot { background: var(--danger); }
 .alert {
   margin: 0; padding: 10px 14px; border-radius: var(--radius-ctrl);
-  background: var(--gold-soft); color: var(--gold-strong); font-size: var(--font-body);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning); font-size: var(--font-body);
 }
 .err { margin: 0; color: var(--danger); font-size: var(--font-body); }
 .muted { color: var(--text-3); font-size: var(--font-aux); }
@@ -759,7 +793,7 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-1); padding: 16px 20px;
 }
 /* 卡片标题 18px（--font-title-3）。原来 13.5px 和正文同级，标题没有层级。 */
-.card-title { margin: 0; font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
+.card-title { margin: 0; font-size: var(--font-title-2); font-weight: var(--weight-strong); color: var(--text-1); }
 
 /* 提交区：QuickSubmit 组件（标签/输入/按钮一体）。
    输入框不随内容区无限拉宽：URL 输入 640px 足够展示长链接，
@@ -777,13 +811,16 @@ onBeforeUnmount(() => {
 .pv-title { margin: 0 0 6px; font-weight: var(--weight-medium); font-size: var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-aux); color: var(--text-2); }
 .qualities { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 格式选择行：与清晰度同一套按钮，前面加一个固定标签说明这排是什么。 */
+.fmt-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fmt-label { font-size: var(--font-aux); color: var(--text-3); margin-right: 2px; }
 /* 清晰度选项：可点按钮，辅助档 13.5px（12px 是给不可点的表头/徽章的）。 */
 .q {
   padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
   background: var(--surface); font-size: var(--font-aux); color: var(--text-2); cursor: pointer;
 }
 .q em { font-style: normal; margin-left: 6px; color: var(--text-3); }
-.q.on { border-color: var(--gold); background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-medium); }
+.q.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text-1); font-weight: var(--weight-medium); }
 .pv-actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
 .pill { padding: 1px 8px; border-radius: var(--radius-pill); font-size: var(--font-caption); }
 .pill--warn { background: var(--gold-soft); color: var(--gold-strong); }
@@ -796,7 +833,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-ctrl); background: var(--surface); color: var(--text-1);
   font-size: var(--font-aux); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
 }
-.textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .batch-ops { display: flex; gap: 8px; flex-wrap: wrap; }
 .batch-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .batch-item {

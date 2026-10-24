@@ -122,6 +122,9 @@ func (g *GalleryDL) Resolve(ctx context.Context, url string, opts ResolveOpts) (
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}
+	if opts.Proxy != "" {
+		args = append(args, "--proxy", opts.Proxy)
+	}
 	args = append(args, url)
 
 	var raw strings.Builder
@@ -237,6 +240,9 @@ func (g *GalleryDL) Download(ctx context.Context, url string, opts DownloadOpts,
 	}
 	if opts.RateLimit > 0 {
 		args = append(args, "--option", "rate="+strconv.FormatInt(opts.RateLimit/1024, 10)+"K")
+	}
+	if opts.HTTPProxy != "" {
+		args = append(args, "--proxy", opts.HTTPProxy)
 	}
 	args = append(args, url)
 

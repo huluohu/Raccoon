@@ -21,7 +21,7 @@ const props = withDefaults(
     /** 减少动效：爪印退化为圆点，且进度不再过渡（尊重 prefers-reduced-motion）。 */
     reduceMotion?: boolean
     /** 填充色语义（对齐 task/TaskProgress 的三段配色）。 */
-    tone?: 'gold' | 'info' | 'success'
+    tone?: 'accent' | 'info' | 'success'
     /** 轨道粗细（像素）。 */
     thickness?: number
     /** 无障碍标签（读屏会念出来）。 */
@@ -37,7 +37,7 @@ const props = withDefaults(
     size: 18,
     minimal: false,
     reduceMotion: false,
-    tone: 'gold',
+    tone: 'accent',
     thickness: 6,
     label: '进度',
     thumbOnly: false,
@@ -122,7 +122,7 @@ const degrade = computed(() => props.minimal || props.reduceMotion)
   /* 进度数字 240ms linear（docs/07 §6）。 */
   transition: width 240ms linear;
 }
-.paw-fill--gold {
+.paw-fill--accent {
   background: var(--gold);
 }
 .paw-fill--info {

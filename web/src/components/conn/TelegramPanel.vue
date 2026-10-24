@@ -20,6 +20,8 @@ defineProps<{
 const emit = defineEmits<{
   /** 刷新状态。 */
   refresh: []
+  /** 打开通道参数表单（参数在「连接」页就地填写，不再跳设置页）。 */
+  params: []
 }>()
 </script>
 
@@ -48,7 +50,7 @@ const emit = defineEmits<{
       <RButton size="sm" :disabled="loading" @click="emit('refresh')">
         {{ loading ? '刷新中…' : '刷新状态' }}
       </RButton>
-      <RouterLink class="int-link" to="/settings">去设置页填写参数 →</RouterLink>
+      <RButton size="sm" variant="ghost" @click="emit('params')">填写参数</RButton>
     </footer>
   </li>
 </template>
@@ -114,6 +116,4 @@ const emit = defineEmits<{
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
-.int-link { color: var(--text-3); font-size: var(--font-aux); text-decoration: none; }
-.int-link:hover { color: var(--accent); }
 </style>

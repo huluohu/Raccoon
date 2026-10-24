@@ -88,13 +88,17 @@ func IsActive(s string) bool {
 }
 
 // RetryableErrorCodes 可自动重试的错误码（docs/05 §7）；其余直接 failed + fix_hint。
+// 全仓库唯一来源：worker.handleEngineErr 与 panic 兜底都以这里为准，勿再复制私有清单。
+// ENGINE_ERROR 是分类兜底码、TIMEOUT 是 ctx 超时，两者都可能瞬时性，纳入可重试。
+// NET_RESET 已删除：classify 把 connection reset 归入 NET_TIMEOUT，该码从未被产生过。
 var RetryableErrorCodes = map[string]bool{
 	"NET_TIMEOUT":  true,
-	"NET_RESET":    true,
 	"HTTP_5XX":     true,
 	"RATE_LIMITED": true,
 	"ENGINE_CRASH": true,
 	"WORKER_PANIC": true,
+	"ENGINE_ERROR": true,
+	"TIMEOUT":      true,
 }
 
 func IsRetryable(code string) bool { return RetryableErrorCodes[code] }

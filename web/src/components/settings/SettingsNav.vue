@@ -184,7 +184,7 @@ onBeforeUnmount(() => {
   border-left: 3px solid transparent; transition: background 120ms ease-out, color 120ms ease-out;
 }
 .side-link:hover { background: var(--surface-2); color: var(--text-1); }
-.side-link.on { background: var(--gold-soft); color: var(--text-1); font-weight: var(--weight-semibold); border-left-color: var(--gold); }
+.side-link.on { background: var(--accent-soft); color: var(--accent); font-weight: var(--weight-semibold); border-left-color: var(--accent); }
 @media (max-width: 1024px) {
   .side-nav { position: static; flex-direction: row; flex-wrap: wrap; }
 }

@@ -9,11 +9,13 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useUiStore } from '@/stores/ui'
 import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
 
 const USERNAME_KEY = 'raccoon.username'
 
 const auth = useAuthStore()
+const ui = useUiStore()
 const router = useRouter()
 const route = useRoute()
 const username = ref('')
@@ -52,9 +54,10 @@ async function submit() {
 <template>
   <section class="auth">
     <div class="card">
-      <!-- 品牌区：RaccoonLogo full 变体（徽标 + 字标 + 一句话定位）。
-           登录页是品牌第一印象，用会变表情的 RaccoonFace 撑不起门面。 -->
+      <!-- 品牌区：RaccoonLogo full 变体 + 等宽眉题（控制台的第一印象：
+           先看到「这是一台设备」，再看到表单）。 -->
       <div class="brand">
+        <p class="brand-eyebrow eyebrow"><span class="brand-dash" aria-hidden="true" />SELF-HOSTED DOWNLOAD CENTER</p>
         <RaccoonLogo :size="56" tagline="自托管多媒体下载中心" />
       </div>
 
@@ -86,6 +89,23 @@ async function submit() {
         </button>
       </form>
       <p class="hint">账号仅存于本机数据库，密码以 Argon2id 散列保存。</p>
+      <!-- 主题切换：登录前也允许换肤（四只浣熊）；data-theme 由 App.vue 的
+           watch 写到 <html>，登录页阶段同样生效。 -->
+      <div class="themes" role="group" aria-label="选择主题">
+        <button
+          v-for="th in ui.themes"
+          :key="th.id"
+          type="button"
+          class="theme-dot"
+          :class="{ on: th.id === ui.theme }"
+          :aria-pressed="th.id === ui.theme ? 'true' : 'false'"
+          :title="`主题：${th.label}（${th.en}）`"
+          @click="ui.setTheme(th.id)"
+        >
+          <span class="dot" :style="{ background: th.swatch }" aria-hidden="true" />
+          <span class="theme-name">{{ th.label }}</span>
+        </button>
+      </div>
     </div>
   </section>
 </template>
@@ -95,20 +115,33 @@ async function submit() {
    不占满的话会被 flex 收缩成内容宽并贴主轴起点（卡片缩在左上角）。 */
 .auth { flex: 1; width: 100%; display: flex; align-items: center; justify-content: center; min-height: 100vh; background: var(--bg); padding: 24px; }
 .card { width: 100%; max-width: 400px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-modal); padding: 32px; box-shadow: var(--shadow-2); }
-.brand { display: flex; justify-content: center; margin-bottom: 24px; }
+.brand { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 24px; }
+.brand-eyebrow { display: inline-flex; align-items: center; }
+.brand-dash { width: 16px; height: 2px; border-radius: 1px; background: var(--accent); margin-right: 8px; }
 form { display: flex; flex-direction: column; gap: 14px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: var(--font-aux); color: var(--text-2); }
 input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-ctrl); background: var(--bg); color: var(--text-1); font-size: var(--font-body); }
-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* 勾选项：横排两枚，accent-color 走围巾金（与 CTA 同语义） */
 .options { display: flex; gap: 20px; flex-wrap: wrap; }
 .check { flex-direction: row; align-items: center; gap: 7px; font-size: var(--font-aux); color: var(--text-2); cursor: pointer; user-select: none; }
-.check input { width: 15px; height: 15px; padding: 0; margin: 0; accent-color: var(--gold); cursor: pointer; }
-.check input:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
-/* 登录按钮：围巾金主 CTA（与顶栏提交按钮同一语义：本页最高频动作） */
+.check input { width: 15px; height: 15px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.check input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 登录按钮：主题强调色主 CTA（与顶栏提交按钮同一语义：本页最高频动作） */
 button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(--radius-ctrl); background: var(--cta-bg); color: var(--cta-fg); font-size: var(--font-body); font-weight: var(--weight-semibold); cursor: pointer; }
 button:hover:not(:disabled) { background: var(--cta-bg-strong); }
 button:disabled { opacity: 0.6; cursor: progress; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-aux); }
 .hint { margin: 18px 0 0; font-size: var(--font-caption); color: var(--text-3); }
+/* 主题切换行：四枚色板圆点 + 名字，登录前的第一印象跟着主题走。 */
+.themes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 16px; }
+.theme-dot {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-pill);
+  background: transparent; color: var(--text-3); font-size: var(--font-caption);
+  cursor: pointer; transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+.theme-dot:hover { color: var(--text-1); border-color: var(--accent); }
+.theme-dot.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.theme-dot .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 </style>

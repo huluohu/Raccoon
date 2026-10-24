@@ -75,6 +75,42 @@ describe('QuickSubmit 组件', () => {
     expect(w.find('.qsubmit-btn').exists()).toBe(false)
   })
 
+  // ---- 动作区：inline / row 两种布局必须共用同一份默认按钮 ----
+  // 回归背景：早先 row 布局是独立的第二个 <slot name="actions"> outlet，
+  // 而默认按钮只写在 inline 那个 outlet 的 fallback 里 → row 布局且调用方没传
+  // #actions 时（主页引导卡）整个动作区渲染为空，首屏 CTA 消失。465 个用例
+  // 没有一条覆盖 row 布局的默认按钮，所以它烂在线上没人发现。
+  it('row 布局未传 #actions 时默认按钮仍然存在（主页引导卡 CTA 回归）', async () => {
+    const w = mount(QuickSubmit, {
+      props: { modelValue: 'https://example.com/v', actionsLayout: 'row', buttonText: '开始下载' },
+    })
+    const btn = w.find('.qsubmit-btn')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toBe('开始下载')
+    // 布局差异只走 CSS（输入框占满整行 → 按钮换行），不再靠换容器
+    expect(w.find('.qsubmit-row').classes()).toContain('qsubmit-row--stack')
+    await btn.trigger('click')
+    expect(w.emitted('submit')?.[0]).toEqual(['https://example.com/v'])
+  })
+
+  it('row 布局默认按钮与 inline 布局同源：空输入 / 提交中都禁用', () => {
+    const empty = mount(QuickSubmit, { props: { modelValue: '   ', actionsLayout: 'row' } })
+    expect(empty.find('.qsubmit-btn').attributes('disabled')).toBeDefined()
+
+    const busy = mount(QuickSubmit, {
+      props: { modelValue: 'https://example.com/v', actionsLayout: 'row', submitting: true },
+    })
+    expect(busy.find('.qsubmit-btn').attributes('disabled')).toBeDefined()
+    expect(busy.find('.qsubmit-btn').text()).toBe('提交中…')
+  })
+
+  it('inline 布局（顶栏）默认按钮不受 row 改动影响', () => {
+    const w = mount(QuickSubmit, {
+      props: { modelValue: 'https://example.com/v', actionsLayout: 'inline' },
+    })
+    expect(w.find('.qsubmit-btn').exists()).toBe(true)
+  })
+
   // ---- 格式闸（utils/link.ts）----
   it('格式不对时不提交，并就地提示（不发请求）', async () => {
     const w = mount(QuickSubmit, { props: { modelValue: 'www.example.com/v' } })

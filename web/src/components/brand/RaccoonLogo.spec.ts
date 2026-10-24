@@ -4,7 +4,7 @@
  * 关键验收点：
  * 1) 品牌徽标与状态表情分工：Logo 是静态对称的识别符号（mark/full 两变体），
  *    不是会换五官的 RaccoonFace——空态表情在 RaccoonFace.spec.ts 覆盖。
- * 2) 识别三件套必须都在：眼罩（两条深色斜带）、围巾金、金色内耳。
+ * 2) 识别三件套必须都在：连体眼罩、环纹尾、主题围巾与内耳。
  * 3) 徽标配色走 --logo-* 变量，不写死色值——侧导航深底要提亮毛色，
  *    登录页浅底用默认值，使用方按底色覆盖（§8「禁在模板写死色值」）。
  */
@@ -28,17 +28,19 @@ describe('RaccoonLogo 组件', () => {
     expect(w.find('.rlogo-word').exists()).toBe(false)
   })
 
-  it('识别三件套：眼罩斜带 + 围巾金 + 金色内耳都在图形里', () => {
+  it('识别三件套：连体眼罩 + 环尾 + 换皮围巾/内耳都在图形里', () => {
     const w = mount(RaccoonLogo)
     const html = w.html()
-    // 眼罩：两条对称斜带（path d 以 M11 27 / M53 27 起笔）
-    expect(html).toContain('M11 27')
-    expect(html).toContain('M53 27')
-    // 围巾：金色弧带 + 飘带（gold / gold-strong 变量）
-    expect(html).toContain('var(--gold)')
-    expect(html).toContain('var(--gold-strong)')
-    // 内耳金：两个小圆
-    expect((html.match(/r="4.2"/g) ?? []).length).toBe(2)
+    // 眼罩：整块连体（单一路径，M 10.5 28.5 起笔）——分开的两条斜带是哈士奇纹路
+    expect(html).toContain('M 10.5 28.5')
+    // 环尾：粗描边尾身 + 同路径虚线环纹（浣熊第二识别物）
+    expect((html.match(/stroke-dasharray/g) ?? []).length).toBe(1)
+    expect((html.match(/stroke="var\(--logo-fur\)"/g) ?? []).length).toBe(1)
+    // 围巾：换皮变量（docs/07 §2 四主题：night=薄荷 / scarf=金 / snow=墨青 / berry=珊瑚）
+    expect(html).toContain('var(--logo-scarf)')
+    expect(html).toContain('var(--logo-scarf-strong)')
+    // 内耳：主题耳色，左右两个三角
+    expect((html.match(/var\(--logo-ear\)/g) ?? []).length).toBe(2)
   })
 
   it('配色走 --logo-* 变量，不写死色值（深底使用方可提亮毛色）', () => {

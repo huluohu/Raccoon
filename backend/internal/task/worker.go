@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -49,7 +50,10 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	defer w.cleanupCookieFile(cookieFile)
 
 	// ---- parsing ----
-	res, err := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile})
+	// 代理：net.proxy 是「网络出口」配置，解析与下载必须走同一出口——
+	// 只给下载配代理会造成「解析成功（直连元数据页）、下载超时（媒体流不可达）」的错位。
+	proxy := w.mgr.cfg.GetString("net.proxy")
+	res, err := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile, Proxy: proxy})
 	if err != nil {
 		w.handleEngineErr(ctx, t, "parsing", err)
 		return
@@ -82,10 +86,14 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	// ---- downloading ----
 	saveDir := w.saveDirFor(t, plat)
 	opts := engine.DownloadOpts{
-		Format:   w.formatSelector(t.Quality),
-		SaveDir:  saveDir,
-		NameTmpl: "%(title).120s [%(id)s].%(ext)s",
-		Cookies:  cookieFile,
+		Format:         w.formatSelector(t.Quality),
+		SaveDir:        saveDir,
+		NameTmpl:       "%(title).120s [%(id)s].%(ext)s",
+		Cookies:        cookieFile,
+		HTTPProxy:      proxy,
+		RateLimit:      int64(w.mgr.cfg.GetInt("download.rate_limit_bps")),
+		WriteThumbnail: w.mgr.cfg.GetBool("download.save_thumbnail"),
+		EmbedMetadata:  w.mgr.cfg.GetBool("download.embed_metadata"),
 	}
 	var lastWrite time.Time
 	onProgress := func(p engine.Progress) {
@@ -119,6 +127,16 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	}
 
 	// ---- post / done ----
+	// 先转 post 态再做格式转换：转换（尤其转码）可能耗时数分钟，
+	// 期间 UI 显示「处理中」而不是挂在「下载中」的假进度上（docs/05 §4）。
+	if err := w.transition(t.ID, "downloading", "post", nil); err != nil {
+		return
+	}
+	files = w.convertFiles(ctx, t, files)
+	if ctx.Err() != nil {
+		w.markCancelled(t.ID, "post")
+		return
+	}
 	w.finish(t, files, res.Duration, plat, res.Uploader)
 }
 
@@ -151,23 +169,86 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 			Kind: store.MediaKindOf(firstMime, firstName), CreatedAt: now,
 		})
 	}
-	if err := w.transition(t.ID, "downloading", "post", nil); err != nil {
-		return
-	}
 	_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
 		"downloaded_size": total,
 		"progress":        100,
 	}, "post")
+	// 成功即清错误痕迹：失败过后来成功的任务不该在详情页还挂着旧错误
+	//（ClaimWaiting 领取不清、错误字段只能在这里收尾清掉）。
 	if err := w.transition(t.ID, "post", "done", map[string]any{
-		"finished_at": now,
+		"finished_at":   now,
+		"error_code":    "",
+		"error_message": "",
+		"fix_hint":      "",
 	}); err != nil {
 		return
 	}
 	_ = w.mgr.st.AppendEvent(t.ID, "info", "done", fmt.Sprintf("下载完成：%d 个文件，共 %d 字节", len(files), total), "")
 	w.mgr.hub.Broadcast("task.done", map[string]any{"task_id": t.ID, "status": "done", "files": len(files), "size": total})
 	w.mgr.notify("task_done", "success", "下载完成："+t.Title, fmt.Sprintf("%d 个文件，共 %d 字节", len(files), total), t.ID)
+	// 直播录制：任务终态即「下播」，产物回写录制记录（下播即成品）。
+	w.closeLiveRecording(t, "completed", "", len(files), total)
 	// 父任务聚合（docs/05 §5）：子任务终态后刷新父进度。
 	w.mgr.aggregateParent(t.ParentID)
+}
+
+// convertFiles post 阶段格式转换（convert_to；docs/05 §4）。
+//
+// 语义取舍：转换失败不推翻下载成功——保留源格式文件、事件流记 warn，
+// 任务照常 done。用户要的是「拿到片子」，一次 remux 失败不该把整个
+// 下载判成白干。转换成功则删源文件（双份成品翻倍占盘，没人要）。
+func (w *Worker) convertFiles(ctx context.Context, t *store.Task, files []engine.DownloadedFile) []engine.DownloadedFile {
+	if t.ConvertTo == "" || !engine.ConvertSupported(t.ConvertTo) {
+		return files
+	}
+	ffmpeg := w.mgr.Engines().FFmpegBin
+	if ffmpeg == "" {
+		_ = w.mgr.st.AppendEvent(t.ID, "warn", "convert_skipped", "ffmpeg 未配置，产物保留源格式", "")
+		return files
+	}
+	out := make([]engine.DownloadedFile, 0, len(files))
+	for _, f := range files {
+		if ctx.Err() != nil {
+			out = append(out, f)
+			continue
+		}
+		if !convertible(filepath.Ext(f.Path), t.ConvertTo) {
+			out = append(out, f) // 字幕/封面等配套产物不做格式转换
+			continue
+		}
+		dst, mode, err := engine.ConvertFile(ctx, ffmpeg, f.Path, t.ConvertTo)
+		if err != nil {
+			_ = w.mgr.st.AppendEvent(t.ID, "warn", "convert_failed",
+				fmt.Sprintf("转换失败，保留源格式 %s：%v", filepath.Base(f.Path), err), "")
+			out = append(out, f)
+			continue
+		}
+		if mode == "skip" {
+			out = append(out, f)
+			continue
+		}
+		var size int64
+		if st, statErr := os.Stat(dst); statErr == nil {
+			size = st.Size()
+		}
+		_ = os.Remove(f.Path)
+		_ = w.mgr.st.AppendEvent(t.ID, "info", "converted",
+			fmt.Sprintf("格式转换：%s → %s（%s）", filepath.Base(f.Path), filepath.Base(dst), mode), "")
+		out = append(out, engine.DownloadedFile{Path: dst, Size: size})
+	}
+	return out
+}
+
+// convertible 源文件类型与目标格式的匹配：mp4 只收视频轨文件；mp3 从视频/音频提取。
+func convertible(ext, target string) bool {
+	kind := guessKind(ext)
+	switch target {
+	case "mp4":
+		return kind == "video"
+	case "mp3":
+		return kind == "video" || kind == "audio"
+	}
+	return false
 }
 
 // transition CAS 状态推进（fromStatus 匹配才更新；终态/取消快速失败）。
@@ -212,28 +293,55 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 	if curErr == nil && (cur.Status == "cancelled" || cur.Status == "failed" || cur.Status == "done") {
 		return // 已被其他路径终态化
 	}
+	// 引擎原始报错写进事件 detail：任务详情里能看到「引擎到底报了什么」，
+	// 而不只是「引擎退出码 1」。detail 独立字段，不污染 error_message 的展示文案。
+	// 自动重试与最终失败两条路都要写：重试期间「引擎原文」不该缺位。
+	if detail != "" {
+		_ = w.mgr.st.AppendEvent(t.ID, "error", "engine_error", detail, "")
+	}
 	// 重试判定（docs/05 §7）：可重试错误码且 attempt<max → 指数退避回 waiting。
-	if isRetryableCode(code) && t.Attempt+1 < t.MaxAttempts {
+	// attempt 必须在本分支递增，否则 t.Attempt 恒为 0、条件恒真 → 30s 间隔无限重试，
+	// 文案恒为「第 2/3 次」（实测踩过：bad.news 媒体流超时任务永远重试不到终态）。
+	if IsRetryable(code) && t.Attempt+1 < t.MaxAttempts {
+		attempt := t.Attempt + 1
 		backoff := backoffFor(t.Attempt)
 		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
 			"status":        "waiting",
 			"wait_reason":   "auto_retry",
+			"attempt":       attempt,
 			"scheduled_at":  time.Now().Add(backoff).UnixMilli(),
 			"error_code":    code,
 			"error_message": msg,
 			"speed_bps":     0,
 		}, from)
 		_ = w.mgr.st.AppendEvent(t.ID, "warn", "retry_scheduled",
-			fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, t.Attempt+2, t.MaxAttempts), "")
-		w.mgr.hub.Broadcast("task.status", map[string]any{"task_id": t.ID, "status": "waiting", "wait_reason": "auto_retry"})
+			fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts), "")
+		// 广播带错误字段：前端在重试等待期就能显示「错误与建议」，
+		// 不必等 failed 终态才全量刷新。
+		w.mgr.hub.Broadcast("task.status", map[string]any{
+			"task_id": t.ID, "status": "waiting", "wait_reason": "auto_retry",
+			"attempt": attempt, "max_attempts": t.MaxAttempts,
+			"error_code": code, "error_message": msg,
+			"scheduled_at": time.Now().Add(backoff).UnixMilli(),
+		})
 		return
 	}
-	// 引擎原始报错写进事件 detail：任务详情里能看到「引擎到底报了什么」，
-	// 而不只是「引擎退出码 1」。detail 独立字段，不污染 error_message 的展示文案。
-	if detail != "" {
-		_ = w.mgr.st.AppendEvent(t.ID, "error", "engine_error", detail, "")
-	}
 	w.fail(t.ID, code, msg, fixHintFor(code))
+}
+
+// closeLiveRecording 直播录制收尾（「下播即成品」闭环）：live 来源的任务终态时，
+// 把产物大小回写录制记录并复位直播源状态。普通下载任务没有录制记录，直接跳过。
+// 只收尾 status=recording 的记录：失败后被手动重试再成功的任务不会重复改写历史。
+func (w *Worker) closeLiveRecording(t *store.Task, status, note string, segments int, size int64) {
+	if t.Source != SourceLive || t.SourceRef == "" {
+		return
+	}
+	rec, err := w.mgr.st.GetLiveRecordingByTask(t.ID)
+	if err != nil || rec == nil || rec.Status != "recording" {
+		return
+	}
+	_ = w.mgr.st.FinishLiveRecording(rec.ID, status, note, segments, size)
+	_ = w.mgr.st.MarkLiveSourceStatus(t.SourceRef, "offline", "", false)
 }
 
 // fail 置 failed + fix_hint（docs/04 §3 task.failed 事件携带修复建议）。
@@ -250,6 +358,7 @@ func (w *Worker) fail(taskID, code, msg, hint string) {
 	}))
 	w.mgr.notify("task_failed", "error", "任务失败："+code, msg, taskID)
 	if t, err := w.mgr.st.GetTask(taskID); err == nil {
+		w.closeLiveRecording(t, "failed", msg, 0, 0)
 		w.mgr.aggregateParent(t.ParentID)
 	}
 }
@@ -266,6 +375,9 @@ func (w *Worker) markCancelled(taskID, from string) {
 	}, from)
 	_ = w.mgr.st.AppendEvent(taskID, "info", "cancelled", "任务已取消", "")
 	w.mgr.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "cancelled"})
+	if t, err := w.mgr.st.GetTask(taskID); err == nil {
+		w.closeLiveRecording(t, "cancelled", "任务已取消", 0, 0)
+	}
 }
 
 // requeue panic 兜底回队列。
@@ -356,14 +468,6 @@ func (w *Worker) saveDirFor(t *store.Task, platform string) string {
 // formatSelector 任务质量 → yt-dlp 表达式（引擎内实现一致口径，此处仅透传）。
 func (w *Worker) formatSelector(q string) string {
 	return q // 空串由 engine 默认 best 处理
-}
-
-func isRetryableCode(code string) bool {
-	switch code {
-	case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED", "ENGINE_CRASH", "WORKER_PANIC", "ENGINE_ERROR", "TIMEOUT":
-		return true
-	}
-	return false
 }
 
 // backoffFor 指数退避 30s/2m/10m（docs/05 §7）。

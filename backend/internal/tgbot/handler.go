@@ -28,6 +28,11 @@ type Handler interface {
 	//
 	// 这一条是 Bot 的核心价值：Bot 与 Web 走同一条队列，不存在两套状态。
 	OnAdd(ctx context.Context, chatID int64, user *User, url string) (string, error)
+	// OnAddBatch 批量提交（裸链接消息或 /add 多链接）。
+	//
+	// urls 已提取、去重。实现方逐条提交并汇总回执
+	//（单条失败不影响其余——与 Web 批量提交同一语义）。
+	OnAddBatch(ctx context.Context, chatID int64, user *User, urls []string) (string, error)
 	// OnStatus /status [taskID]：查询任务状态。
 	//
 	// taskID 为空表示「概览我的全部任务」，非空表示查单个任务。

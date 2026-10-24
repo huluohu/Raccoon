@@ -27,3 +27,9 @@ func (m *Manager) notify(kind, severity, title, body, taskID string) {
 	}
 	n.Notify(kind, severity, title, body, taskID)
 }
+
+// Notify 供其他服务（如直播守护）广播通知用的导出入口：
+// kind 语义与通知中心一致（live_start / disk_warn / system…）。
+func (m *Manager) Notify(kind, severity, title, body, taskID string) {
+	m.notify(kind, severity, title, body, taskID)
+}

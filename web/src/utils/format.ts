@@ -82,6 +82,23 @@ export const WAIT_REASON_TEXT: Record<string, string> = {
   disk_check: '等待磁盘检查',
 }
 
+/**
+ * 等待原因文案（带重试倒计时）：auto_retry 且已知退避结束点时显示「Ns 后自动重试」，
+ * 到点后（调度器可能因 worker 占满稍晚领取）回退「等待自动重试」，不猜具体时刻。
+ * 其余等待原因原样走 WAIT_REASON_TEXT。
+ */
+export function waitReasonWithCountdown(
+  t: { status: string; wait_reason?: string; scheduled_at?: number | null },
+  nowMs: number,
+): string {
+  if (t.status !== 'waiting' || !t.wait_reason) return ''
+  if (t.wait_reason === 'auto_retry' && t.scheduled_at) {
+    const sec = Math.ceil((t.scheduled_at - nowMs) / 1000)
+    if (sec > 0) return `${sec} 秒后自动重试`
+  }
+  return WAIT_REASON_TEXT[t.wait_reason] ?? ''
+}
+
 /** 状态 → 语义色 token 名（StatusDot 用；三重编码不只靠颜色）。 */
 export const STATUS_TONE: Record<string, 'neutral' | 'info' | 'active' | 'success' | 'danger' | 'muted'> = {
   waiting: 'muted',

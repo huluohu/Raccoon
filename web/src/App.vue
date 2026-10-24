@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 应用外壳：左侧导航（七个一级页面，方案 §8）+ 顶栏快速提交 + 通知中心。设计 Token 见 styles/tokens.css。
+// 应用外壳：「浣熊夜勤」控制台（docs/07 §2）。
 // 会话 gate：未初始化 → setup；未登录 → Login；就绪才渲染主界面（后端 428/401 语义的前端落点）。
 //
 // 响应式四档（docs/07 §6）：
@@ -8,28 +8,31 @@
 //   768–1023     抽屉+表格降级卡片（各视图自行处理）
 //   <768         单栏+底部主操作栏，触控目标 ≥44px，内容留出底部安全区
 //
-// 视觉方向（docs/07 §2「结构色：树影蓝灰」的落地）：
-//   侧导航是结构色的大面积载体——深树影蓝灰底撑起品牌骨架，内容区留白。
-//   浅色模式 nav=#1B2430，深色模式 nav=#0B0E14（比内容区更暗，层次不翻转为浅）。
-//   围巾金只落在最高频动作上：顶栏提交按钮 + 当前导航项，全屏 ≤3 处。
+// 视觉方向（docs/07 §2 四套浣熊主题）：
+//   侧导航是结构色的大面积载体——深底控制台骨架，内容区留白；
+//   页面标题归属视图层 PageHeader（眉题 + 大标题是页面构图的一部分），顶栏不重复。
+//   强调色只落在：当前导航项 / 顶栏提交按钮 / 实时状态，全屏克制使用。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useGlobalShortcuts } from '@/composables/useShortcuts'
-import { useUiStore } from '@/stores/ui'
+import { useUiStore, type ThemeId } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { useTasksStore } from '@/stores/tasks'
 import { useNotificationsStore } from '@/stores/notifications'
+import { useToastStore } from '@/stores/toast'
 import Login from '@/views/Login.vue'
 import Setup from '@/views/Setup.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import RToast from '@/components/base/RToast.vue'
 import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
+import { useNowTick } from '@/utils/now'
 
 const ui = useUiStore()
 const auth = useAuthStore()
 const tasks = useTasksStore()
 const notif = useNotificationsStore()
+const toast = useToastStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -44,25 +47,42 @@ const quickErr = ref('')
 const navOpen = ref(false)
 /** <768 底部栏「更多」面板的开合（10 项塞不进 375px，5 高频 + 更多）。 */
 const moreOpen = ref(false)
+/** 主题切换弹层的开合（侧栏底部）。 */
+const themeOpen = ref(false)
 
 /**
  * 一级导航（docs/15 §1.2 裁决 5）：10 项 = 9 个复刻页 + Raccoon 自有「连接」。
- * `short` 是底部栏用的两字短标签（「媒体库」在 375px 下放不进 52px 的槽位）。
- * `tab` 标记底部栏 5 个高频入口（docs/15 §1.2 裁决 6：主页/任务/历史/文件/设置），
- * 其余 5 项收进「更多」面板。
+ * 分组双语（docs/07 §2 页头签名同源）：中文主标签 + 等宽英文副标签，
+ * 按工作区/系统分两节——10 项平铺是一条无尽列表，分组后才像控制台。
+ * `short` 是底部栏用的两字短标签；`tab` 标记底部栏 5 个高频入口（裁决 6）。
  * 图标用线稿 SVG（docs/07 §4 禁 emoji 冒充图标）。
  */
-const NAV_ITEMS = [
-  { to: '/', label: '总览', short: '主页', tab: true, icon: 'M2.6 7.3 8 2.9l5.4 4.4v5.4a.9.9 0 0 1-.9.9H3.5a.9.9 0 0 1-.9-.9z M6.2 13.6V9.4h3.6v4.2' },
-  { to: '/tasks', label: '下载', short: '任务', tab: true, icon: 'M8 2.2v7.2m0 0 2.8-2.8M8 9.4 5.2 6.6M2.6 12.6h10.8' },
-  { to: '/history', label: '历史', short: '历史', tab: true, icon: 'M8 3a5 5 0 1 0 0 10A5 5 0 0 0 8 3zM8 5.5V8l2 1.4' },
-  { to: '/media', label: '媒体库', short: '文件', tab: true, icon: 'M2.4 4.4h3.9l1.2 1.6h6.1v6.9a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z M6.6 9.9l1.5 1.7 1.1-1.2 1.6 1.8' },
-  { to: '/subscriptions', label: '订阅', short: '订阅', tab: false, icon: 'M3.2 6.6a5.4 5.4 0 0 1 5.4 5.4M3.2 3.4a8.6 8.6 0 0 1 8.6 8.6M4.4 12a.9.9 0 1 0 0-.1' },
-  { to: '/live', label: '直播', short: '直播', tab: false, icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
-  { to: '/logs', label: '日志', short: '日志', tab: false, icon: 'M3.4 3.6h9.2M3.4 6.6h9.2M3.4 9.6h5.6M3.4 12.4h3.2' },
-  { to: '/monitor', label: '监控', short: '监控', tab: false, icon: 'M2.2 8h2.3l1.5-3.8 2.5 7.6 1.5-3.8h3.8' },
-  { to: '/connections', label: '连接', short: '连接', tab: false, icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
-  { to: '/settings', label: '设置', short: '设置', tab: true, icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
+interface NavItem {
+  to: string
+  label: string
+  en: string
+  short: string
+  tab: boolean
+  icon: string
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { to: '/', label: '总览', en: 'OVERVIEW', short: '主页', tab: true, icon: 'M2.6 7.3 8 2.9l5.4 4.4v5.4a.9.9 0 0 1-.9.9H3.5a.9.9 0 0 1-.9-.9z M6.2 13.6V9.4h3.6v4.2' },
+  { to: '/tasks', label: '下载', en: 'TASKS', short: '任务', tab: true, icon: 'M8 2.2v7.2m0 0 2.8-2.8M8 9.4 5.2 6.6M2.6 12.6h10.8' },
+  { to: '/history', label: '历史', en: 'HISTORY', short: '历史', tab: true, icon: 'M8 3a5 5 0 1 0 0 10A5 5 0 0 0 8 3zM8 5.5V8l2 1.4' },
+  { to: '/media', label: '媒体库', en: 'MEDIA', short: '文件', tab: true, icon: 'M2.4 4.4h3.9l1.2 1.6h6.1v6.9a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z M6.6 9.9l1.5 1.7 1.1-1.2 1.6 1.8' },
+  { to: '/subscriptions', label: '订阅', en: 'SUBS', short: '订阅', tab: false, icon: 'M3.2 6.6a5.4 5.4 0 0 1 5.4 5.4M3.2 3.4a8.6 8.6 0 0 1 8.6 8.6M4.4 12a.9.9 0 1 0 0-.1' },
+  { to: '/live', label: '直播', en: 'LIVE', short: '直播', tab: false, icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
+  { to: '/logs', label: '日志', en: 'LOGS', short: '日志', tab: false, icon: 'M3.4 3.6h9.2M3.4 6.6h9.2M3.4 9.6h5.6M3.4 12.4h3.2' },
+  { to: '/monitor', label: '监控', en: 'MONITOR', short: '监控', tab: false, icon: 'M2.2 8h2.3l1.5-3.8 2.5 7.6 1.5-3.8h3.8' },
+  { to: '/connections', label: '连接', en: 'CHANNELS', short: '连接', tab: false, icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
+  { to: '/settings', label: '设置', en: 'SETTINGS', short: '设置', tab: true, icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
+]
+
+/** 侧导航分组：工作区（下载域）+ 系统（运维域），小节标签用等宽英文。 */
+const NAV_SECTIONS: { label: string; en: string; items: NavItem[] }[] = [
+  { label: '工作区', en: 'WORKSPACE', items: NAV_ITEMS.slice(0, 6) },
+  { label: '系统', en: 'SYSTEM', items: NAV_ITEMS.slice(6) },
 ]
 
 /** 底部栏 5 个高频入口。 */
@@ -70,19 +90,47 @@ const TAB_ITEMS = computed(() => NAV_ITEMS.filter((i) => i.tab))
 /** 「更多」面板里的其余入口。 */
 const MORE_ITEMS = computed(() => NAV_ITEMS.filter((i) => !i.tab))
 
-/**
- * 顶栏页面标题：路由 meta.title 是唯一来源。
- * 原来每个视图自己在内容区顶一个 <h1> + 金色左边条（Word 文档风），
- * 七页七种顶部留白；标题归属统一到顶栏后，「你在哪」由导航高亮 + 顶栏标题
- * 双重锚定，内容区直接进入数据——这是布局比例重构的核心一步。
- */
-const pageTitle = computed(() => (route.meta.title as string) ?? '')
+/** 当前主题元数据（切换器按钮与移动端面板显示用）。 */
+const currentTheme = computed(() => ui.themes.find((t) => t.id === ui.theme) ?? ui.themes[0])
 
-/** 768–1023 抽屉态 / <768「更多」面板：Esc 关闭（焦点即使跑出面板也能兜住）。 */
+function pickTheme(id: ThemeId) {
+  ui.setTheme(id)
+  themeOpen.value = false
+}
+
+/** 顶栏等宽时钟：控制台的「系统活着」心跳（文档/05 诚实原则——只显示本地时间）。 */
+const nowTick = useNowTick()
+const clock = computed(() => {
+  const d = new Date(nowTick.value)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+})
+
+/**
+ * 主题属性必须挂在 <html> 上，不能只挂在 .app 上。
+ *
+ * RDialog / RToast / DetailDrawer 都是 <Teleport to="body">，浮层 DOM 是 .app 的
+ * 兄弟节点；`[data-theme=…]` 挂在 .app 内部就匹配不到它们 —— 深色主题下
+ * 对话框 / 抽屉 / Toast 会整套退回 :root 的 night token，白卡片浮在深色界面上。
+ *
+ * 挂到根元素后顺带修掉 body 底色：base.css 的 `body { background: var(--bg) }`
+ * 取的是 :root 变量，只有根元素带属性主题块才会生效，
+ * 否则滚动到顶/底的橡皮筋区域会露出默认主题的底。
+ */
+watch(
+  () => ui.theme,
+  (theme) => {
+    document.documentElement.setAttribute('data-theme', theme)
+  },
+  { immediate: true },
+)
+
+/** 抽屉态 /「更多」面板 / 主题弹层：Esc 关闭（焦点即使跑出面板也能兜住）。 */
 function onNavKey(ev: KeyboardEvent) {
   if (ev.key !== 'Escape') return
   if (moreOpen.value) moreOpen.value = false
   if (navOpen.value) navOpen.value = false
+  if (themeOpen.value) themeOpen.value = false
 }
 
 // 路由变化必须收起「更多」面板：面板是覆盖层，跳转后还挂着会挡住新页面内容。
@@ -112,6 +160,20 @@ async function quickSubmit(target: string) {
  */
 async function onQuickSubmit(value: string) {
   await quickSubmit(value)
+}
+
+/** 批量提交（多链接粘贴）：走 store 的批量接口，回执汇总一次 toast。 */
+async function onQuickSubmitBatch(urls: string[]) {
+  quickErr.value = ''
+  try {
+    const res = await tasks.submitBatch(urls.map((url) => ({ url })))
+    quickUrl.value = ''
+    const okN = res.data.length
+    const dupN = res.conflicts.length
+    toast.success(dupN > 0 ? `批量提交：${okN} 个入队，${dupN} 个已存在跳过` : `批量提交：${okN} 个任务已入队`)
+  } catch (e) {
+    quickErr.value = e instanceof Error ? e.message : '批量提交失败'
+  }
 }
 
 // 会话进入 ready 是「开始拉数据 + 建 SSE」的唯一起点。
@@ -151,12 +213,16 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', onNavKey)
+  // 主题属性是本组件写在 <html> 上的，卸载时一并摘掉，别把状态留给别人。
+  document.documentElement.removeAttribute('data-theme')
   notif.stop()
 })
 </script>
 
 <template>
-  <div class="app" :data-theme="ui.theme">
+  <!-- 主题属性由 watch 写到 <html> 上（见上方 ui.theme 的 watch），
+       这里不再重复挂 :data-theme——浮层 Teleport 到 body，挂在这层管不到它们。 -->
+  <div class="app">
     <!-- 会话 gate（后端 428/401 语义的前端落点）：
          未初始化 → 初始化向导（方案 §3 /setup「向导表单」）；
          未登录 → 登录页；就绪才渲染主界面。 -->
@@ -178,18 +244,29 @@ onUnmounted(() => {
 
       <aside class="nav" :class="{ open: navOpen }">
         <!-- 品牌区：RaccoonLogo 静态徽标（不是会变表情的 RaccoonFace——表情是状态角色，
-             徽标是识别符号）。深底上 --logo-fur 提亮一档，否则头会糊进导航底色。 -->
+             徽标是识别符号）。配色走 --logo-* 主题换皮变量。 -->
         <div class="brand">
           <RaccoonLogo :size="34" />
         </div>
-        <nav @click="navOpen = false">
-          <router-link v-for="item in NAV_ITEMS" :key="item.to" :to="item.to" :title="item.label">
-            <svg class="nav-icon" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
-              <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <span class="nav-link-text">{{ item.label }}</span>
-          </router-link>
-        </nav>
+        <div class="nav-scroll">
+          <div v-for="sec in NAV_SECTIONS" :key="sec.en" class="nav-sec">
+            <div class="nav-sec-label">
+              <span class="nav-sec-en eyebrow">{{ sec.en }}</span>
+              <span class="nav-sec-zh">{{ sec.label }}</span>
+            </div>
+            <nav :aria-label="sec.label">
+              <router-link v-for="item in sec.items" :key="item.to" :to="item.to" :title="item.label">
+                <svg class="nav-icon" viewBox="0 0 16 16" width="17" height="17" aria-hidden="true">
+                  <path :d="item.icon" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span class="nav-txt">
+                  <span class="nav-link-text">{{ item.label }}</span>
+                  <span class="nav-en">{{ item.en }}</span>
+                </span>
+              </router-link>
+            </nav>
+          </div>
+        </div>
         <div class="nav-foot">
           <!-- 用户名 + 连接状态一行：用户区自带分隔线，一眼是「账户区」而不是导航列表的尾巴。 -->
           <div class="user-row">
@@ -198,12 +275,16 @@ onUnmounted(() => {
               {{ tasks.connected ? '实时' : '重连中' }}
             </span>
           </div>
-          <button class="foot-btn" type="button" @click="ui.toggleTheme">
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-              <path v-if="ui.theme === 'dark'" d="M13 9.8A5.6 5.6 0 0 1 6.2 3a5.6 5.6 0 1 0 6.8 6.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
-              <path v-else d="M8 3.2v1.6m0 6.4v1.6M3.2 8h1.6m6.4 0h1.6M4.8 4.8l1.1 1.1m4.2 4.2 1.1 1.1m0-6.4-1.1 1.1M5.9 10.1l-1.1 1.1M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
-            </svg>
-            <span class="btn-text">{{ ui.theme === 'dark' ? '浅色模式' : '深色模式' }}</span>
+          <!-- 主题切换器：四套浣熊主题（docs/07 §2）。 -->
+          <button
+            class="foot-btn"
+            type="button"
+            aria-haspopup="listbox"
+            :aria-expanded="themeOpen ? 'true' : 'false'"
+            @click="themeOpen = !themeOpen"
+          >
+            <span class="foot-swatch" :style="{ background: currentTheme.swatch }" aria-hidden="true" />
+            <span class="btn-text">主题 · {{ currentTheme.label }}</span>
           </button>
           <button class="foot-btn" type="button" @click="auth.logout()">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -211,6 +292,29 @@ onUnmounted(() => {
             </svg>
             <span class="btn-text">退出登录</span>
           </button>
+          <!-- 主题弹层：必须留在页脚容器内部（bottom: 100% 相对它解析，
+               放到外层会以整条侧栏为基准弹到视口外——实测踩过）。 -->
+          <div v-if="themeOpen" class="pop-mask" @click="themeOpen = false" />
+          <div v-if="themeOpen" class="theme-pop" role="listbox" aria-label="选择主题">
+            <button
+              v-for="t in ui.themes"
+              :key="t.id"
+              class="theme-item"
+              type="button"
+              role="option"
+              :aria-selected="t.id === ui.theme ? 'true' : 'false'"
+              @click="pickTheme(t.id)"
+            >
+              <span class="foot-swatch" :style="{ background: t.swatch }" aria-hidden="true" />
+              <span class="theme-item-txt">
+                <span class="theme-item-label">{{ t.label }}</span>
+                <span class="theme-item-en">{{ t.en }}</span>
+              </span>
+              <svg v-if="t.id === ui.theme" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path d="M3.4 8.4 6.6 11.6 12.6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
       </aside>
       <!-- 抽屉态遮罩：点它即关，Esc 也关（键盘兜底见下方 onKeydown） -->
@@ -218,16 +322,24 @@ onUnmounted(() => {
 
       <div class="main">
         <header class="topbar">
-          <!-- 页面标题：路由 meta.title，全站唯一的「你在哪」文字锚点 -->
-          <h1 class="topbar-title">{{ pageTitle }}</h1>
-          <QuickSubmit
-            v-model="quickUrl"
-            :error="quickErr"
-            @submit="onQuickSubmit"
-          />
-          <div class="topbar-right">
-            <span v-if="tasks.warning" class="topbar-warn" :title="tasks.warning">{{ tasks.warning }}</span>
-            <NotifCenter />
+          <!-- 与 .content-inner 同款居中容器：顶栏首元素与内容区左缘对齐
+               （超宽屏下 content-inner 居中收缩，顶栏若不受同样约束，
+               搜索框和下面卡片的左边界会错开——实测踩过）。 -->
+          <div class="topbar-inner">
+            <QuickSubmit
+              v-model="quickUrl"
+              :error="quickErr"
+              @submit="onQuickSubmit"
+              @submit-batch="onQuickSubmitBatch"
+            />
+            <div class="topbar-right">
+              <span v-if="tasks.warning" class="topbar-warn" :title="tasks.warning">{{ tasks.warning }}</span>
+              <span class="conn topbar-conn" :class="tasks.connected ? 'on' : 'off'" :title="tasks.connected ? '实时连接正常' : '实时连接断开，正在重连'">
+                {{ tasks.connected ? '实时' : '重连中' }}
+              </span>
+              <span class="topbar-clock tnum">{{ clock }}</span>
+              <NotifCenter />
+            </div>
           </div>
         </header>
         <main class="content">
@@ -267,7 +379,8 @@ onUnmounted(() => {
         </button>
       </nav>
 
-      <!-- 「更多」面板：点遮罩、点任一项、Esc 都关（零成本退出路径） -->
+      <!-- 「更多」面板：点遮罩、点任一项、Esc 都关（零成本退出路径）。
+           面板尾部带主题行：移动端侧导航不可达，主题切换在这里兜底。 -->
       <div v-if="moreOpen" class="sheet-mask" @click="moreOpen = false" />
       <div v-if="moreOpen" id="tabbar-more-sheet" class="more-sheet" role="dialog" aria-label="更多导航">
         <router-link
@@ -282,6 +395,19 @@ onUnmounted(() => {
           </svg>
           <span>{{ item.label }}</span>
         </router-link>
+        <div class="sheet-themes" role="group" aria-label="选择主题">
+          <button
+            v-for="t in ui.themes"
+            :key="t.id"
+            class="sheet-theme"
+            type="button"
+            :aria-pressed="t.id === ui.theme ? 'true' : 'false'"
+            @click="ui.setTheme(t.id)"
+          >
+            <span class="foot-swatch" :style="{ background: t.swatch }" aria-hidden="true" />
+            <span>{{ t.label }}</span>
+          </button>
+        </div>
       </div>
     </template>
     <RToast />
@@ -289,49 +415,69 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.app { display: flex; min-height: 100vh; background: var(--bg); color: var(--text-1); }
+.app {
+  display: flex;
+  height: 100vh;
+  height: 100dvh; /* 移动端地址栏收展不影响壳高 */
+  background: var(--bg);
+  color: var(--text-1);
+  overflow: hidden; /* 控制台壳：滚动只发生在内容区，侧栏与顶栏钉死 */
+}
 
-/* ============ 侧导航：结构色大面积载体（树影蓝灰深底） ============ */
+/* ============ 侧导航：深底控制台骨架 ============ */
 .nav {
-  width: 240px;
+  position: relative;
+  width: 248px;
   flex-shrink: 0;
   padding: 20px 14px 16px;
   background: var(--nav-bg);
   border-right: 1px solid var(--nav-border);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
-.brand { display: flex; align-items: center; padding: 0 6px; }
-/* 深底上的徽标：毛色提亮一档（浅底用的是 --accent 深蓝灰，深底上会糊），
-   面纹保持纸白、眼罩改近黑、字标反白。 */
+.brand { display: flex; align-items: center; padding: 0 6px 4px; }
+/* 深底上的字标：随主题反白（nav-text-strong），副标签用 nav-text。 */
 .brand .rlogo {
-  --logo-fur: var(--logo-fur-lift);
-  --logo-face: var(--logo-face-lift);
-  --logo-mask: var(--logo-mask-lift);
   --logo-name: var(--nav-text-strong);
   --logo-sub: var(--nav-text);
 }
+/* 分组导航可滚动：小屏高度不够时导航自己滚，账户区钉在底部。 */
+.nav-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; margin: 0 -6px; padding: 0 6px; }
+.nav-sec { display: flex; flex-direction: column; gap: 4px; }
+/* 小节标签：等宽英文 + 中文说明，控制台的「分区标牌」。 */
+.nav-sec-label { display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 2px; }
+.nav-sec-zh { font-size: var(--font-caption); color: var(--nav-text); opacity: 0.72; }
+.nav-sec .nav-sec-en { color: var(--nav-text); opacity: 0.55; }
 .nav nav { display: flex; flex-direction: column; gap: 2px; }
-/* 导航条目：正文档 16px。导航是主操作路径，7 个入口都用 aux(13.5px) 会让
-   「当前在哪、点哪去」这条主路径看起来比次要说明还轻。 */
+/* 双行导航条目：图标 + (中文主标签 / 等宽英文副标签)。 */
 .nav nav a {
   position: relative;
-  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-ctrl);
   color: var(--nav-text);
   text-decoration: none;
-  font-size: var(--font-body);
   transition: background 120ms ease-out, color 120ms ease-out;
 }
+.nav-txt { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.nav-link-text { font-size: var(--font-body); font-weight: var(--weight-medium); }
+.nav-en {
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+}
 .nav nav a:hover { background: var(--nav-hover); color: var(--nav-text-strong); }
-/* 当前项：左侧金条 + 金色文字 + 淡金底——围巾金落在「当前位置」上，
-   和顶栏提交按钮两处，全屏金色 ≤3 处的额度刚好用完。 */
+/* 当前项：左侧强调色条 + 强调色文字 + 淡底——「你在哪」的控制台锚点。 */
 .nav nav a.router-link-active {
   background: var(--nav-active-bg);
   color: var(--nav-active-text);
-  font-weight: var(--weight-semibold);
 }
+.nav nav a.router-link-active .nav-link-text { font-weight: var(--weight-semibold); }
+.nav nav a.router-link-active .nav-en { opacity: 0.85; }
 .nav nav a.router-link-active::before {
   content: '';
   position: absolute;
@@ -339,13 +485,12 @@ onUnmounted(() => {
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 18px;
+  height: 20px;
   border-radius: 2px;
   background: var(--nav-active-text);
 }
-/* 用户区与导航列表之间必须有分隔：否则 admin / 实时 / 深色模式 / 退出登录
-   会和上面 15 个导航项连成一条无尽列表，观感就是「这页面没做完」。 */
-.nav-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--nav-border); padding-top: 14px; }
+/* 用户区与导航列表之间必须有分隔：否则账户区会和上面的导航项连成一条无尽列表。 */
+.nav-foot { position: relative; margin-top: auto; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--nav-border); padding-top: 14px; }
 .user-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; min-width: 0; }
 /* 用户名是「当前身份」，正文档 + 反白，不当辅助信息。 */
 .user { font-size: var(--font-body); font-weight: var(--weight-strong); color: var(--nav-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -377,24 +522,69 @@ onUnmounted(() => {
   transition: background 120ms ease-out, color 120ms ease-out;
 }
 .foot-btn:hover { background: var(--nav-hover); color: var(--nav-text-strong); }
-.foot-btn:last-child:hover { color: var(--danger); }
+/* 主题色样本：10px 圆点，颜色来自 THEMES 元数据（当前主题的强调色样本）。 */
+.foot-swatch { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-1) 18%, transparent); }
 
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.topbar { padding: 0 24px; height: 64px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 20px; }
-/* 顶栏标题：title-1 24px/750。内容区各视图不再自己顶标题——
-   标题归属统一在这里，七页共用一条稳定的「你在哪」锚线。 */
-.topbar-title { font-size: var(--font-title-1); font-weight: var(--weight-title); color: var(--text-1); white-space: nowrap; }
-.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-/* 顶栏告警条：辅助档 13.5px（这是要读的一句话，不是表头）。 */
+/* 主题弹层：贴着按钮上沿弹出。 */
+.pop-mask { position: fixed; inset: 0; z-index: 80; }
+.theme-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 81;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.theme-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-ctrl);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: var(--font-body);
+  text-align: left;
+}
+.theme-item:hover { background: var(--accent-softer); color: var(--text-1); }
+.theme-item[aria-selected='true'] { color: var(--accent); background: var(--accent-soft); }
+.theme-item-txt { display: flex; flex-direction: column; line-height: 1.25; flex: 1; min-width: 0; }
+.theme-item-en { font-family: var(--font-mono); font-size: var(--font-caption); letter-spacing: 0.08em; opacity: 0.65; }
+
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* 指挥顶栏：提交框为主角，右侧是系统心跳（连接状态 + 等宽时钟 + 通知）。 */
+.topbar { padding: 0 24px; height: 60px; flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; }
+/* 居中容器：与 .content-inner 完全同款（1440 上限 + 居中），顶栏与内容区左右缘对齐。 */
+.topbar-inner { width: 100%; max-width: 1440px; margin: 0 auto; display: flex; align-items: center; gap: 20px; }
+.topbar-inner > :first-child { flex: 1; max-width: 620px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+/* 顶栏连接状态与告警：辅助档 13.5px（这是要读的一句话，不是表头）。 */
+.topbar-conn { color: var(--text-3); }
 .topbar-warn {
-  max-width: 280px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-aux);
   color: var(--warning);
 }
-.content { padding: 24px; flex: 1; min-width: 0; }
+/* 等宽时钟：系统心跳（tnum 保数字不抖）。 */
+.topbar-clock {
+  font-family: var(--font-mono);
+  font-size: var(--font-caption);
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+.content { padding: 24px; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 /* 超宽屏内容区上限：桌面阅读与六列表格的舒适宽度，居中留白对称。 */
 .content-inner { width: 100%; max-width: 1440px; margin: 0 auto; }
 
@@ -428,20 +618,24 @@ onUnmounted(() => {
 
 /* ≥1280：侧导航常驻 + 双栏 —— 即上方默认样式，无需覆盖 */
 
-/* 1024–1279：侧导航收图标栏（图标居中，文字与尾部文字按钮隐藏） */
+/* 1024–1279：侧导航收图标栏（图标居中，中英文字与小节标签隐藏） */
 @media (max-width: 1279px) and (min-width: 1024px) {
   .nav { width: 64px; padding: 20px 8px 16px; align-items: center; }
   .brand { justify-content: center; padding: 0; }
+  .nav-scroll { width: 100%; margin: 0; padding: 0; }
+  .nav-sec { align-items: center; }
+  .nav-sec-label { display: none; }
   .nav nav { width: 100%; }
   .nav nav a { justify-content: center; padding: 11px 0; }
-  /* 图标栏态的金条改成圆点：竖条在 64px 窄栏里会戳出边界 */
+  /* 图标栏态的强调条改成圆点：竖条在 64px 窄栏里会戳出边界 */
   .nav nav a.router-link-active::before { width: 18px; height: 3px; top: auto; bottom: 3px; transform: none; }
-  .nav-link-text { display: none; }
+  .nav-txt { display: none; }
   .nav-foot { align-items: center; }
   .nav-foot .user,
   .nav-foot .conn { display: none; }
   .nav-foot .btn-text { display: none; }
   .foot-btn { padding: 10px; justify-content: center; }
+  .theme-pop { left: auto; right: auto; width: 180px; }
 }
 
 /* 768–1023：侧导航收进抽屉 + 顶栏汉堡；表格降级卡片由各视图自行处理 */
@@ -466,10 +660,9 @@ onUnmounted(() => {
   .nav,
   .nav-toggle,
   .nav-mask { display: none; }
-  /* 顶栏标题降档：375px 下 24px 标题 + 输入框 + 铃铛同行会挤爆，
-     标题让位给提交框（本页最高频动作），页面归属由底部 tabbar 高亮承担。 */
   .topbar { padding: 0 12px; gap: 10px; height: 56px; }
-  .topbar-title { display: none; }
+  /* 小屏顶栏只留心跳的最小形态：连接点 + 铃铛，时钟让位给提交框 */
+  .topbar-clock { display: none; }
   .tabbar {
     position: fixed;
     inset: auto 0 0 0;
@@ -559,6 +752,31 @@ onUnmounted(() => {
     border-radius: var(--radius-ctrl);
   }
   .more-item.router-link-active { color: var(--accent); background: var(--accent-soft); }
+  /* 主题行：占满一行的四枚色板（移动端唯一的主题切换入口）。 */
+  .sheet-themes {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .sheet-theme {
+    min-height: 44px;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 4px;
+    border: none;
+    border-radius: var(--radius-ctrl);
+    background: none;
+    color: var(--text-2);
+    font-size: var(--font-caption);
+    cursor: pointer;
+  }
+  .sheet-theme[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
   /* 内容底部留出 tabbar 高度 + 间距，长页面最后一个按钮不会被挡住 */
   .content { padding: 16px 14px calc(16px + 52px + env(safe-area-inset-bottom, 0px)); }
 }

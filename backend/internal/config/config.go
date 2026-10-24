@@ -37,8 +37,13 @@ var Registry = []Setting{
 	// ---- 存储策略路由（docs/01 §3.4 / docs/15 §3.7）----
 	// local：磁力/种子直接走 qB、其余走本地引擎（存量行为，升级零变化）；
 	// n115_first：115 优先，确定失败自动转 qB，结果不确定先查询不转移；
-	// qb_fallback：磁力/种子先试 115 离线，确定失败或不可用 → 转 qB。
+	// qb_fallback：磁力/种子直接走 qB（跳过 115，无运行期转移）——以 task/strategy.go 为准。
 	{Key: "storage.strategy", Desc: "存储策略（local/n115_first/qb_fallback）", Default: "local", Effective: NextTask},
+	// ---- 网络出口（net.*）----
+	// 元数据页可达 ≠ 媒体流可达：不少站点的媒体 CDN 走另一条网络路径，
+	// 直连超时（NET_TIMEOUT）时给引擎配代理是用户手里唯一的自救工具。
+	// 空串 = 直连（默认行为零变化）；生效时机 NextTask：引擎参数在任务启动时拼装。
+	{Key: "net.proxy", Desc: "网络代理（如 http://127.0.0.1:7890 或 socks5://…，留空直连）", Default: "", Effective: NextTask},
 	// ---- 成功率预警（docs/14 E2）----
 	{Key: "alert.success_rate_threshold", Desc: "成功率预警阈值（百分比，低于则总览浮预警）", Default: 80, Effective: Immediate},
 	{Key: "download.max_concurrent", Desc: "全局下载并发上限", Default: 3, Effective: NextTask},
@@ -47,12 +52,25 @@ var Registry = []Setting{
 	{Key: "download.rate_limit_bps", Desc: "下载限速（字节/秒，0=不限）", Default: 0, Effective: NextTask},
 	{Key: "download.skip_preview", Desc: "添加任务跳过预览直接入队", Default: false, Effective: NextTask},
 	{Key: "download.max_attempts", Desc: "失败自动重试次数", Default: 3, Effective: NextTask},
+	// 产物增强（docs/04 §2.2 items 说明）：封面落盘是纯下载动作无额外依赖；
+	// 元数据内嵌走 yt-dlp 后处理器，mp4/m4a 需要 mutagen（镜像已内置）、
+	// mkv/webm 走 ffmpeg。默认关：目录里多出 .jpg/.info 文件不是所有人都想要。
+	{Key: "download.save_thumbnail", Desc: "封面图落盘（jpg，与视频同目录）", Default: false, Effective: NextTask},
+	{Key: "download.embed_metadata", Desc: "标题/作者等元数据写入媒体文件（需 ffmpeg/mutagen）", Default: false, Effective: NextTask},
 	{Key: "subscription.interval_min", Desc: "订阅检查间隔（分钟）", Default: 30, Effective: NextTask},
 	{Key: "live.check_interval_sec", Desc: "直播开播检测间隔（秒）", Default: 60, Effective: NextTask},
 	{Key: "live.segment_min", Desc: "直播录制分段（分钟）", Default: 60, Effective: NextTask},
 	{Key: "notify.task_done", Desc: "任务完成通知", Default: true, Effective: Immediate},
 	{Key: "notify.task_failed", Desc: "任务失败通知", Default: true, Effective: Immediate},
 	{Key: "notify.disk_warn", Desc: "磁盘预警通知", Default: true, Effective: Immediate},
+	// Webhook：任务完成/失败时 POST JSON 到指定 URL（自建通知聚合的通用出口）。
+	// 空串 = 不启用；重试 1 次；失败只记日志不影响任务。
+	{Key: "notify.webhook_url", Desc: "Webhook 通知地址（POST JSON，留空不启用）", Default: "", Effective: Immediate},
+	// Server酱（sct.ftqq.com）：个人微信推送通道。任务完成/失败/磁盘预警时
+	// 推到微信「Server酱」服务号。免费额度 5 条/天，超出静默丢弃（失败只记日志）。
+	// 这是「微信侧只收通知」的正路：个人微信没有可用的收消息机器人接口，
+	// 远程提交下载仍走 Telegram / CLI / 快捷指令（docs/16）。
+	{Key: "notify.serverchan_sendkey", Desc: "Server酱 SendKey（微信推送任务通知，留空不启用；免费额度 5 条/天）", Default: "", Effective: Immediate, Sensitive: true},
 	{Key: "log.level", Desc: "日志级别（debug/info/warn/error）", Default: "info", Effective: Immediate, EnvVar: "RACCOON_LOG_LEVEL"},
 	// ---- 外部集成通道（docs/08 W4.6–W4.8）----
 	// 这几项是「服务连接参数」，与凭据中心的「平台账号凭据」是两类东西：
@@ -69,6 +87,9 @@ var Registry = []Setting{
 	{Key: "telegram.bot_token", Desc: "Telegram Bot Token", Default: "", Effective: Immediate, Sensitive: true},
 	{Key: "telegram.allowed_users", Desc: "Telegram 允许的用户 ID（逗号分隔）", Default: "", Effective: Immediate},
 	{Key: "telegram.allowed_chats", Desc: "Telegram 允许的会话 ID（逗号分隔，留空不限制）", Default: "", Effective: Immediate},
+	// 完成后把产物文件回传到提交会话：小文件（≤50MB，TG bot 上限）直接发文档；
+	// 大文件只发文本通知（路径在服务器上，回传不动它）。
+	{Key: "telegram.send_files", Desc: "任务完成后回传产物文件到 Telegram（≤50MB）", Default: false, Effective: Immediate},
 }
 
 // Config 是运行期配置快照。锁定项只来自环境变量（docs/06 §4）。

@@ -11,7 +11,7 @@ import { ApiError } from '@/api/types'
  * Settings.vue 用例（docs/07 §3 SettingItem / docs/04 §2.4）。
  *
  * 五要素（说明/默认值/校验/敏感/生效时机）+ env 锁定只读 + 脏状态拦截路由离开
- * + 通道测试 + 历史回滚 + API Token 管理。铁律：保存结果按接口返回的
+ * + 历史回滚 + API Token 管理（通道参数/通道测试已归位「连接」页）。铁律：保存结果按接口返回的
  * effective_summary 展示，不在前端猜生效时机。
  */
 const mocks = vi.hoisted(() => ({
@@ -162,21 +162,6 @@ describe('Settings 视图', () => {
     expect(w.find('#download').text()).toContain('默认 3')
   })
 
-  it('敏感项不回填掩码：输入框为空 + 「当前」展示掩码，留空不算脏', async () => {
-    const w = mountSettings()
-    await flushPromises()
-
-    const qb = w.find('#qb')
-    const input = qb.find('input[type="password"]') as any
-    // 后端只回掩码，绝不能把掩码当值回填进输入框（否则保存会把掩码写进配置）
-    expect(input.element.value).toBe('')
-    expect(qb.text()).toContain('当前：******')
-    expect(qb.text()).toContain('敏感')
-    // 未做任何修改 → 保存按钮禁用、没有未保存标记
-    expect(btnByText(w, '保存改动')!.attributes('disabled')).toBeDefined()
-    expect(w.find('.dirty-dot').exists()).toBe(false)
-  })
-
   it('改一个值即进入脏状态，保存时只提交改动项并展示生效时机', async () => {
     const w = mountSettings()
     await flushPromises()
@@ -295,37 +280,6 @@ describe('Settings 视图', () => {
     expect(confirmSpy).not.toHaveBeenCalled()
     expect(router.currentRoute.value.path).toBe('/tasks')
     confirmSpy.mockRestore()
-  })
-
-  it('外部通道测试：qB 成功带版本号，115 失败如实报', async () => {
-    const w = mountSettings()
-    await flushPromises()
-
-    await btnByText(w, '测 qBittorrent').trigger('click')
-    await flushPromises()
-    expect(mocks.testQB).toHaveBeenCalled()
-    const qbResult = w.findAll('.conn-result')[0]
-    expect(qbResult.text()).toContain('连接正常（版本 4.6.0）')
-    expect(qbResult.classes()).toContain('ok')
-
-    await btnByText(w, '测 115').trigger('click')
-    await flushPromises()
-    const n115Result = w.findAll('.conn-result')[1]
-    expect(n115Result.text()).toContain('连接失败')
-    expect(n115Result.classes()).toContain('bad')
-  })
-
-  it('Telegram 没有 test 端点：用 enabled 如实表达', async () => {
-    mocks.telegramStatus.mockResolvedValueOnce({ data: { enabled: true, allowlist: 5 } })
-    const w = mountSettings()
-    await flushPromises()
-
-    await btnByText(w, '查 Telegram 状态').trigger('click')
-    await flushPromises()
-
-    const tgResult = w.findAll('.conn-result')[0]
-    expect(tgResult.text()).toContain('通道已启用，白名单 5 人')
-    expect(tgResult.classes()).toContain('ok')
   })
 
   it('签发令牌：明文只显示这一次，可复制', async () => {

@@ -62,6 +62,12 @@ func Internal(msg string) *Error {
 	return &Error{HTTP: http.StatusInternalServerError, Code: CodeInternal, Message: msg}
 }
 
+// BadGateway 上游平台接口不可达/异常（502；与本地 INTERNAL 区分开，
+// 「B 站接口挂了」和「浣熊自己出错了」在排障时是完全不同的两件事）。
+func BadGateway(msg string) *Error {
+	return &Error{HTTP: http.StatusBadGateway, Code: ErrorCode("BAD_GATEWAY"), Message: msg}
+}
+
 type CtxKey struct{}
 
 // RequestID 从 context 取 request_id（中间件注入）；取不到时回退读响应头

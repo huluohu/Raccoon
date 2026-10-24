@@ -51,6 +51,8 @@ func main() {
 		err = cmdList(args)
 	case "status":
 		err = cmdStatus(args)
+	case "files":
+		err = cmdFiles(args)
 	case "cancel":
 		err = cmdCancelRetry(args, "cancel")
 	case "retry":
@@ -59,6 +61,8 @@ func main() {
 		err = cmdConfig(args)
 	case "diag":
 		err = cmdDiag(args)
+	case "mcp":
+		err = cmdMCP(args)
 	case "help", "-h", "--help":
 		usage()
 		return
@@ -81,16 +85,24 @@ func usage() {
 
 用法:
   rc login --server <url> --token <token>     保存服务地址与 API Token
-  rc add <url> [选项]                         提交下载任务
+  rc add <url>... [选项]                      提交下载任务（多链接 = 批量）
        --quality <档位>   清晰度（best/1080p/720p/480p/360p/audio）
        --path <目录>      保存目录（相对数据根）
        --no-preview       跳过解析预览直接入队
        --json             输出 JSON
-  rc list [--status <状态>] [--platform <平台>] [--json]
+       --jsonl            每行一个 JSON（批量结果流式输出）
+  rc list [--status <状态>] [--platform <平台>] [--json] [--jsonl]
+       --jsonl           每行一个 JSON 对象（流式消费/管道友好）
   rc status <task-id> [--follow] [--json]    详情；--follow 跟随 SSE 实时输出
+  rc files <task-id> [--save <目录>]           列出/取回任务产物
+  rc files <task-id> [--save <目录>] [--json]
+       列出任务产物；--save 下载到本机目录（默认当前目录）
   rc cancel <task-id> | rc retry <task-id>
   rc config get <key> | rc config set <key> <value>
   rc diag export -o <file>
+  rc mcp [--server <url>] [--token <token>]
+       MCP 服务器（stdio）：把浣熊交给 AI 助手代管，工具面与 HTTP API 同源。
+       MCP 客户端里把命令注册为 rc mcp 即可（详见 docs/16）。
 
 配置:
   服务地址与 Token 存于 ~/.config/raccoon/credentials.json（权限 0600）。
@@ -156,6 +168,13 @@ func call(method, path string, body any, out any) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
+	}
+	// mcp 子命令的显式覆盖（不落盘）。
+	if mcpOverrideServer != "" {
+		cfg.Server = mcpOverrideServer
+	}
+	if mcpOverrideToken != "" {
+		cfg.Token = mcpOverrideToken
 	}
 	if cfg.Server == "" {
 		return fmt.Errorf("未配置服务地址，请先执行: rc login --server <url> --token <token>")
@@ -248,17 +267,28 @@ func cmdLogin(args []string) error {
 
 func cmdAdd(args []string) error {
 	var urls []string
-	quality, path := "", ""
-	preview, asJSON := true, false
+	quality, path, convert := "", "", ""
+	preview, asJSON, asJSONL := true, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--jsonl":
+			asJSONL = true
 		case a == "--quality" || a == "-q":
 			i++
 			if i >= len(args) {
 				return fmt.Errorf("--quality 缺参数")
 			}
 			quality = args[i]
+		case a == "--convert":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--convert 缺参数")
+			}
+			convert = strings.ToLower(args[i])
+			if convert != "mp4" && convert != "mp3" {
+				return fmt.Errorf("--convert 仅支持 mp4 / mp3")
+			}
 		case a == "--path" || a == "-p":
 			i++
 			if i >= len(args) {
@@ -278,11 +308,12 @@ func cmdAdd(args []string) error {
 	if len(urls) == 0 {
 		return fmt.Errorf("用法: rc add <url> [选项]")
 	}
-	// 多行 URL 拆分（docs/01 §3.1：多行自动拆行去重）。
+	// 多链接拆分（docs/01 §3.1：换行与空格都视为分隔——用户引号里贴一串
+	// 空格分隔的链接、或从文件粘多行，都应逐条入队而不是当成一个畸形 URL）。
 	var items []map[string]string
 	seen := map[string]bool{}
 	for _, raw := range urls {
-		for _, line := range strings.Split(raw, "\n") {
+		for _, line := range strings.Fields(raw) {
 			line = strings.TrimSpace(line)
 			if line == "" || seen[line] {
 				continue
@@ -294,6 +325,9 @@ func cmdAdd(args []string) error {
 			}
 			if path != "" {
 				it["save_path"] = path
+			}
+			if convert != "" {
+				it["convert_to"] = convert
 			}
 			items = append(items, it)
 		}
@@ -340,6 +374,13 @@ func cmdAdd(args []string) error {
 	if asJSON {
 		return printJSON(out)
 	}
+	if asJSONL {
+		items := make([]any, len(out.Data))
+		for i, it := range out.Data {
+			items[i] = it
+		}
+		return printJSONL(items)
+	}
 	for _, t := range out.Data {
 		fmt.Printf("已入队 %v  %v\n", t["id"], t["url"])
 	}
@@ -350,7 +391,8 @@ func cmdAdd(args []string) error {
 }
 
 func cmdList(args []string) error {
-	status, platform, asJSON := "", "", false
+	status, platform := "", ""
+	asJSON, asJSONL := false, false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--status", "-s":
@@ -367,6 +409,8 @@ func cmdList(args []string) error {
 			platform = args[i]
 		case "--json":
 			asJSON = true
+		case "--jsonl":
+			asJSONL = true
 		default:
 			return fmt.Errorf("未知参数: %s", args[i])
 		}
@@ -387,6 +431,13 @@ func cmdList(args []string) error {
 	}
 	if asJSON {
 		return printJSON(out)
+	}
+	if asJSONL {
+		items := make([]any, len(out.Items))
+		for i, it := range out.Items {
+			items[i] = it
+		}
+		return printJSONL(items)
 	}
 	if len(out.Items) == 0 {
 		fmt.Println("队列是空的。")
@@ -597,7 +648,116 @@ func cmdDiag(args []string) error {
 	return nil
 }
 
+// ---- files：列出/取回任务产物 ----
+//
+// 「取回文件」是 CLI 缺的最后一块（功能墙对齐项）：远端任务完成的产物
+// 通过 GET /files/{id}/download 拉回本机。列出不下载时只走 /tasks/{id}/files。
+
+func cmdFiles(args []string) error {
+	var id, saveDir string
+	asJSON := false
+	positional := []string{}
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--save" || args[i] == "-o":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--save 缺参数")
+			}
+			saveDir = args[i]
+		case args[i] == "--json":
+			asJSON = true
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+	if len(positional) == 0 {
+		return fmt.Errorf("用法: rc files <task-id> [--save <目录>] [--json]")
+	}
+	id = positional[0]
+
+	var out struct {
+		Items []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+			Size int64  `json:"size"`
+			Kind string `json:"kind"`
+		} `json:"items"`
+	}
+	if err := call(http.MethodGet, "/api/v1/tasks/"+id+"/files", nil, &out); err != nil {
+		return err
+	}
+	if len(out.Items) == 0 {
+		fmt.Println("该任务没有产物文件。")
+		return nil
+	}
+	if asJSON {
+		return printJSON(out.Items)
+	}
+	fmt.Printf("%-38s %-10s %-12s %s\n", "文件ID", "类型", "大小", "路径")
+	for _, f := range out.Items {
+		fmt.Printf("%-38s %-10s %-12s %s\n", f.ID, f.Kind, humanSize(f.Size), f.Path)
+	}
+	if saveDir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(saveDir, 0o755); err != nil {
+		return err
+	}
+	for _, f := range out.Items {
+		name := filepath.Base(f.Path)
+		dest := filepath.Join(saveDir, name)
+		if err := downloadFile("/api/v1/files/"+f.ID+"/download", dest); err != nil {
+			return fmt.Errorf("下载 %s 失败: %w", name, err)
+		}
+		fmt.Printf("已取回：%s（%s）\n", dest, humanSize(f.Size))
+	}
+	return nil
+}
+
+// downloadFile 流式下载 API 路径到本机文件。
+func downloadFile(apiPath, dest string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(cfg.Server, "/")+apiPath, nil)
+	if err != nil {
+		return err
+	}
+	if cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	f, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(f, resp.Body)
+	return err
+}
+
 // ---- 小工具 ----
+
+// printJSONL 每行一个 JSON 对象（--jsonl：给 jq/脚本管道用，无缩进无包裹）。
+func printJSONL(items []any) error {
+	for _, it := range items {
+		raw, err := json.Marshal(it)
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(raw))
+	}
+	return nil
+}
 
 func printJSON(v any) error {
 	raw, err := json.MarshalIndent(v, "", "  ")

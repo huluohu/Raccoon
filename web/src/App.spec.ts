@@ -66,6 +66,9 @@ afterEach(() => {
   vi.unstubAllGlobals()
   // 全局监听挂在 document 上，用例间必须还原滚动锁，避免互相污染
   document.body.style.overflow = ''
+  // 主题属性是 App 写在 <html> 上的，用例间必须摘掉，否则下一个用例读到上个的残留
+  document.documentElement.removeAttribute('data-theme')
+  localStorage.removeItem('raccoon.theme')
 })
 
 /** 挂载外壳并等到会话就绪（phase=ready 才会渲染导航与顶栏）。 */
@@ -83,8 +86,9 @@ function press(key: string, init: KeyboardEventInit = {}) {
 describe('App 外壳', () => {
   it('侧导航 10 项，顺序与 docs/15 裁决一致', async () => {
     const w = await mountApp()
+    // 双行导航（中文主标签 + 等宽英文副标签），断言只取中文主标签
     const links = w.findAll('.nav nav a')
-    expect(links.map((a) => a.text())).toEqual([
+    expect(links.map((a) => a.find('.nav-link-text').text())).toEqual([
       '总览',
       '下载',
       '历史',
@@ -95,6 +99,10 @@ describe('App 外壳', () => {
       '监控',
       '连接',
       '设置',
+    ])
+    // 英文副标签与导航同序（双语信息密度是控制台方向的签名）
+    expect(links.map((a) => a.find('.nav-en').text())).toEqual([
+      'OVERVIEW', 'TASKS', 'HISTORY', 'MEDIA', 'SUBS', 'LIVE', 'LOGS', 'MONITOR', 'CHANNELS', 'SETTINGS',
     ])
   })
 
@@ -159,6 +167,43 @@ describe('App 外壳', () => {
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/settings')
     wrapper.unmount()
+  })
+
+  // 深色主题必须挂在 <html> 上：RDialog / RToast / DetailDrawer 都是 <Teleport to="body">，
+  // 浮层 DOM 是 .app 的兄弟节点。属性只写在 .app 上时 [data-theme='dark'] 匹配不到它们，
+  // 深色模式下对话框 / 抽屉 / Toast 会整套退回 :root 的浅色 token（白卡片浮在深色界面上）。
+  it('主题属性写在 <html> 上，Teleport 浮层才能继承主题 token', async () => {
+    // 四套浣熊主题（docs/07 §2）：默认 night
+    localStorage.setItem('raccoon.theme', 'night')
+    const w = await mountApp()
+    expect(document.documentElement.getAttribute('data-theme')).toBe('night')
+    // .app 自身不再重复挂属性：留着会让人误以为浮层也在它的作用域内
+    expect(w.find('.app').attributes('data-theme')).toBeUndefined()
+
+    // 切换主题：属性跟着走（第一个 .foot-btn 就是主题按钮）
+    await w.find('.foot-btn').trigger('click')
+    await flushPromises()
+    const items = w.findAll('.theme-item')
+    expect(items.length).toBe(4)
+    await items[2].trigger('click') // snow
+    await flushPromises()
+    expect(document.documentElement.getAttribute('data-theme')).toBe('snow')
+
+    // 卸载不留状态
+    w.unmount()
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+  })
+
+  it('旧主题值迁移：dark→night、light→snow（升级零漂移）', async () => {
+    localStorage.setItem('raccoon.theme', 'dark')
+    const w = await mountApp()
+    expect(document.documentElement.getAttribute('data-theme')).toBe('night')
+    w.unmount()
+
+    localStorage.setItem('raccoon.theme', 'light')
+    const w2 = await mountApp()
+    expect(document.documentElement.getAttribute('data-theme')).toBe('snow')
+    w2.unmount()
   })
 
   it('在提交框里打字时 `/` 不被劫持（输入框内一律让行）', async () => {

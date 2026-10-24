@@ -75,9 +75,14 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ch, unsub := h.Subscribe()
 	defer unsub()
+	connectedAt := time.Now()
+	h.log.Info("SSE 订阅建立", map[string]any{"remote": r.RemoteAddr})
+	defer h.log.Info("SSE 订阅结束", map[string]any{"remote": r.RemoteAddr, "alive_sec": int(time.Since(connectedAt).Seconds())})
 
 	flusher.Flush()
-	hb := time.NewTicker(25 * time.Second)
+	// 心跳 15s：要短于常见反代/端口转发的空闲超时（Nginx 默认 60s、
+	// 部分转发层 30s），否则空闲即断，前端每 25~30s 闪一次「重连中」。
+	hb := time.NewTicker(15 * time.Second)
 	defer hb.Stop()
 	ctx := r.Context()
 	for {

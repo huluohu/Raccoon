@@ -15,6 +15,7 @@ import type { MonitorHistory } from '@/api/types'
 import DonutChart from '@/components/charts/DonutChart.vue'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import REmpty from '@/components/base/REmpty.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import { formatBytes, formatSpeed, formatTime } from '@/utils/format'
 
 const store = useSystemStore()
@@ -186,12 +187,19 @@ const degradeHint = computed(
     />
 
     <template v-else>
+      <PageHeader
+        eyebrow="MONITOR"
+        title="监控"
+        sub="CPU / 内存 / 存储 / 带宽，2 秒采样实时推送；历史曲线重启后从零累计"
+      >
+        <template #actions>
+          <p class="freshness">
+            每 2 秒刷新 · 最近采样
+            <span class="tnum">{{ sampledText }}</span>
+          </p>
+        </template>
+      </PageHeader>
       <div class="monitor-bar">
-        <p class="freshness">
-          每 2 秒刷新 · 最近一次采样
-          <span class="tnum">{{ sampledText }}</span>
-        </p>
-
         <div class="tabs" role="tablist" aria-label="监控时间范围">
           <button
             v-for="t in TABS"
@@ -365,7 +373,7 @@ const degradeHint = computed(
   box-shadow: var(--shadow-1);
 }
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.card h2 { font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
+.card h2 { font-size: var(--font-title-2); font-weight: var(--weight-strong); color: var(--text-1); }
 .card-note { font-size: var(--font-aux); color: var(--text-3); }
 
 /* 三环：240px 以下放不下「环 + 图例」，auto-fit 让少数据时不空出轨道 */

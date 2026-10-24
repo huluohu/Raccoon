@@ -9,6 +9,7 @@ import { useToastStore } from '@/stores/toast'
 import { errorText } from '@/utils/format'
 import type { ParsePreview, Subscription, SubscriptionItem } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import SubList from '@/components/subs/SubList.vue'
@@ -169,14 +170,15 @@ onMounted(load)
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <div>
-        <p class="page-sub">
-          收藏夹 / UP 主 / 播放列表定时检查 · 启用 {{ activeCount }} 个，队列待下 {{ totalQueued }} 条
-        </p>
-      </div>
-      <RButton variant="accent" @click="resetForm">新建订阅</RButton>
-    </header>
+    <PageHeader
+      eyebrow="SUBSCRIPTIONS"
+      title="订阅"
+      :sub="`收藏夹 / UP 主 / 播放列表定时检查 · 启用 ${activeCount} 个，队列待下 ${totalQueued} 条`"
+    >
+      <template #actions>
+        <RButton variant="accent" @click="resetForm">新建订阅</RButton>
+      </template>
+    </PageHeader>
 
     <p v-if="loadErr" class="alert alert--danger">{{ loadErr }}</p>
 
@@ -230,9 +232,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 /* 页面副标题是正文档（16px），不是脚注。 */
-.page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .alert { padding: 12px 16px; margin-bottom: 16px; border-radius: var(--radius-ctrl); border: 1px solid var(--border); font-size: var(--font-body); }
 .alert--danger { border-color: var(--danger); color: var(--danger); }
 
@@ -253,7 +253,7 @@ onMounted(load)
   width: 100%; box-sizing: border-box;
 }
 .field textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+.field input:focus, .field select:focus, .field textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pv-meta > div { display: flex; gap: 10px; font-size: var(--font-aux); }
 .pv-meta dt { color: var(--text-3); width: 44px; }
 

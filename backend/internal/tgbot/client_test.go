@@ -156,6 +156,8 @@ type stubHandler struct {
 	startCalls int
 	// addURLs /add 收到的链接。
 	addURLs []string
+	// addCalls /add 与批量合计的提交条数。
+	addCalls int
 	// statusIDs /status 收到的任务 ID。
 	statusIDs []string
 	// listCalls /list 调用次数。
@@ -179,6 +181,13 @@ func (h *stubHandler) OnStart(ctx context.Context, chatID int64, user *User) err
 }
 
 // OnAdd 实现 Handler。
+func (h *stubHandler) OnAddBatch(ctx context.Context, chatID int64, user *User, urls []string) (string, error) {
+	h.mu.Lock()
+	h.addURLs = append(h.addURLs, urls...)
+	h.mu.Unlock()
+	return "批量已入队", nil
+}
+
 func (h *stubHandler) OnAdd(ctx context.Context, chatID int64, user *User, url string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

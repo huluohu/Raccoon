@@ -59,13 +59,13 @@ const glyph = computed(() => {
 }
 .sdot--neutral .sdot-glyph { background: var(--surface-3); color: var(--text-2); }
 .sdot--info .sdot-glyph { background: var(--info); color: var(--on-info); }
-.sdot--active .sdot-glyph { background: var(--gold); color: var(--accent-strong); }
+.sdot--active .sdot-glyph { background: var(--accent); color: var(--on-accent); }
 .sdot--success .sdot-glyph { background: var(--success); color: var(--on-success); }
 .sdot--danger .sdot-glyph { background: var(--danger); color: var(--on-danger); }
 .sdot--muted .sdot-glyph { background: var(--surface-3); color: var(--text-3); }
 .sdot--neutral .sdot-text { color: var(--text-2); }
 .sdot--info .sdot-text { color: var(--info); }
-.sdot--active .sdot-text { color: var(--gold-strong); }
+.sdot--active .sdot-text { color: var(--accent); }
 .sdot--success .sdot-text { color: var(--success); }
 .sdot--danger .sdot-text { color: var(--danger); }
 .sdot--muted .sdot-text { color: var(--text-3); }

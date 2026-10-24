@@ -194,6 +194,7 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 			Status:        task.StatusWaiting,
 			Quality:       it.Quality,
 			SavePath:      it.SavePath,
+			ConvertTo:     it.ConvertTo,
 			ConfigVersion: s.cfg.Version(),
 			MaxAttempts:   3,
 			CreatedAt:     now,

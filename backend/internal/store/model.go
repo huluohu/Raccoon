@@ -17,7 +17,8 @@ type Task struct {
 	WaitReason      string  `json:"wait_reason,omitempty"`
 	Quality         string  `json:"quality,omitempty"`
 	SavePath        string  `json:"save_path,omitempty"`
-	ExpectedSize    *int64  `json:"expected_size"` // NULL=未知，禁估算
+	ConvertTo       string  `json:"convert_to,omitempty"` // 产物目标格式：""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
+	ExpectedSize    *int64  `json:"expected_size"`        // NULL=未知，禁估算
 	DownloadedSize  int64   `json:"downloaded_size"`
 	SpeedBps        int64   `json:"speed_bps"`
 	Progress        float64 `json:"progress"`
@@ -32,6 +33,7 @@ type Task struct {
 	FixHint         string  `json:"fix_hint,omitempty"` // JSON：{action,label}
 	CancelRequested bool    `json:"cancel_requested"`
 	RoutePath       string  `json:"route_path,omitempty"` // 存储策略「走了哪条路」（docs/01 §3.4）
+	Priority        int     `json:"priority"`             // 领取顺序权重：>0 插队（waiting 队列 priority DESC, created_at ASC）
 	ScheduledAt     *int64  `json:"scheduled_at,omitempty"`
 	ChildTotal      int     `json:"child_total,omitempty"`  // 仅父任务：子任务数
 	ChildFailed     int     `json:"child_failed,omitempty"` // 仅父任务：失败子任务数

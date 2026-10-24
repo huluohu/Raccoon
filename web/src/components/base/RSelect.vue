@@ -28,10 +28,12 @@ const props = withDefaults(
     modelValue?: string | number
     /** 选项列表。 */
     options: RSelectOption[]
-    /** 字段标签，常驻显示在选择框上方。 */
-    label: string
+    /** 字段标签，常驻显示在选择框上方；紧凑工具栏场景可省略（配 ariaLabel）。 */
+    label?: string
     /** 未选中时展示的占位文案。 */
     placeholder?: string
+    /** 无外置标签时的无障碍名（紧凑模式必配）。 */
+    ariaLabel?: string
     /** 内联错误信息；非空时描边转 danger 色。 */
     error?: string
     /** 辅助说明（与 error 互斥，error 优先展示）。 */
@@ -94,7 +96,13 @@ const cls = computed(() => [
 const innerValue = computed<string>({
   get: () => {
     if (hasValue.value && hasMatch.value) return String(props.modelValue)
-    if (!hasValue.value && props.placeholder) return PLACEHOLDER
+    if (!hasValue.value) {
+      if (props.placeholder) return PLACEHOLDER
+      // 空串是某个 option 的合法值（「全部类型/全部平台」这类全选项）→
+      // 直接显示它，而不是落到空哨兵（曾实测下拉框显示一片空白）。
+      const empty = props.options.find((o) => String(o.value) === '')
+      if (empty) return ''
+    }
     return NO_MATCH
   },
   set: (v: string) => {
@@ -112,11 +120,12 @@ function onClear() {
 
 <template>
   <div :class="cls">
-    <label class="rselect-label" :for="selectId">{{ label }}</label>
+    <label v-if="label" class="rselect-label" :for="selectId">{{ label }}</label>
     <div class="rselect-wrap">
       <select
         :id="selectId"
         v-model="innerValue"
+        :aria-label="label || ariaLabel"
         class="rselect-field"
         :class="{ 'rselect-field--error': !!error }"
         :disabled="disabled"
@@ -141,7 +150,7 @@ function onClear() {
         v-if="showClear"
         class="rselect-clear"
         type="button"
-        :aria-label="`清除${label}`"
+        :aria-label="`清除${label || ariaLabel || '筛选项'}`"
         @click="onClear"
       >
         ✕

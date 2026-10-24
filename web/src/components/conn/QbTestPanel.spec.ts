@@ -14,7 +14,7 @@ import { mount } from '@/test/mount'
  * 2) 手动测试结果优先于后端轮询状态（用户刚点完测试，看到的应该是这次的结果）。
  * 3) 状态是「符号 + 文字」双重编码，不靠颜色单独承载信息。
  * 4) 测试中按钮置灰防重复点。
- * 5) 必须给出「去设置页填参数」的入口（否则用户卡在这）。
+ * 5) 必须给出「填写参数」入口（emit params，参数在「连接」页就地填写）。
  */
 const stubs = {
   RButton: RButtonStub,
@@ -96,12 +96,12 @@ describe('QbTestPanel 组件', () => {
     expect(w.emitted('test')).toBeTruthy()
   })
 
-  it('有「去设置页填参数」的入口（否则用户卡死在这）', () => {
+  it('有「填写参数」入口并 emit params（参数在连接页就地填写）', async () => {
     const w = mount(QbTestPanel, { global: { stubs } })
-    const link = w.find('.int-link')
-    expect(link.exists()).toBe(true)
-    expect(link.text()).toContain('去设置页填写参数')
-    expect(link.attributes('href')).toBe('/settings')
+    const btn = w.findAll('button').find((b) => b.text().includes('填写参数'))
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    expect(w.emitted('params')).toBeTruthy()
   })
 
   it('状态说明 detail 存在才显示', () => {

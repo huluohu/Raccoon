@@ -59,9 +59,11 @@ describe('TelegramPanel 组件', () => {
     expect(btn.attributes('disabled')).toBeDefined()
   })
 
-  it('有「去设置页填参数」的入口', () => {
+  it('有「填写参数」入口并 emit params（参数在连接页就地填写）', async () => {
     const w = mount(TelegramPanel, { global: { stubs } })
-    const link = w.find('.int-link')
-    expect(link.attributes('href')).toBe('/settings')
+    const btn = w.findAll('button').find((b) => b.text().includes('填写参数'))
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    expect(w.emitted('params')).toBeTruthy()
   })
 })

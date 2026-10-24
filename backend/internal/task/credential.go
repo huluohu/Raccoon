@@ -150,7 +150,9 @@ func (w cookieFileWriter) writeCookieFile(platform, cookieStr string) (string, e
 	}
 	// 一条有效记录都没解析出来（如用户只粘了 ";;;"）→ 不产文件，
 	// 返回空串让上层走「无凭据」分支。空 cookie 文件对引擎是无意义产物。
-	if records == 0 {
+	// 域名为空（平台未收录且用户没带 domain= 属性）同样不产文件：
+	// 无域的 Netscape 记录无法安全限定发送范围，宁可不带凭据。
+	if records == 0 || domain == "" {
 		return "", nil
 	}
 	path := filepath.Join(w.dir, "cookie-"+platform+"-"+strconv.FormatInt(time.Now().UnixNano(), 10)+".txt")
@@ -169,6 +171,11 @@ func (w cookieFileWriter) removeCookieFile(path string) {
 }
 
 // cookieDomainFor 平台默认 Cookie 域（用户未提供 domain 属性时用）。
+//
+// 未收录平台返回空串：宁可不带凭据（引擎照常跑、命中会员内容时如实报
+// AUTH_REQUIRED），也不能像早先那样兜底 ".com" —— Netscape 域 ".com" 会让
+// yt-dlp 把这枚凭据发给任何 .com 站点，等于把 B 站 Cookie 洒向全网。
+// 未收录平台想用 Cookie：在凭据串里自带 "domain=.example.com" 属性即可。
 func cookieDomainFor(platform string) string {
 	switch platform {
 	case "bilibili":
@@ -181,6 +188,8 @@ func cookieDomainFor(platform string) string {
 		return ".youtube.com"
 	case "douyin":
 		return ".douyin.com"
+	case "tiktok":
+		return ".tiktok.com"
 	case "weibo":
 		return ".weibo.com"
 	case "zhihu":
@@ -189,6 +198,18 @@ func cookieDomainFor(platform string) string {
 		return ".twitter.com"
 	case "instagram":
 		return ".instagram.com"
+	case "youku":
+		return ".youku.com"
+	case "tencent":
+		return ".v.qq.com"
+	case "iqiyi":
+		return ".iqiyi.com"
+	case "pornhub":
+		return ".pornhub.com"
+	case "vimeo":
+		return ".vimeo.com"
+	case "soundcloud":
+		return ".soundcloud.com"
 	}
-	return ".com"
+	return ""
 }

@@ -76,6 +76,8 @@ SPEC_COMPONENTS = {
     "TrendChart": "components/charts/TrendChart.vue",
     "DonutChart": "components/charts/DonutChart.vue",
     "DeleteFileDialog": "components/media/DeleteFileDialog.vue",
+    # 控制台方向（docs/07 §2 页头签名）：十视图统一的指挥中心式页头。
+    "PageHeader": "components/base/PageHeader.vue",
 }
 
 
@@ -103,6 +105,8 @@ SPEC_TOKENS = [
     # 字阶
     "--font-display", "--font-title-1", "--font-title-2", "--font-title-3",
     "--font-body", "--font-aux", "--font-caption", "--line-height-body",
+    # 等宽（眉题/时间戳/ID/日志/路径）
+    "--font-mono",
     # 结构色 / 动作色 / 画布 / 文字 / 语义
     "--accent", "--accent-strong", "--accent-soft", "--accent-softer",
     "--gold", "--gold-strong", "--gold-soft",
@@ -112,22 +116,51 @@ SPEC_TOKENS = [
     # 圆角 / 阴影
     "--radius-ctrl", "--radius-card", "--radius-modal", "--radius-pill",
     "--shadow-1", "--shadow-2", "--shadow-3",
+    # 浣熊形象（四主题各自覆盖，换皮契约：docs/07 §2）
+    "--logo-fur", "--logo-face", "--logo-mask", "--logo-scarf", "--logo-ear",
+]
+
+# 四主题的 id（docs/07 §2）：:root 即默认主题 night，其余三主题用 data-theme 覆盖。
+THEME_IDS = ["scarf", "snow", "berry"]
+# 每个主题块必须自带的核心 token（画布/文字/强调/导航底/CTA/浣熊形象）。
+THEME_CORE_TOKENS = [
+    "--bg", "--surface", "--surface-2", "--surface-3", "--border",
+    "--text-1", "--text-2", "--text-3",
+    "--accent", "--accent-strong", "--accent-soft",
+    "--nav-bg", "--cta-bg", "--cta-fg",
+    "--logo-fur", "--logo-face", "--logo-mask", "--logo-scarf", "--logo-ear",
+    "--scrim", "--scrim-deep",
 ]
 
 
 def check_tokens() -> None:
     css = read("styles/tokens.css")
-    # 只统计 :root 块内定义的变量（[data-theme=dark] 是覆盖，不算定义缺失）
+    # 只统计 :root 块内定义的变量（[data-theme=…] 是覆盖，不算定义缺失）
     root_block = css.split("[data-theme=")[0]
     for tok in SPEC_TOKENS:
         check(f"§2 Token {tok} 已定义", f"{tok}:" in root_block, "styles/tokens.css :root")
 
     # 实色块上的文字色：必须走 --on-* 系列。
-    # 为什么单列一条：--accent 在浅色是深蓝灰、在深色是金色，
-    # 写死 #fff 在深色模式下就是白字压金底（1.9:1），完全读不清。
+    # 为什么单列一条：强调色亮度随主题变，写死 #fff 迟早在某个主题上读不清。
     for tok in ("--on-accent", "--on-success", "--on-danger", "--on-info", "--on-neutral", "--on-warning"):
         check(f"§2 Token {tok} 已定义（实色块上的文字色）", f"{tok}:" in root_block,
               "styles/tokens.css :root")
+
+    # 四套浣熊主题（docs/07 §2）：:root = night 默认；scarf/snow/berry 各一个覆盖块，
+    # 每块必须自带全套核心 token——主题不是「改一个强调色」，是完整换皮（含浣熊形象）。
+    blocks = re.findall(r"\[data-theme='([a-z]+)'\]", css)
+    check("§2 四套浣熊主题齐全（night 默认 + scarf/snow/berry 覆盖块）",
+          set(blocks) == set(THEME_IDS), f"发现主题块：{sorted(set(blocks))}")
+    for theme in THEME_IDS:
+        m = re.search(rf"\[data-theme='{theme}'\]\s*\{{(.*?)\n\}}", css, re.S)
+        body = m.group(1) if m else ""
+        missing = [t for t in THEME_CORE_TOKENS if t + ":" not in body]
+        check(f"§2 主题 {theme} 定义全套核心 token（完整换皮）", not missing,
+              f"缺：{missing}" if missing else "")
+    # 主题形象必须真的不同：四套 --logo-scarf 值两两不同（换皮不是改名）。
+    scarves = re.findall(r"--logo-scarf:\s*([^;]+);", css)
+    check("§2 浣熊围巾色随主题变化（换皮而非换名）", len(set(scarves)) >= 4,
+          f"发现 {len(set(scarves))} 种围巾色：{scarves}")
 
 
 # ------------------------------------------- §2 禁硬编码色值（全形式扫描）
@@ -248,8 +281,10 @@ CAPTION_ALLOWED_CONTEXTS = [
     "status", "kind", "src-type", "mode", "warn-mark", "eff-badge", "lock-badge",
     "sens-badge", "sens-state", "token-scope", "history-val", "history-time",
     "history-by", "path", "thumb", "hint", "captcha", "muted", "count",
-    # 徽标：18px 圆点里的一个字，是图标不是正文
-    "glyph", "dot", "mark",
+    # 眉题（.eyebrow）：等宽大写小标签，是页头签名的一部分（docs/07 §2/§8.2）
+    "eyebrow", "ph-sub", "nav-en", "nav-sec-zh", "clock",
+    # 徽标：18px 圆点里的一个字，是图标不是正文；置顶胶囊是徽章式操作钮
+    "glyph", "dot", "mark", "pin",
     # 状态标签（胶囊形徽章）：实时连接、录制计划这类
     ".conn", ".plan", ".src-type", ".mode",
     # 小尺寸按钮与图标按钮里的符号：图标不是正文
@@ -450,6 +485,13 @@ SPEC_VIEW_COMPONENTS = {
     "SettingItem": "components/settings/SettingItem.vue",
 }
 
+# §2 页头签名（docs/07）：十个一级视图统一接入 PageHeader（眉题 + 句点大标题 + 副行 + actions）。
+# Login/Setup 是独立品牌面板，不在其列。
+VIEW_USAGE_PAGEHEADER = [
+    "Overview", "Tasks", "History", "Media", "Subscriptions",
+    "Live", "Logs", "Monitor", "Connections", "Settings",
+]
+
 
 def check_view_components() -> None:
     """§3 视图级关键组件：真实文件 + 被视图真实引用。"""
@@ -648,15 +690,15 @@ def check_engine_detail_visible() -> None:
 
 
 def check_visual_direction() -> None:
-    """视觉方向层的验收点（用户第四次反馈「布局/比例/配色/Logo 与设计方向不符」后新增）。
+    """视觉方向层的验收点（「浣熊夜勤」控制台方向，docs/07 §2 四主题裁决后重写）。
 
     背景：零件级 + 构图级断言全绿之后，界面仍然可以「看起来业余、小家子气」。
     这一层查的是设计方向的三根支柱有没有真的立起来：
 
-    1. 品牌：有静态徽标（RaccoonLogo），不是拿会变五官的 RaccoonFace 当 Logo；
-    2. 结构色：树影蓝灰大面积落在侧导航上撑品牌骨架（不是只活在导航高亮文字里）；
-    3. 动作色：围巾金落在全站最高频动作（顶栏提交按钮）上；
-    4. 标题归属：七页共用顶栏标题锚点，不再每页自己顶一个 Word 风 h1。
+    1. 品牌：有静态徽标（RaccoonLogo），且配色走 --logo-* 换皮变量（四主题 = 四只浣熊）；
+    2. 结构色：深底侧导航撑控制台骨架，token 按主题完整定义（不是只换个强调色）；
+    3. 动作色：主 CTA 走 --cta-*（值随主题强调色），金色降级为品牌点缀；
+    4. 页头签名：指挥中心式页头（眉题 + 句点大标题）归属视图层 PageHeader，顶栏不再放标题。
 
     断言全部落在可观测的代码形态上（变量引用 / 模板用法），不查注释。
     """
@@ -667,19 +709,39 @@ def check_visual_direction() -> None:
           exists("components/brand/RaccoonLogo.spec.ts"), "components/brand/RaccoonLogo.spec.ts")
 
     logo = read("components/brand/RaccoonLogo.vue")
-    # ② 识别三件套：眼罩斜带 / 围巾金 / 金色内耳
-    check("§5 徽标含眼罩识别元素（两条斜带）",
-          "M11 27" in logo and "M53 27" in logo, "components/brand/RaccoonLogo.vue")
-    check("§5 徽标含围巾金（品牌动作色）",
-          "var(--gold)" in logo and "var(--gold-strong)" in logo,
+    # ② 识别三件套：连体眼罩 / 环纹尾 / 主题化围巾与内耳
+    # 旧版眼罩是两条细斜带——缩到小尺寸就是哈士奇纹路；连体眼罩 + 环尾才钉死「浣熊」。
+    check("§5 徽标含连体眼罩（单一实色块，禁两条斜带）",
+          "M 10.5 28.5" in logo and "M11 27" not in logo and "M53 27" not in logo,
           "components/brand/RaccoonLogo.vue")
-    # ③ 徽标配色走 --logo-* 变量：深底使用方要能提亮毛色，
-    #    组件写死色值的话侧导航深底上就是一团糊
-    check("§5 徽标配色走 --logo-* 变量（深底可覆盖）",
+    check("§5 徽标含环纹尾（浣熊第二识别物）",
+          "stroke-dasharray" in logo and 'stroke="var(--logo-fur)"' in logo,
+          "components/brand/RaccoonLogo.vue")
+    # 围巾走 --logo-scarf（随主题换皮），不再直接绑 --gold：
+    # 四主题下浣熊围巾分别是薄荷/金/墨青/珊瑚，绑死金色就换不了皮。
+    check("§5 徽标围巾走 --logo-scarf（主题换皮）",
+          "var(--logo-scarf)" in logo and "var(--logo-scarf-strong)" in logo,
+          "components/brand/RaccoonLogo.vue")
+    check("§5 徽标内耳走 --logo-ear（主题换皮）",
+          "var(--logo-ear)" in logo,
+          "components/brand/RaccoonLogo.vue")
+    # ③ 徽标配色走 --logo-* 变量：组件本身不猜环境，颜色随主题换皮。
+    check("§5 徽标配色走 --logo-* 变量",
           "var(--logo-fur)" in logo and "var(--logo-face)" in logo and "var(--logo-mask)" in logo,
           "components/brand/RaccoonLogo.vue")
+    # 六表情同走换皮变量：RaccoonFace 不得直接用 --accent/--surface 当毛色/脸底，
+    # 否则四主题下会出现一只「页面色」的浣熊而不是换皮的浣熊。
+    face = read("components/raccoon/RaccoonFace.vue")
+    # 剥掉注释行再断言（§8.1 ②：断言查代码，注释里的设计说明不算违规）
+    face_code = "\n".join(
+        ln for ln in face.splitlines() if not ln.strip().startswith("//")
+    )
+    check("§5 六表情配色走 --logo-* 变量（禁 --accent/--surface 当毛色）",
+          "var(--logo-fur)" in face_code and "var(--logo-face)" in face_code
+          and "--accent" not in face_code and "--surface" not in face_code,
+          "components/raccoon/RaccoonFace.vue")
 
-    # ④ 三个品牌位都用徽标：侧导航 / 登录页 / 初始化向导
+    # ④ 品牌位都用徽标：侧导航 / 登录页 / 初始化向导
     app = read("App.vue")
     check("§5 侧导航品牌区用 RaccoonLogo（不拿状态表情当 Logo）",
           "RaccoonLogo" in app and "brand" in app,
@@ -691,37 +753,37 @@ def check_visual_direction() -> None:
     check("§5 初始化向导品牌区用 RaccoonLogo",
           "RaccoonLogo" in wizard, "components/auth/SetupWizard.vue")
 
-    # ⑤ 侧导航深底：结构色大面积载体
+    # ⑤ 侧导航深底：结构色大面积载体；token 在 :root 与每个主题块都要有（check_tokens 已查每主题块）。
     nav_css = app[app.find(".nav {"):app.find(".nav {") + 260]
-    check("§2 侧导航用结构色深底（树影蓝灰撑品牌骨架）",
+    check("§2 侧导航用结构色深底（控制台骨架）",
           "var(--nav-bg)" in nav_css, "App.vue .nav")
-    tokens = read("styles/tokens.css")
-    light = tokens[:tokens.find("[data-theme")]
-    dark = tokens[tokens.find("[data-theme"):]
-    check("§2 侧导航深底 token 浅色模式有定义", "--nav-bg:" in light, "styles/tokens.css")
-    check("§2 侧导航深底 token 深色模式有定义（比内容区再暗一档）",
-          "--nav-bg:" in dark, "styles/tokens.css")
 
-    # ⑥ 主 CTA 围巾金：全站最高频动作（顶栏提交按钮）
+    # ⑥ 主 CTA：全站最高频动作（顶栏提交按钮），用 --cta-* token（值随主题走强调色）。
     qs = read("components/shell/QuickSubmit.vue")
     btn = qs[qs.find(".qsubmit-btn {"):qs.find(".qsubmit-btn {") + 320]
-    check("§2 顶栏主按钮用围巾金 CTA token",
+    check("§2 顶栏主按钮用 CTA token",
           "var(--cta-bg)" in btn and "var(--cta-fg)" in btn,
           "components/shell/QuickSubmit.vue .qsubmit-btn")
-    check("§2 CTA token 浅色模式有定义", "--cta-bg:" in light, "styles/tokens.css")
-    check("§2 CTA token 深色模式有定义（文字随底色翻深墨）",
-          "--cta-fg:" in dark, "styles/tokens.css")
 
-    # ⑦ 顶栏页面标题 + 视图层不许再自己顶 h1
-    check("§8 顶栏有页面标题锚点（路由 meta.title 唯一来源）",
-          "topbar-title" in app and "route.meta.title" in app,
-          "App.vue .topbar-title")
-    stale = []
-    for v in ["Overview", "Tasks", "Media", "Subscriptions", "Live", "Connections", "Settings"]:
-        if "page-title" in read(f"views/{v}.vue"):
-            stale.append(v)
-    check("§8 七页标题归属统一在顶栏（视图层不得再留 page-title）",
-          not stale, f"仍带 page-title 的视图: {stale}")
+    # ⑦ 主题切换器：四主题在 ui store 注册（含旧值迁移），侧栏可切换。
+    ui = read("stores/ui.ts")
+    for t in ["night", "scarf", "snow", "berry"]:
+        check(f"§2 主题 {t} 在切换器注册", t in ui, "stores/ui.ts")
+
+    # ⑧ 指挥中心式页头（docs/07 §2 页头签名）：PageHeader 承载眉题 + 大标题 + 副行，
+    #    十视图统一接入；顶栏不再放页面标题（标题是页面构图的一部分）。
+    check("§2 PageHeader 组件存在",
+          exists("components/base/PageHeader.vue"), "components/base/PageHeader.vue")
+    ph = read("components/base/PageHeader.vue")
+    check("§2 PageHeader 含眉题结构（eyebrow）", "eyebrow" in ph,
+          "components/base/PageHeader.vue")
+    check("§2 PageHeader 含句点大标题（--font-display）",
+          "var(--font-display)" in ph, "components/base/PageHeader.vue")
+    missing_ph = [v for v in VIEW_USAGE_PAGEHEADER if f"<PageHeader" not in read(f"views/{v}.vue")]
+    check("§2 十视图统一接入 PageHeader", not missing_ph,
+          f"未接入：{missing_ph}" if missing_ph else "")
+    check("§8 顶栏不再放页面标题（页头归属视图）", "topbar-title" not in app,
+          "App.vue 不应再有 topbar-title")
 
 
 def check_link_validation() -> None:
@@ -858,9 +920,12 @@ def check_round2_contracts() -> None:
     check("§3 暂停订阅有文字说明", "已暂停：不再按周期检查新内容" in read("components/subs/SubList.vue"),
           "components/subs/SubList.vue")
 
-    # R11：深色模式封面 1px 描边（深底封面与卡片底色太接近）
+    # R11：深色主题封面 1px 描边（深底封面与卡片底色太接近）。
+    # 四主题下 night/scarf/berry 是深色画布，snow 是浅色——描边只挂深色主题。
     card = read("components/media/FileCard.vue")
-    check("§2 深色封面 1px 描边", "data-theme='dark'" in card and "inset 0 0 0 1px" in card,
+    dark_themes_ok = all(t in card for t in ("night", "scarf", "berry"))
+    check("§2 深色主题封面 1px 描边（night/scarf/berry）",
+          dark_themes_ok and "inset 0 0 0 1px" in card,
           "components/media/FileCard.vue")
 
     # docs/04 路由总表必须收录本轮新增端点（文档即契约）
@@ -886,7 +951,7 @@ def check_round3_ia() -> None:
     app = read("App.vue")
     nav_count = app.count("icon: 'M")
     check("§3 侧导航 10 项", nav_count == 10, f"实际 {nav_count} 项")
-    check("§3 导航项带底部栏短标签 short", app.count("short:") == 10, f"实际 {app.count('short:')} 项")
+    check("§3 导航项带底部栏短标签 short", app.count("short: '") == 10, f"实际 {app.count('short:')} 项")
     check("§6 底部栏 5 高频 + 「更多」",
           "TAB_ITEMS" in app and "MORE_ITEMS" in app
           and "tabbar-more" in app and "more-sheet" in app, "App.vue")
@@ -1035,7 +1100,7 @@ def check_responsive() -> None:
     app = read("App.vue")
     check("§6 ≥1280 侧导航常驻（默认样式无覆盖）", ".nav {" in app)
     check("§6 1024–1279 侧导航收图标栏", "max-width: 1279px" in app and "min-width: 1024px" in app
-          and ".nav-link-text { display: none; }" in app)
+          and ".nav-txt { display: none; }" in app and ".nav-sec-label { display: none; }" in app)
     check("§6 768–1023 侧导航收进抽屉", "max-width: 1023px" in app and "min-width: 768px" in app
           and "nav-toggle" in app and ".nav.open" in app)
     check("§6 <768 单栏 + 底部主操作栏", "max-width: 767px" in app and ".tabbar" in app)
@@ -1127,7 +1192,7 @@ def check_page_composition() -> None:
 
     # ③ 侧导航用户区与导航项之间必须有分隔线
     app = read("App.vue")
-    foot = app[app.find(".nav-foot"):app.find(".nav-foot") + 220]
+    foot = app[app.find(".nav-foot"):app.find(".nav-foot") + 400]
     check("§6 侧导航用户区与导航项有分隔线（不成无尽列表）",
           "border-top" in foot,
           "App.vue .nav-foot")

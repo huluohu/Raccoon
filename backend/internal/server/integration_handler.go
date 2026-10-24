@@ -164,6 +164,40 @@ func (h *tgHandler) OnAdd(ctx context.Context, chatID int64, user *tgbot.User, u
 	return "已入队（任务 " + id + "），用 /status " + id + " 查进度", nil
 }
 
+// OnAddBatch 批量提交（裸链接消息 / /add 多链接）：逐条走与 Web 相同的提交路径，
+// 单条失败不影响其余；汇总回执一次发出。
+func (h *tgHandler) OnAddBatch(ctx context.Context, chatID int64, user *tgbot.User, urls []string) (string, error) {
+	var sb strings.Builder
+	ok, dup, fail := 0, 0, 0
+	for _, u := range urls {
+		if err := validateOutboundURL(u); err != nil {
+			fail++
+			sb.WriteString("\n✕ " + u + "：" + err.Error())
+			continue
+		}
+		results, err := h.srv.tasks.Submit([]task.SubmitItem{{URL: u}}, task.SourceTelegram, strconv.FormatInt(chatID, 10))
+		if err != nil || len(results) == 0 {
+			fail++
+			sb.WriteString("\n✕ " + u + "：提交失败")
+			continue
+		}
+		if results[0].ExistingID != "" {
+			dup++
+			sb.WriteString("\n= " + u + "：队列中已存在，不重复下载")
+			continue
+		}
+		id := ""
+		if results[0].Task != nil {
+			id = results[0].Task.ID
+			h.srv.rememberTGChat(id, chatID)
+		}
+		ok++
+		sb.WriteString("\n✓ " + u + " → 任务 " + id)
+	}
+	head := fmt.Sprintf("批量提交：%d 入队 / %d 重复 / %d 失败", ok, dup, fail)
+	return head + sb.String(), nil
+}
+
 func (h *tgHandler) OnStatus(ctx context.Context, chatID int64, user *tgbot.User, taskID string) (string, error) {
 	if taskID == "" {
 		return h.listRecentTasks()
@@ -172,7 +206,49 @@ func (h *tgHandler) OnStatus(ctx context.Context, chatID int64, user *tgbot.User
 	if err != nil {
 		return "任务不存在", nil
 	}
-	return fmt.Sprintf("%s | 状态 %s | 进度 %.1f%%", t.Title, t.Status, t.Progress), nil
+	var sb strings.Builder
+	sb.WriteString(t.Title + " | 状态 " + t.Status)
+	if t.Status == "downloading" {
+		sb.WriteString(fmt.Sprintf(" | 进度 %.1f%%", t.Progress))
+		if t.SpeedBps > 0 {
+			sb.WriteString(" | " + formatSpeedTG(t.SpeedBps))
+		}
+		// 剩余时间：有速度且有预期大小时才可估；估不出就不写（不编数）。
+		if t.SpeedBps > 0 && t.ExpectedSize != nil && *t.ExpectedSize > t.DownloadedSize {
+			remain := float64(*t.ExpectedSize-t.DownloadedSize) / float64(t.SpeedBps)
+			sb.WriteString(" | 剩余 " + formatDurationTG(int64(remain)))
+		}
+	} else {
+		sb.WriteString(fmt.Sprintf(" | 进度 %.1f%%", t.Progress))
+	}
+	if t.Status == "waiting" && t.WaitReason == "auto_retry" && t.ScheduledAt != nil {
+		sb.WriteString(" | 将自动重试")
+	}
+	return sb.String(), nil
+}
+
+// formatSpeedTG 字节/秒 → 人类可读速度。
+func formatSpeedTG(bps int64) string {
+	switch {
+	case bps >= 1<<20:
+		return fmt.Sprintf("%.1f MB/s", float64(bps)/(1<<20))
+	case bps >= 1<<10:
+		return fmt.Sprintf("%.1f KB/s", float64(bps)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B/s", bps)
+	}
+}
+
+// formatDurationTG 秒 → mm:ss / hh:mm:ss。
+func formatDurationTG(sec int64) string {
+	if sec < 0 {
+		sec = 0
+	}
+	h, m, s := sec/3600, sec%3600/60, sec%60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%02d:%02d", m, s)
 }
 
 func (h *tgHandler) OnList(ctx context.Context, chatID int64, user *tgbot.User) (string, error) {

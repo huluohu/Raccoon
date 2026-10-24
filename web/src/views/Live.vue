@@ -8,6 +8,7 @@ import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import type { LiveRecording, LiveSource } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import SourceList from '@/components/live/SourceList.vue'
@@ -81,6 +82,7 @@ async function save(value: LiveFormValue) {
       title: value.title,
       quality: value.quality,
       record_plan: value.record_plan,
+      schedule_json: value.schedule_json,
       segment_min: value.segment_min,
       check_interval_sec: value.check_interval_sec,
       credential_id: value.credential_id,
@@ -151,14 +153,15 @@ onMounted(load)
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <div>
-        <p class="page-sub">
-          直播源 {{ items.length }} 个，直播中 {{ liveCount }} 个 · {{ supportedNote }}
-        </p>
-      </div>
-      <RButton variant="accent" :disabled="supported.length === 0" @click="resetForm">添加直播源</RButton>
-    </header>
+    <PageHeader
+      eyebrow="LIVE"
+      title="直播"
+      :sub="`直播源 ${items.length} 个，直播中 ${liveCount} 个 · ${supportedNote}`"
+    >
+      <template #actions>
+        <RButton variant="accent" :disabled="supported.length === 0" @click="resetForm">添加直播源</RButton>
+      </template>
+    </PageHeader>
 
     <p class="platform-note">
       实测支持：
@@ -219,9 +222,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 /* 页面副标题是正文档（16px）。 */
-.page-sub { margin-top: 6px; font-size: var(--font-body); color: var(--text-3); }
 .platform-note {
   font-size: var(--font-body);
   color: var(--text-3);

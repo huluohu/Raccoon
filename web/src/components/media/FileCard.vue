@@ -144,9 +144,11 @@ const thumbTint = computed(() => {
   justify-content: center;
   overflow: hidden;
 }
-/* 深色模式封面 1px 描边：深底封面（#1D2231）与卡片底色（#161A26）太接近，
-   没有边界时缩略图会「糊」进卡片里；浅色模式本身有明度差，不需要这道线。 */
-:global([data-theme='dark']) .file-thumb {
+/* 深色主题封面 1px 描边（docs/07 §2）：night/scarf/berry 的封面与卡片底色
+   明度接近，没有边界时缩略图会「糊」进卡片里；snow（浅色）有明度差，不需要。 */
+:global([data-theme='night']) .file-thumb,
+:global([data-theme='scarf']) .file-thumb,
+:global([data-theme='berry']) .file-thumb {
   box-shadow: inset 0 0 0 1px var(--border);
 }
 /* 非图片占位：图标 + 中文类型名，纵向居中。底色由 thumbTint 按平台品牌色注入，

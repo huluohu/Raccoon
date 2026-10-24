@@ -65,11 +65,11 @@ const pct = computed(() => {
   return Math.max(0, Math.min(100, props.task.progress ?? 0))
 })
 
-/** 爪印色与进度条同色系（parse=info / post=success / 其余=gold）。 */
-const pawTone = computed<'gold' | 'info' | 'success'>(() => {
+/** 爪印色与进度条同色系（parse=info / post=success / 其余=accent）。 */
+const pawTone = computed<'accent' | 'info' | 'success'>(() => {
   if (stage.value === 'parse') return 'info'
   if (stage.value === 'post') return 'success'
-  return 'gold'
+  return 'accent'
 })
 
 const sizeText = computed(() => {
@@ -118,7 +118,7 @@ const sizeText = computed(() => {
   height: 100%;
   border-radius: 999px;
   transition: width 240ms linear;
-  background: var(--gold);
+  background: var(--accent);
 }
 .tprog--parse .tprog-fill { background: var(--info); }
 .tprog--post .tprog-fill { background: var(--success); }

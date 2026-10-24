@@ -17,6 +17,7 @@ import (
 	"github.com/huluohu/raccoon/internal/config"
 	"github.com/huluohu/raccoon/internal/credential"
 	"github.com/huluohu/raccoon/internal/httpx"
+	"github.com/huluohu/raccoon/internal/live"
 	"github.com/huluohu/raccoon/internal/logx"
 	"github.com/huluohu/raccoon/internal/monitor"
 	"github.com/huluohu/raccoon/internal/sse"
@@ -40,6 +41,7 @@ type Server struct {
 	hub            *sse.Hub              // SSE 广播（Wave 2）
 	tasks          *task.Manager         // 任务系统 Manager（Wave 2）
 	subs           *subscription.Service // 订阅服务（Wave 3）
+	liveSvc        *live.Service         // 直播守护（开播自动录制）
 	vault          *credential.Vault     // 凭据加密（Wave 3）
 	shutdownCancel context.CancelFunc    // 停机时 cancel manager loop
 	loginLimiter   *Limiter              // 登录限流（docs/04 §5：5 次/分钟/IP）
@@ -75,6 +77,7 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	s.setupTasks()
 	s.setupConfig()
 	s.setupCredentials()
+	s.setupQRLogin()
 	s.setupFiles()
 	s.setupSubscriptions()
 	s.setupLive()

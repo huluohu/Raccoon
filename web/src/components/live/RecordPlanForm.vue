@@ -16,6 +16,7 @@ export interface LiveFormValue {
   title: string
   quality: string
   record_plan: string
+  schedule_json: string
   segment_min: number
   check_interval_sec: number
   credential_id: string
@@ -52,7 +53,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 const PLANS = [
   { value: 'manual', label: '仅手动', hint: '只在点「开始录制」时录' },
   { value: 'always', label: '开播即录', hint: '检测到开播就自动录制' },
-  { value: 'scheduled', label: '定时录制', hint: '按 schedule_json 设定的时段录' },
+  { value: 'scheduled', label: '定时录制', hint: '只在设定时段内自动录制' },
 ]
 
 /** 前端候选平台（清单由后端决定谁可用）。 */
@@ -64,9 +65,38 @@ const DEFAULT_VALUE: LiveFormValue = {
   title: '',
   quality: 'best',
   record_plan: 'manual',
+  schedule_json: '',
   segment_min: 30,
   check_interval_sec: 120,
   credential_id: '',
+}
+
+/** 时段编辑态（schedule_json 的友好形态）：0=周日…6=周六；跨午夜合法。 */
+const DAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']
+const window = reactive({ days: [] as number[], start: '20:00', end: '23:00' })
+
+/** 把初始 schedule_json 解析进编辑态；解析失败保持默认（编辑后保存即覆盖）。 */
+function loadWindow(json: string): void {
+  if (!json) return
+  try {
+    const w = JSON.parse(json) as { days?: unknown; start?: unknown; end?: unknown }
+    if (Array.isArray(w.days)) window.days = (w.days as unknown[]).filter((d): d is number => typeof d === 'number')
+    if (typeof w.start === 'string') window.start = w.start
+    if (typeof w.end === 'string') window.end = w.end
+  } catch {
+    // 坏数据保持默认：用户一保存就会被合法 JSON 覆盖
+  }
+}
+
+function toggleDay(d: number): void {
+  const i = window.days.indexOf(d)
+  if (i >= 0) window.days.splice(i, 1)
+  else window.days.push(d)
+}
+
+/** 编辑态 → schedule_json（天未选 = 每天；起止时间由 input[type=time] 保证合法）。 */
+function buildWindowJSON(): string {
+  return JSON.stringify({ days: [...window.days].sort(), start: window.start, end: window.end })
 }
 
 const form = reactive<LiveFormValue>({ ...DEFAULT_VALUE, ...props.initial })
@@ -75,8 +105,10 @@ watch(
   () => props.initial,
   (v) => {
     Object.assign(form, { ...DEFAULT_VALUE, ...(v ?? {}) })
+    loadWindow(form.schedule_json)
   },
 )
+loadWindow(form.schedule_json)
 
 /** 平台是否在实测清单里：不在则下拉里禁用并标原因。 */
 function platformDisabled(p: string): boolean {
@@ -91,7 +123,9 @@ const currentPlatformInvalid = computed(
 function onSubmit() {
   // 直播间地址必填：空地址提交上去后端只会报 422。
   if (!form.room_url.trim()) return
-  emit('save', { ...form })
+  // 定时计划必须带时段：否则调度器无从判断何时录（后端也拒绝在缺时段时自动开录）。
+  const value: LiveFormValue = { ...form, schedule_json: form.record_plan === 'scheduled' ? buildWindowJSON() : '' }
+  emit('save', value)
 }
 </script>
 
@@ -140,6 +174,29 @@ function onSubmit() {
       <span class="field-hint">{{ PLANS.find((p) => p.value === form.record_plan)?.hint }}</span>
     </label>
 
+    <div v-if="form.record_plan === 'scheduled'" class="field">
+      <span class="field-label">录制时段</span>
+      <div class="win-days" role="group" aria-label="录制日期（不选 = 每天）">
+        <button
+          v-for="(d, i) in DAY_LABELS"
+          :key="d"
+          type="button"
+          class="win-day"
+          :class="{ on: window.days.includes(i) }"
+          :aria-pressed="window.days.includes(i) ? 'true' : 'false'"
+          @click="toggleDay(i)"
+        >
+          {{ d }}
+        </button>
+      </div>
+      <div class="win-times">
+        <input v-model="window.start" type="time" aria-label="开始时间" />
+        <span class="win-sep">至</span>
+        <input v-model="window.end" type="time" aria-label="结束时间" />
+      </div>
+      <span class="field-hint">结束时间早于开始时间按跨午夜处理（如 22:00 至 02:00）</span>
+    </div>
+
     <div class="two-col">
       <label class="field">
         <span class="field-label">分段时长（分钟）</span>
@@ -169,6 +226,21 @@ function onSubmit() {
 </template>
 
 <style scoped>
+/* 时段编辑器：星期 chips + 两个 time 输入。 */
+.win-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.win-day {
+  min-width: 34px; padding: 6px 0; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
+  background: var(--surface); color: var(--text-2); font-size: var(--font-body); cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+.win-day.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.win-times { display: flex; align-items: center; gap: 10px; }
+.win-times input {
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-ctrl);
+  background: var(--surface); color: var(--text-1); font-size: var(--font-body);
+}
+.win-sep { font-size: var(--font-aux); color: var(--text-3); }
+.form { display: flex; flex-direction: column; gap: 16px; }
 .form { display: flex; flex-direction: column; gap: 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 /* 表单字段名：正文档 16px。 */

@@ -45,9 +45,9 @@ describe('PawSlider', () => {
     expect(bar.attributes('aria-label')).toBe('任务进度')
   })
 
-  it('填充色与 tone 语义对齐（parse=info / post=success / 默认=gold）', () => {
+  it('填充色与 tone 语义对齐（parse=info / post=success / 默认=accent）', () => {
     expect(mount(PawSlider, { props: { percent: 10, tone: 'info' } }).find('.paw-fill--info').exists()).toBe(true)
     expect(mount(PawSlider, { props: { percent: 10, tone: 'success' } }).find('.paw-fill--success').exists()).toBe(true)
-    expect(mount(PawSlider, { props: { percent: 10 } }).find('.paw-fill--gold').exists()).toBe(true)
+    expect(mount(PawSlider, { props: { percent: 10 } }).find('.paw-fill--accent').exists()).toBe(true)
   })
 })

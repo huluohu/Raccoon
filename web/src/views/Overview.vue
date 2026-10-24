@@ -22,7 +22,6 @@ import { api } from '@/api/client'
 import { useTasksStore } from '@/stores/tasks'
 import { useSystemStore } from '@/stores/system'
 import { useToastStore } from '@/stores/toast'
-import { formatBytes } from '@/utils/format'
 import {
   applyLayout,
   buildCards,
@@ -41,6 +40,7 @@ import type {
   SystemInfo,
 } from '@/api/types'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import RDialog from '@/components/base/RDialog.vue'
 import StatusStrip from '@/components/shell/StatusStrip.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
@@ -225,6 +225,30 @@ const failureBars = computed(() => {
 // ---- 监控 ----
 const monitorUnavailable = computed(() => system.monitorUnavailable)
 
+/** 趋势对比序列：同窗口的每日字节数（独立归一化，图例已说明「相对峰值」）。 */
+const trendBytes = computed(() => (activeTrend.value?.points ?? []).map((p) => p.bytes))
+
+/** 成功率环的语义色：≥ 阈值 success，否则 danger（E2 同一口径，不显示假 100%）。 */
+const successTone = computed<'success' | 'danger'>(() => {
+  const r = summary.value?.success_rate
+  return r !== null && r !== undefined && r >= RATE_THRESHOLD ? 'success' : 'danger'
+})
+
+/** 系统健康瓦片：CPU / 内存 / 存储（monitor 不可用时 pct=null → 显示「—」）。 */
+const resRows = computed(() => {
+  const cpu = monitor.value?.ok ? monitor.value?.cpu?.used_pct : undefined
+  const mem = monitor.value?.ok ? monitor.value?.memory?.used_pct : undefined
+  const disk = monitor.value?.ok ? monitor.value?.disk?.used_pct : undefined
+  const tone = (pct: number | undefined) =>
+    pct === undefined ? 'idle' : pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : 'ok'
+  const row = (label: string, pct: number | undefined) => ({
+    label,
+    pct: pct === undefined ? null : pct,
+    tone: tone(pct),
+  })
+  return [row('CPU', cpu), row('内存', mem), row('存储', disk)]
+})
+
 function netText(bps: number): string {
   const mbps = bps / 1e6
   if (mbps >= 1) return `${mbps.toFixed(1)} Mbps`
@@ -286,6 +310,20 @@ const quickUrl = ref('')
 const quickErr = ref('')
 const quickBusy = ref(false)
 
+async function quickSubmitBatch(urls: string[]) {
+  quickBusy.value = true
+  quickErr.value = ''
+  try {
+    const res = await tasks.submitBatch(urls.map((url) => ({ url })))
+    quickUrl.value = ''
+    toast.success(`批量提交：${res.data.length} 个入队${res.conflicts.length ? `，${res.conflicts.length} 个已存在` : ''}`)
+  } catch (e) {
+    quickErr.value = e instanceof Error ? e.message : '批量提交失败'
+  } finally {
+    quickBusy.value = false
+  }
+}
+
 async function quickSubmit(value: string) {
   const target = value.trim()
   if (!target) return
@@ -324,6 +362,17 @@ function goto(to: string) {
     </div>
 
     <template v-else>
+      <PageHeader eyebrow="LIVE OPERATIONS" title="总览">
+        <template #sub>
+          <span class="conn-dot" :class="tasks.connected ? 'on' : 'off'" aria-hidden="true" />
+          <span>{{ tasks.connected ? '实时同步中' : '实时连接断开，正在重连' }}</span>
+          <span class="phead-sep" aria-hidden="true">·</span>
+          <span>正在搬 {{ activeTasks.length }} 单</span>
+        </template>
+        <template #actions>
+          <RButton size="sm" variant="ghost" @click="openCustom">调整主页布局</RButton>
+        </template>
+      </PageHeader>
       <!-- 1) 快速下载引导卡：主页内的入口镜像（顶栏随时可贴，这里给第一次来的人一个明确起点） -->
       <article class="card quick-card">
         <div class="quick-head">
@@ -338,6 +387,7 @@ function goto(to: string) {
           actions-layout="row"
           button-text="开始下载"
           @submit="quickSubmit"
+          @submit-batch="quickSubmitBatch"
         />
       </article>
 
@@ -355,20 +405,117 @@ function goto(to: string) {
           :loading="loading && summary === null"
           @open="goto"
         />
-        <article v-if="!loading" class="card customize-card">
-          <h2>自定义</h2>
-          <p class="customize-hint">隐藏不需要的卡片，或调整它们的顺序。设置会保存到账号，换设备也生效。</p>
-          <RButton size="sm" variant="ghost" @click="openCustom">调整主页布局</RButton>
-        </article>
       </div>
 
-      <!-- 5) 活跃任务（Raccoon 自有：正在搬的活） -->
-      <ActiveTasks :tasks="activeTasks" :loading="loading" :has-done="hasDone" @more="goto('/tasks')" />
+      <!-- 5) 主网格：下载趋势（2fr）| 系统健康（1fr） -->
+      <div class="grid-main">
+        <article class="card trend-card">
+          <header class="card-head">
+            <h2>下载趋势</h2>
+            <div class="trend-tabs" role="group" aria-label="趋势时间范围">
+              <button
+                type="button"
+                class="trend-tab"
+                :class="{ on: trendDays === 7 }"
+                :aria-pressed="trendDays === 7"
+                @click="trendDays = 7"
+              >
+                7 天
+              </button>
+              <button
+                type="button"
+                class="trend-tab"
+                :class="{ on: trendDays === 30 }"
+                :aria-pressed="trendDays === 30"
+                @click="trendDays = 30"
+              >
+                30 天
+              </button>
+            </div>
+          </header>
+
+          <TrendChart
+            :points="trendPoints"
+            :compare="trendBytes"
+            compare-label="字节数（相对峰值）"
+            :label="`近 ${trendDays} 天下载趋势`"
+            :format="(v: number) => `${v} 个`"
+          />
+
+          <div v-if="failureBars.length" class="fail-block">
+            <h3 class="fail-title">失败原因（近 {{ trendDays }} 天）</h3>
+            <ul class="fail-list">
+              <li v-for="f in failureBars" :key="f.key">
+                <span class="fail-key mono">{{ f.key }}</span>
+                <span class="fail-bar" :style="{ width: f.pct + '%' }" aria-hidden="true" />
+                <span class="fail-count tnum">{{ f.count }}</span>
+              </li>
+            </ul>
+          </div>
+        </article>
+
+        <article class="card health-card">
+          <header class="card-head">
+            <h2>系统健康</h2>
+            <RButton variant="ghost" size="sm" @click="goto('/monitor')">实时曲线 →</RButton>
+          </header>
+
+          <div class="health-body">
+            <DonutChart
+              :percent="summary?.success_rate ?? null"
+              center-label="成功率"
+              :tone="successTone"
+              label="下载成功率"
+              :size="118"
+              :legend="[
+                { label: '完成', value: String(summary?.total_downloads ?? 0) },
+                { label: '窗口', value: '近 30 天' },
+              ]"
+            />
+            <ul class="res-list" aria-label="资源占用">
+              <li v-for="r in resRows" :key="r.label">
+                <span class="res-label">{{ r.label }}</span>
+                <span class="res-bar" aria-hidden="true">
+                  <span class="res-fill" :class="r.tone" :style="{ width: (r.pct ?? 0) + '%' }" />
+                </span>
+                <span class="res-pct tnum">{{ r.pct === null ? '—' : `${Math.round(r.pct)}%` }}</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="net-row">
+            <div class="net-item">
+              <span class="net-label">↑ 上行</span>
+              <span class="net-value tnum">{{ netText(monitor?.net?.up_bps ?? 0) }}</span>
+            </div>
+            <div class="net-item">
+              <span class="net-label">↓ 下行</span>
+              <span class="net-value tnum">{{ netText(monitor?.net?.down_bps ?? 0) }}</span>
+            </div>
+          </div>
+
+          <p v-if="monitorUnavailable" class="muted">
+            {{ monitor?.message || '当前平台不支持资源监控' }}
+          </p>
+        </article>
+      </div>
 
       <!-- 系统状态条 -->
       <StatusStrip :items="stripItems" />
 
-      <!-- 直播录制卡 -->
+      <!-- 6) 正在搬的活 | 有几单没成 -->
+      <div class="grid-two">
+        <ActiveTasks :tasks="activeTasks" :loading="loading" :has-done="hasDone" @more="goto('/tasks')" />
+        <IssuesPanel
+          :tasks="failedTasks"
+          :alerts="alerts"
+          @retry="retryTask"
+          @more="goto('/tasks')"
+          @open="goto"
+        />
+      </div>
+
+      <!-- 7) 直播录制卡 -->
       <article class="card live-card">
         <header class="card-head">
           <h2>直播录制</h2>
@@ -383,115 +530,6 @@ function goto(to: string) {
           </li>
         </ul>
       </article>
-
-      <!-- 6) 监控带：三环 + 带宽，点击进监控页 -->
-      <article class="card monitor-band">
-        <header class="card-head">
-          <h2>资源监控</h2>
-          <RButton variant="ghost" size="sm" @click="goto('/monitor')">看实时曲线 →</RButton>
-        </header>
-
-        <p v-if="monitorUnavailable" class="muted">
-          {{ monitor?.message || '当前平台不支持资源监控' }}
-        </p>
-        <div v-else class="monitor-row">
-          <DonutChart
-            :percent="monitor?.cpu?.used_pct ?? null"
-            center-label="CPU"
-            tone="info"
-            label="CPU 使用率"
-            :size="112"
-          />
-          <DonutChart
-            :percent="monitor?.memory?.used_pct ?? null"
-            center-label="内存"
-            tone="warning"
-            label="内存使用率"
-            :size="112"
-            :legend="
-              monitor?.memory
-                ? [
-                    { label: '已用', value: formatBytes(monitor.memory.used_bytes) },
-                    { label: '空闲', value: formatBytes(monitor.memory.free_bytes) },
-                  ]
-                : []
-            "
-          />
-          <DonutChart
-            :percent="monitor?.disk?.used_pct ?? null"
-            center-label="存储"
-            :tone="(monitor?.disk?.used_pct ?? 0) >= 90 ? 'danger' : 'warning'"
-            label="存储使用率"
-            :size="112"
-            :legend="
-              monitor?.disk
-                ? [
-                    { label: '空闲', value: formatBytes(monitor.disk.free_bytes) },
-                    { label: '总量', value: formatBytes(monitor.disk.total_bytes) },
-                  ]
-                : []
-            "
-          />
-          <div class="net-col">
-            <span class="net-label">网络</span>
-            <span class="net-value tnum">↑ {{ netText(monitor?.net?.up_bps ?? 0) }}</span>
-            <span class="net-value tnum">↓ {{ netText(monitor?.net?.down_bps ?? 0) }}</span>
-          </div>
-        </div>
-      </article>
-
-      <!-- 7) 下载趋势（7 / 30 天切换）+ 失败拆分 -->
-      <article class="card trend-card">
-        <header class="card-head">
-          <h2>下载趋势</h2>
-          <div class="trend-tabs" role="group" aria-label="趋势时间范围">
-            <button
-              type="button"
-              class="trend-tab"
-              :class="{ on: trendDays === 7 }"
-              :aria-pressed="trendDays === 7"
-              @click="trendDays = 7"
-            >
-              7 天
-            </button>
-            <button
-              type="button"
-              class="trend-tab"
-              :class="{ on: trendDays === 30 }"
-              :aria-pressed="trendDays === 30"
-              @click="trendDays = 30"
-            >
-              30 天
-            </button>
-          </div>
-        </header>
-
-        <TrendChart
-          :points="trendPoints"
-          :label="`近 ${trendDays} 天下载趋势`"
-          :format="(v: number) => `${v} 个`"
-        />
-
-        <div v-if="failureBars.length" class="fail-block">
-          <h3 class="fail-title">失败原因（近 {{ trendDays }} 天）</h3>
-          <ul class="fail-list">
-            <li v-for="f in failureBars" :key="f.key">
-              <span class="fail-key mono">{{ f.key }}</span>
-              <span class="fail-bar" :style="{ width: f.pct + '%' }" aria-hidden="true" />
-              <span class="fail-count tnum">{{ f.count }}</span>
-            </li>
-          </ul>
-        </div>
-      </article>
-
-      <!-- 8) 需要处理的问题（含 E2 成功率预警） -->
-      <IssuesPanel
-        :tasks="failedTasks"
-        :alerts="alerts"
-        @retry="retryTask"
-        @more="goto('/tasks')"
-        @open="goto"
-      />
     </template>
 
     <!-- E1 布局对话框 -->
@@ -534,6 +572,11 @@ function goto(to: string) {
 
 <style scoped>
 .overview { display: flex; flex-direction: column; gap: 18px; }
+/* 页头副行的实时状态点：呼吸感来自强调语义（on=success 常亮即可，不做循环动画）。 */
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); flex-shrink: 0; }
+.conn-dot.on { background: var(--success); box-shadow: 0 0 6px color-mix(in srgb, var(--success) 60%, transparent); }
+.conn-dot.off { background: var(--warning); }
+.phead-sep { opacity: 0.5; }
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -542,23 +585,43 @@ function goto(to: string) {
   box-shadow: var(--shadow-1);
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.card h2 { font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); }
+.card h2 { font-size: var(--font-title-2); font-weight: var(--weight-strong); color: var(--text-1); }
 /* 卡片网格：260px 下限（docs/14 §3.3），auto-fit 让空轨道塌陷。 */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
 .quick-card { display: flex; flex-direction: column; gap: 12px; }
 .quick-hint { margin: 4px 0 0; font-size: var(--font-body); color: var(--text-2); }
-.customize-card { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
-.customize-hint { margin: 0; font-size: var(--font-aux); color: var(--text-3); }
+/* 主网格：趋势占 2fr、系统健康 1fr；<1024 塌成单列。 */
+.grid-main { display: grid; grid-template-columns: 2fr 1fr; gap: 18px; align-items: stretch; }
+.grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: stretch; }
+@media (max-width: 1279px) {
+  .grid-main { grid-template-columns: 1fr; }
+}
+@media (max-width: 1023px) {
+  .grid-two { grid-template-columns: 1fr; }
+}
+/* 系统健康卡：成功率环 + 资源瓦片 + 网络数字（原「监控带」收编进来，不再单占一屏）。 */
+.health-card { display: flex; flex-direction: column; gap: 14px; }
+.health-body { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.res-list { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 10px; }
+.res-list li { display: grid; grid-template-columns: 40px 1fr 44px; align-items: center; gap: 10px; font-size: var(--font-aux); }
+.res-label { color: var(--text-2); }
+.res-bar { height: 6px; border-radius: var(--radius-pill); background: var(--surface-3); overflow: hidden; }
+.res-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--accent); transition: width var(--motion-progress) linear; }
+.res-fill.ok { background: var(--success); }
+.res-fill.warn { background: var(--warning); }
+.res-fill.bad { background: var(--danger); }
+.res-fill.idle { background: var(--surface-3); }
+.res-pct { text-align: right; color: var(--text-1); }
+.net-row { display: flex; gap: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.net-item { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.net-label { font-size: var(--font-aux); color: var(--text-3); }
+.net-value { font-size: var(--font-title-3); color: var(--text-1); }
 .live-card { display: flex; flex-direction: column; }
 .live-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .live-list li { display: flex; align-items: center; gap: 10px; font-size: var(--font-body); }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex-shrink: 0; }
 .live-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
 .live-state { font-size: var(--font-aux); color: var(--danger); }
-.monitor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 28px; }
-.net-col { display: flex; flex-direction: column; gap: 4px; }
-.net-label { font-size: var(--font-aux); color: var(--text-3); }
-.net-value { font-size: var(--font-title-3); color: var(--text-1); }
 .trend-tabs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctrl); overflow: hidden; }
 .trend-tab {
   padding: 6px 12px; border: none; background: var(--surface); color: var(--text-2);
@@ -567,7 +630,7 @@ function goto(to: string) {
 .trend-tab + .trend-tab { border-left: 1px solid var(--border); }
 .trend-tab.on { background: var(--accent); color: var(--on-accent); }
 .fail-block { margin-top: 16px; }
-.fail-title { font-size: var(--font-title-3); font-weight: var(--weight-strong); color: var(--text-1); margin-bottom: 8px; }
+.fail-title { font-size: var(--font-title-2); font-weight: var(--weight-strong); color: var(--text-1); margin-bottom: 8px; }
 .fail-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .fail-list li { display: flex; align-items: center; gap: 10px; font-size: var(--font-aux); }
 .fail-key { color: var(--text-2); min-width: 140px; }

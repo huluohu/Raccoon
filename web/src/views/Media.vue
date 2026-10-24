@@ -7,6 +7,7 @@ import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import { formatBytes, formatDuration, formatRelative, platformText } from '@/utils/format'
 import RButton from '@/components/base/RButton.vue'
+import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import RTable from '@/components/base/RTable.vue'
@@ -137,16 +138,14 @@ onMounted(load)
 
 <template>
   <section class="page">
-    <header class="page-head">
-      <span class="count tnum">{{ total }} 个文件</span>
-    </header>
+    <PageHeader eyebrow="MEDIA" title="媒体库" :sub="`${total} 个文件`" />
 
     <div class="toolbar">
       <input v-model="query" class="search" type="search" placeholder="搜索文件名…" aria-label="搜索文件名" />
-      <RSelect v-model="kindFilter" label="类型" :options="KINDS" />
+      <RSelect v-model="kindFilter" aria-label="类型筛选" :options="KINDS" />
       <RSelect
         v-model="platformFilter"
-        label="平台"
+        aria-label="平台筛选"
         :options="[{ value: '', label: '全部平台' }, ...platforms.map((p) => ({ value: p, label: platformText(p) }))]"
       />
       <!-- 展示形态切换（FileCard / FileTable） -->
@@ -258,12 +257,13 @@ onMounted(load)
 </template>
 
 <style scoped>
-.page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .count { font-size: var(--font-aux); color: var(--text-3); }
-.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+/* 搜索框定宽：flex:1 会把它拉满整行（实测 1400px 宽的输入框对着两个小下拉，比例失衡）；
+   340px 足够长文件名搜索，剩余空间留给筛选与视图切换。 */
 .search {
-  flex: 1;
-  min-width: 200px;
+  flex: 0 1 340px;
+  min-width: 220px;
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-ctrl);
@@ -271,8 +271,8 @@ onMounted(load)
   color: var(--text-1);
   font-size: var(--font-body);
 }
-/* 展示形态切换（卡片 / 表格） */
-.view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctrl); overflow: hidden; }
+/* 展示形态切换（卡片 / 表格）：右推贴齐工具栏尾部，高度与其余控件一致。 */
+.view-toggle { margin-left: auto; display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-ctrl); overflow: hidden; }
 .vt-btn {
   padding: 8px 14px; border: none; background: var(--surface); color: var(--text-2);
   font-size: var(--font-body); cursor: pointer; transition: background 120ms ease-out, color 120ms ease-out;

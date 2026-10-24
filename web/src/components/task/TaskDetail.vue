@@ -18,6 +18,7 @@ import RButton from '@/components/base/RButton.vue'
 import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 import type { Task, TaskEvent, TaskFile } from '@/api/types'
 import { formatBytes, formatSpeed, formatTime, WAIT_REASON_TEXT } from '@/utils/format'
+import { useNowTick } from '@/utils/now'
 
 const props = withDefaults(
   defineProps<{
@@ -40,6 +41,8 @@ const emit = defineEmits<{
   (e: 'goto-settings'): void
   /** 重试任务。 */
   (e: 'retry', task: Task): void
+  /** 换通道重试（kind='n115'：本地下载失败转 115 离线，docs/05 §7）。 */
+  (e: 'retry-via', task: Task, kind: 'n115'): void
   /** 取消任务。 */
   (e: 'cancel', task: Task): void
   /** 删除任务。 */
@@ -94,13 +97,46 @@ const needsSettings = computed(() => {
   return props.task.error_code === 'ENGINE_UNAVAILABLE'
 })
 
-/** 错误区是否值得展示：真失败 / 有错误码 / 缺凭据。 */
+/** 重试等待期：任务因可重试错误退避中（waiting+auto_retry）。此时任务没终态化，
+ *  错误区要显示「第 N 次没成 + 倒计时」，而不是按终态失败渲染。 */
+const isAutoRetry = computed(
+  () => props.task.status === 'waiting' && props.task.wait_reason === 'auto_retry',
+)
+
+/** 错误区是否值得展示：真失败 / 有错误码（含重试等待期）/ 缺凭据。 */
 const showError = computed(
   () => props.task.status === 'failed' || !!props.task.error_code || !!props.task.error_message || needsCredentials.value,
 )
 
-/** 可重试：失败或已取消的任务都能手动重来（docs/05 §7）。 */
-const canRetry = computed(() => props.task.status === 'failed' || props.task.status === 'cancelled')
+/** 可重试：失败/已取消可手动重来；退避等待期可「立即重试」（docs/05 §7）。 */
+const canRetry = computed(
+  () => props.task.status === 'failed' || props.task.status === 'cancelled' || isAutoRetry.value,
+)
+
+const nowTick = useNowTick()
+
+/** 退避剩余秒数：scheduled_at 未到点时给正数；到点未领取（worker 占满）显示 0。 */
+const retrySeconds = computed(() => {
+  if (!isAutoRetry.value || !props.task.scheduled_at) return 0
+  return Math.max(0, Math.ceil((props.task.scheduled_at - nowTick.value) / 1000))
+})
+
+/** 重试按钮文案：退避期强调「不用等」。 */
+const retryLabel = computed(() => (isAutoRetry.value ? '不等了，立即重试' : '重试这个任务'))
+
+/**
+ * 可换道 115：本地下载任务 + 网络类错误 + 未终态成功。
+ * 115 离线的抓取发生在云端（另一条网络路径），正是「本机连不上媒体流」的出路；
+ * 平台类错误（登录/404/清晰度）换道无意义，不拿按钮骚扰用户。
+ * 未配置 115 时后端会 409 如实拒绝，由上层 toast 转述——按钮不预判配置状态。
+ */
+const REROUTE_ERROR_CODES = new Set(['NET_TIMEOUT', 'HTTP_5XX', 'TIMEOUT', 'RATE_LIMITED'])
+const canReroute115 = computed(
+  () =>
+    REROUTE_ERROR_CODES.has(props.task.error_code ?? '') &&
+    props.task.kind === 'download' &&
+    (props.task.status === 'failed' || isAutoRetry.value),
+)
 
 /**
  * 删文件：组件只发事件，确认框由上层（Tasks.vue 的 DeleteFileDialog）统一负责。
@@ -121,8 +157,7 @@ const ERROR_SUGGESTION: Record<string, string> = {
   FORMAT_UNAVAILABLE: '换一个清晰度再试，这个档位这次没取到',
   NOT_FOUND: '链接可能已删除或不可见，换个链接试试',
   PARSE_FAILED: '页面结构变了或链接不完整，重新复制一次链接',
-  NET_TIMEOUT: '网络超时，等一会儿重试',
-  NET_RESET: '连接被中断，重试通常就能续上',
+  NET_TIMEOUT: '网络超时，等一会儿重试；反复超时可到「设置 → 服务」配置网络代理，或在「连接」页改走 115 离线通道',
   HTTP_4XX: '对方拒绝了这次请求，确认链接与凭据是否还有效',
   HTTP_5XX: '对方服务临时不可用，稍后重试',
   RATE_LIMITED: '请求太频繁，歇一会儿再试',
@@ -188,6 +223,11 @@ const engineDetail = computed(() => {
  */
 const conclusion = computed(() => {
   const code = props.task.error_code ?? ''
+  // 重试等待期：不是终态失败，讲「第几次没成 + 什么时候再试」，语气放平。
+  if (isAutoRetry.value) {
+    const tail = retrySeconds.value > 0 ? `${retrySeconds.value} 秒后自动再试` : '马上自动再试'
+    return `第 ${props.task.attempt + 1} 次没搬成（${code}），${tail}。`
+  }
   // 只是「在等」而不是失败（例如缺凭据在排队）时不说「这单没成」，避免讲错事实。
   if (!code && props.task.status !== 'failed') return ''
   switch (code) {
@@ -198,7 +238,6 @@ const conclusion = computed(() => {
     case 'FORMAT_UNAVAILABLE':
       return '这单没成：这档画质没开门，换一档试试。'
     case 'NET_TIMEOUT':
-    case 'NET_RESET':
       return '这单没成：路不通，掉头再来一次。'
     case 'HTTP_5XX':
       return '这单没成：对方那边正闹脾气，稍后再来。'
@@ -329,10 +368,14 @@ function fileName(f: TaskFile): string {
       <h3 class="td-sec-title">错误与建议</h3>
       <template v-if="showError">
         <!-- 表情按状态取用（方案 §5）：取消 → cancelled（平静省略号嘴），
+             重试等待期 → waiting（眼罩半搭，还没终态化，不摆失败脸），
              失败 → failed（眼罩歪斜）。取消不是「出错」，表情不能带指责味。 -->
         <div class="td-conclusion-row">
-          <RaccoonFace :face="task.status === 'cancelled' ? 'cancelled' : 'failed'" :size="36" />
-          <p v-if="conclusion" class="td-conclusion">{{ conclusion }}</p>
+          <RaccoonFace
+            :face="task.status === 'cancelled' ? 'cancelled' : isAutoRetry ? 'waiting' : 'failed'"
+            :size="36"
+          />
+          <p v-if="conclusion" class="td-conclusion" :class="{ 'is-retrying': isAutoRetry }">{{ conclusion }}</p>
         </div>
         <dl class="td-kv">
           <dt>错误码</dt>
@@ -356,7 +399,18 @@ function fileName(f: TaskFile): string {
             去「设置」页检查引擎
           </RButton>
           <RButton v-if="canRetry" size="sm" :disabled="busy" @click="emit('retry', task)">
-            重试这个任务
+            {{ retryLabel }}
+          </RButton>
+          <!-- 换通道：本地网络路径连不上时，改走 115 云端离线（后端未配置会如实 409）。 -->
+          <RButton
+            v-if="canReroute115"
+            size="sm"
+            variant="accent"
+            :disabled="busy"
+            title="改走 115 离线：由 115 云端抓取，绕开本机网络路径"
+            @click="emit('retry-via', task, 'n115')"
+          >
+            转 115 通道重试
           </RButton>
         </div>
       </template>
@@ -541,6 +595,10 @@ function fileName(f: TaskFile): string {
   font-size: var(--font-body);
   color: var(--danger);
   line-height: 1.6;
+}
+/* 重试等待期还没终态化：警示色而非危险色，语义是「在等」，不是「完了」。 */
+.td-sec--error .td-conclusion.is-retrying {
+  color: var(--warning);
 }
 .td-noerr {
   margin: 0;

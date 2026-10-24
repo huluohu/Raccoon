@@ -60,6 +60,8 @@ export interface Task {
   wait_reason?: string
   quality: string
   save_path?: string
+  /** 产物目标格式：缺省=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）。 */
+  convert_to?: string
   expected_size?: number | null
   downloaded_size: number
   speed_bps: number
@@ -79,11 +81,18 @@ export interface Task {
   error_message?: string
   fix_hint?: string
   /**
+   * 到期时间（毫秒）：waiting 且 wait_reason='auto_retry' 时是退避结束点，
+   * 前端据此显示「Ns 后自动重试」倒计时；其余等待态为空。
+   */
+  scheduled_at?: number | null
+  /**
    * 「走了哪条路」的人类可读链路（docs/15 §3.7）。
    * 由后端在创建时写入初始值、运行期追补转移（如「115 优先 → 115 提交中 → 115 确定失败 → 转 qB」）。
    * 老数据 / 非磁力任务可能为空串——界面按「—」显示，不猜。
    */
   route_path?: string
+  /** 领取顺序权重：0=普通（默认），>0=置顶插队（waiting 队列 priority DESC, created_at ASC）。 */
+  priority?: number
   created_at: number
   updated_at: number
   started_at?: number | null

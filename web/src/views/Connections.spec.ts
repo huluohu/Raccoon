@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   telegramStatus: vi.fn(),
   testQB: vi.fn(),
   testN115: vi.fn(),
+  getConfig: vi.fn(),
+  saveConfig: vi.fn(),
 }))
 
 vi.mock('@/api/client', () => ({ api: mocks }))
@@ -201,7 +203,7 @@ describe('Connections 视图', () => {
     expect(cards.length).toBe(3)
     expect(cards[0].attributes('data-state')).toBe('unconfigured')
     expect(cards[0].text()).toContain('未配置')
-    expect(cards[0].text()).toContain('在设置页填写连接参数后启用')
+    expect(cards[0].text()).toContain('点「填写参数」就地配置后启用')
     // Telegram 没有测试端点：按钮是「刷新状态」而不是「测试连接」
     expect(cards[2].text()).toContain('刷新状态')
   })
@@ -286,4 +288,69 @@ describe('Connections 视图', () => {
     await flushPromises()
     expect(mocks.deleteCredential).toHaveBeenCalledWith('c-1')
   })
+})
+
+// ---- 通道参数抽屉（参数在连接页就地填写；设置页不再放通道组）----
+
+function makeConfigItems() {
+  return {
+    items: [
+      { key: 'qb.url', value: 'http://127.0.0.1:8080', sensitive: false },
+      { key: 'qb.username', value: 'admin', sensitive: false },
+      { key: 'qb.password', value: 'ad****rd', sensitive: true },
+      { key: 'n115.client_id', value: '', sensitive: false },
+      { key: 'n115.access_token', value: '', sensitive: true },
+      { key: 'n115.refresh_token', value: '', sensitive: true },
+      { key: 'telegram.bot_token', value: '12****ef', sensitive: true },
+      { key: 'telegram.allowed_users', value: '123', sensitive: false },
+      { key: 'telegram.allowed_chats', value: '', sensitive: false },
+    ],
+    version: 1,
+  }
+}
+
+it('通道参数：打开抽屉回填非敏感项，敏感项留空并提示「已设置」', async () => {
+  mocks.getConfig.mockResolvedValueOnce(makeConfigItems())
+  const w = mountConn()
+  await flushPromises()
+
+  const btn = w.findAll('button').find((b: any) => b.text().includes('填写参数'))
+  await btn!.trigger('click')
+  await flushPromises()
+
+  expect(mocks.getConfig).toHaveBeenCalled()
+  const drawer = w.findAll('.stub-drawer')[w.findAll('.stub-drawer').length - 1]!
+  const inputs = drawer.findAll('input')
+  // qb.url / qb.username 回填实际值；密码项为空
+  expect((inputs[0].element as HTMLInputElement).value).toBe('http://127.0.0.1:8080')
+  expect((inputs[1].element as HTMLInputElement).value).toBe('admin')
+  expect((inputs[2].element as HTMLInputElement).value).toBe('')
+  expect(drawer.text()).toContain('保持现有值不变')
+})
+
+it('通道参数：保存时敏感项留空不提交（不打码串回写、不清空），保存后自动实探', async () => {
+  mocks.getConfig.mockResolvedValueOnce(makeConfigItems())
+  mocks.testQB.mockResolvedValueOnce({ ok: true, version: '4.6.0' })
+  const w = mountConn()
+  await flushPromises()
+
+  const btn = w.findAll('button').find((b: any) => b.text().includes('填写参数'))
+  await btn!.trigger('click')
+  await flushPromises()
+
+  const drawer = w.findAll('.stub-drawer')[w.findAll('.stub-drawer').length - 1]!
+  // 用户只改了地址，密码留空
+  const inputs = drawer.findAll('input')
+  await inputs[0]!.setValue('http://127.0.0.1:8081')
+
+  const save = drawer.findAll('button').find((b: any) => b.text().includes('保存并测试'))!
+  await save.trigger('click')
+  await flushPromises()
+
+  expect(mocks.saveConfig).toHaveBeenCalledTimes(1)
+  const sent = mocks.saveConfig.mock.calls[0][0] as Record<string, unknown>
+  expect(sent['qb.url']).toBe('http://127.0.0.1:8081')
+  expect('qb.password' in sent).toBe(false) // 敏感项留空 = 保持不变
+  // 保存后自动实探 qB
+  expect(mocks.testQB).toHaveBeenCalled()
 })

@@ -51,6 +51,26 @@ export function extractUrl(text: string): string {
 }
 
 /**
+ * 从任意文本里提取**全部** http/https 链接（去重保序）。
+ * 批量提交场景：粘贴一整段多链接文本（换行/空格分隔），
+ * 每条链接都规范化（剔除粘连标点），一次全部入队。
+ */
+export function extractUrls(text: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const re = new RegExp(URL_RE.source, 'gi')
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const u = m[0].replace(/[)）】\]}>，。；、！!？?"'』」]+$/, '')
+    if (u && !seen.has(u)) {
+      seen.add(u)
+      out.push(u)
+    }
+  }
+  return out
+}
+
+/**
  * 校验输入里的链接是否可以提交。
  *
  * @param text 用户输入的原文（可能是纯链接，也可能是分享文案）

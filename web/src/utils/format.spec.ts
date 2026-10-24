@@ -38,3 +38,45 @@ describe('errorText', () => {
     expect(errorText(new Error(''), '兜底')).toBe('兜底')
   })
 })
+
+// ---- waitReasonWithCountdown（重试等待期倒计时，docs/05 §7） ----
+
+describe('waitReasonWithCountdown', () => {
+  const importFmt = async () => (await import('@/utils/format')) as typeof import('@/utils/format')
+
+  it('auto_retry 且未到点：显示「Ns 后自动重试」', async () => {
+    const { waitReasonWithCountdown } = await importFmt()
+    const now = 1_000_000
+    const text = waitReasonWithCountdown(
+      { status: 'waiting', wait_reason: 'auto_retry', scheduled_at: now + 30_500 },
+      now,
+    )
+    expect(text).toBe('31 秒后自动重试')
+  })
+
+  it('到点未领取（worker 占满）：回退「等待自动重试」，不猜时刻', async () => {
+    const { waitReasonWithCountdown } = await importFmt()
+    const now = 1_000_000
+    expect(
+      waitReasonWithCountdown({ status: 'waiting', wait_reason: 'auto_retry', scheduled_at: now - 1 }, now),
+    ).toBe('等待自动重试')
+  })
+
+  it('auto_retry 但无 scheduled_at（老数据）：回退基础文案', async () => {
+    const { waitReasonWithCountdown } = await importFmt()
+    expect(waitReasonWithCountdown({ status: 'waiting', wait_reason: 'auto_retry' }, 0)).toBe('等待自动重试')
+  })
+
+  it('非 waiting 或无 wait_reason：返回空串', async () => {
+    const { waitReasonWithCountdown } = await importFmt()
+    expect(waitReasonWithCountdown({ status: 'downloading' }, 0)).toBe('')
+    expect(waitReasonWithCountdown({ status: 'waiting' }, 0)).toBe('')
+  })
+
+  it('其他等待原因原样走 WAIT_REASON_TEXT', async () => {
+    const { waitReasonWithCountdown } = await importFmt()
+    expect(
+      waitReasonWithCountdown({ status: 'waiting', wait_reason: 'interrupted', scheduled_at: 999 }, 0),
+    ).toBe('进程重启后重新排队')
+  })
+})

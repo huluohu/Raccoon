@@ -48,6 +48,7 @@ type liveReq struct {
 	Title            string `json:"title"`
 	Quality          string `json:"quality"`
 	RecordPlan       string `json:"record_plan"`
+	ScheduleJSON     string `json:"schedule_json"`
 	SegmentMin       int    `json:"segment_min"`
 	CheckIntervalSec int    `json:"check_interval_sec"`
 	Enabled          *bool  `json:"enabled"`
@@ -82,6 +83,7 @@ func (s *Server) handleLiveCreate(w http.ResponseWriter, r *http.Request) error 
 		Title:            req.Title,
 		Quality:          req.Quality,
 		RecordPlan:       req.RecordPlan,
+		ScheduleJSON:     strings.TrimSpace(req.ScheduleJSON),
 		SegmentMin:       req.SegmentMin,
 		CheckIntervalSec: req.CheckIntervalSec,
 		CredentialID:     req.CredentialID,
@@ -121,6 +123,9 @@ func (s *Server) handleLiveUpdate(w http.ResponseWriter, r *http.Request) error 
 		default:
 			return httpx.Validation("record_plan 需为 manual / always / scheduled")
 		}
+	}
+	if req.ScheduleJSON != "" {
+		ls.ScheduleJSON = strings.TrimSpace(req.ScheduleJSON)
 	}
 	if req.SegmentMin > 0 {
 		ls.SegmentMin = req.SegmentMin
