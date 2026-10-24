@@ -84,7 +84,7 @@ describe('平台账号页 · 自定义平台', () => {
     return document.querySelector(sel)
   }
 
-  async function openFormAndTypePlatform(platform: string) {
+  async function openForm() {
     vi.mocked(api.listCredentials).mockResolvedValue({
       items: [{ id: 'c1', platform: 'bilibili', kind: 'session', label: 'B站' }],
     } as never)
@@ -93,38 +93,46 @@ describe('平台账号页 · 自定义平台', () => {
     const btn = w.findAll('button').find((b) => b.text().includes('添加平台凭证'))!
     await btn.trigger('click')
     await flushPromises()
-    const input = document.querySelector('input[list="platform-options"]') as HTMLInputElement
-    input.value = platform
-    input.dispatchEvent(new Event('input'))
-    await flushPromises()
     return w
+  }
+
+  async function chooseCustom() {
+    const select = document.querySelector('select.field-select, form select') as HTMLSelectElement
+    select.value = '__custom__'
+    select.dispatchEvent(new Event('change'))
+    await flushPromises()
   }
 
   beforeEach(() => {
     document.body.innerHTML = ''
   })
 
-  it('输入内置清单之外的平台名时出现 Cookie 域名字段', async () => {
-    await openFormAndTypePlatform('my-nas-plex')
+  it('选「自定义平台…」出现平台标识与 Cookie 域名字段', async () => {
+    await openForm()
+    await chooseCustom()
+    expect(q('input[placeholder="小写字母/数字，如 mynas、emby"]')).not.toBeNull()
     expect(q('input[placeholder=".example.com"]')).not.toBeNull()
   })
 
-  it('内置平台不出现域名字段；自定义平台提交时把域名拼进凭据内容', async () => {
-    // 内置平台（youtube）不出现域名字段
-    await openFormAndTypePlatform('youtube')
+  it('内置平台不出现域名字段', async () => {
+    await openForm()
     expect(q('input[placeholder=".example.com"]')).toBeNull()
+  })
 
-    // 自定义平台：字段出现；提交时 value 前缀带 domain=、平台名转小写
+  it('自定义平台提交时把域名拼进凭据内容、平台名转小写', async () => {
     vi.mocked(api.createCredential).mockResolvedValue({ data: {} } as never)
-    await openFormAndTypePlatform('MyNAS')
-    const domainInput = q('input[placeholder=".example.com"]') as HTMLInputElement
-    expect(domainInput).not.toBeNull()
+    await openForm()
+    await chooseCustom()
+    const idInput = document.querySelector('input[placeholder="小写字母/数字，如 mynas、emby"]') as HTMLInputElement
+    idInput.value = 'MyNAS'
+    idInput.dispatchEvent(new Event('input'))
+    const domainInput = document.querySelector('input[placeholder=".example.com"]') as HTMLInputElement
     domainInput.value = '.nas.local'
     domainInput.dispatchEvent(new Event('input'))
-    const textarea = q('textarea') as HTMLTextAreaElement
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
     textarea.value = 'PMS=abc; token=xyz'
     textarea.dispatchEvent(new Event('input'))
-    ;(q('form') as HTMLFormElement).dispatchEvent(new Event('submit'))
+    ;(document.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'))
     await flushPromises()
     expect(api.createCredential).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -132,5 +140,14 @@ describe('平台账号页 · 自定义平台', () => {
         value: 'domain=.nas.local; PMS=abc; token=xyz',
       }),
     )
+  })
+
+  it('可从自定义模式返回内置列表', async () => {
+    await openForm()
+    await chooseCustom()
+    const back = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.includes('返回内置平台列表'))!
+    back.click()
+    await flushPromises()
+    expect(document.querySelector('input[placeholder="小写字母/数字，如 mynas、emby"]')).toBeNull()
   })
 })

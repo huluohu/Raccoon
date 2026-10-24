@@ -31,10 +31,22 @@ const contentCreds = computed(() => {
   return items.value.filter((c) => !integ.has(c.platform))
 })
 
-/** 是否自定义平台（不在内置清单里，如 NAS 上的私人影库、小众站点）。 */
-const isCustomPlatform = computed(
-  () => form.value.platform.trim() !== '' && !(CONTENT_PLATFORMS as readonly string[]).includes(form.value.platform.trim()),
-)
+/** 平台选择模式：false=内置下拉，true=自定义输入（选「自定义平台…」进入）。 */
+const useCustomPlatform = ref(false)
+
+/** select 的展示值：自定义模式映射为哨兵值。 */
+const platformSelect = computed({
+  get: () => (useCustomPlatform.value ? '__custom__' : form.value.platform),
+  set: (v: string) => {
+    if (v === '__custom__') {
+      useCustomPlatform.value = true
+      form.value.platform = ''
+    } else {
+      useCustomPlatform.value = false
+      form.value.platform = v
+    }
+  },
+})
 
 const formOpen = ref(false)
 const editing = ref<Credential | null>(null)
@@ -87,6 +99,7 @@ async function load() {
 }
 
 function resetForm() {
+  useCustomPlatform.value = false
   form.value = { platform: 'bilibili', kind: 'cookie_file', label: '', note: '', value: '', expires_at: '', customDomain: '' }
   editing.value = null
   formOpen.value = true
@@ -94,6 +107,7 @@ function resetForm() {
 
 function openEdit(c: Credential) {
   editing.value = c
+  useCustomPlatform.value = !(CONTENT_PLATFORMS as readonly string[]).includes(c.platform)
   form.value = {
     platform: c.platform,
     kind: c.kind,
@@ -216,21 +230,31 @@ onMounted(load)
     <DetailDrawer :open="formOpen" :title="isEditing ? '编辑平台账号' : '添加平台凭证'" @close="formOpen = false">
       <form class="form" @submit.prevent="save">
         <label class="field">
-          <span class="field-label">平台（内置可选，也可直接输入自定义平台名）</span>
+          <span class="field-label">平台</span>
+          <select v-model="platformSelect" :disabled="isEditing">
+            <option v-for="p in PLATFORM_OPTIONS" :key="p.value" :value="p.value">{{ p.label }}</option>
+            <option value="__custom__">自定义平台…</option>
+          </select>
+          <span v-if="useCustomPlatform" class="field-hint">
+            正在添加自定义平台：
+            <button type="button" class="linklike" @click="useCustomPlatform = false">返回内置平台列表</button>
+          </span>
+        </label>
+
+        <label v-if="useCustomPlatform" class="field">
+          <span class="field-label">平台标识</span>
           <input
             v-model="form.platform"
             type="text"
-            list="platform-options"
             :disabled="isEditing"
-            placeholder="bilibili / youtube / 或任意自定义平台名"
+            placeholder="小写字母/数字，如 mynas、emby"
             autocomplete="off"
+            maxlength="32"
           />
-          <datalist id="platform-options">
-            <option v-for="p in PLATFORM_OPTIONS" :key="p.value" :value="p.value">{{ p.label }}</option>
-          </datalist>
+          <span class="field-hint">用于下载目录命名与徽章显示</span>
         </label>
 
-        <label v-if="isCustomPlatform && form.kind === 'cookie_file'" class="field">
+        <label v-if="useCustomPlatform && form.kind === 'cookie_file'" class="field">
           <span class="field-label">Cookie 域名（自定义平台必填，如 .example.com）</span>
           <input v-model="form.customDomain" type="text" placeholder=".example.com" autocomplete="off" />
           <span class="field-hint">保存后会以 domain= 前缀并入凭据，下载时只发给该域，不会扩散</span>
@@ -312,4 +336,13 @@ onMounted(load)
 .field input:disabled, .field select:disabled { opacity: 0.6; }
 .field-hint { font-size: var(--font-aux); color: var(--text-3); }
 .form-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
+.linklike {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  cursor: pointer;
+}
+.linklike:hover { text-decoration: underline; }
 </style>
