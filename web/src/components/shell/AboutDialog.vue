@@ -30,8 +30,8 @@ defineExpose({ openDialog })
 </script>
 
 <template>
-  <button class="about-btn" type="button" @click="openDialog">关于</button>
-
+  <!-- 纯弹窗组件（触发入口在侧栏用户区，2026-10-24 修复：早先组件自带
+       触发按钮且组件被插在侧栏与主区之间，游离按钮挤坏了 flex 布局）。 -->
   <teleport to="body">
     <div v-if="open" class="about-mask" @click.self="close">
       <div class="about-card" role="dialog" aria-label="关于浣熊">
@@ -63,19 +63,6 @@ defineExpose({ openDialog })
 </template>
 
 <style scoped>
-.about-btn {
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--radius-ctrl);
-  background: transparent;
-  color: var(--text-3);
-  font-size: var(--font-aux);
-  text-align: left;
-  cursor: pointer;
-}
-.about-btn:hover { color: var(--text-1); background: var(--surface-2); }
-
 .about-mask {
   position: fixed;
   inset: 0;

@@ -85,8 +85,10 @@ const NAV_ITEMS: NavItem[] = [
 
 /** 侧导航分组：工作区（下载域）+ 系统（运维域），小节标签用等宽英文。 */
 const NAV_SECTIONS: { label: string; en: string; items: NavItem[] }[] = [
-  { label: '工作区', en: 'WORKSPACE', items: NAV_ITEMS.slice(0, 6) },
-  { label: '系统', en: 'SYSTEM', items: NAV_ITEMS.slice(6) },
+  // 工作区含平台账号（内容源账号服务下载域）；连接是系统集成，归系统组——
+  // 恰好紧贴在平台账号之后（2026-10-24 裁决：连接排在平台账号后面）。
+  { label: '工作区', en: 'WORKSPACE', items: NAV_ITEMS.slice(0, 7) },
+  { label: '系统', en: 'SYSTEM', items: NAV_ITEMS.slice(7) },
 ]
 
 /** 底部栏 5 个高频入口。 */
@@ -297,7 +299,6 @@ onUnmounted(() => {
 
         </div>
       </aside>
-      <AboutDialog ref="aboutRef" />
       <!-- 抽屉态遮罩：点它即关，Esc 也关（键盘兜底见下方 onKeydown） -->
       <div v-if="navOpen" class="nav-mask" @click="navOpen = false" />
 
@@ -425,6 +426,7 @@ onUnmounted(() => {
       </div>
     </template>
     <RToast />
+    <AboutDialog ref="aboutRef" />
   </div>
 </template>
 
