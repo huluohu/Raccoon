@@ -38,14 +38,17 @@ const stage = computed(() => {
   }
 })
 
-/** 是否不确定进度（解析中 / 后处理 / 下载大小未知）。
+/** 是否不确定进度（解析中 / 后处理 / 下载大小未知且引擎未报百分比）。
  *  后处理（post）没有可信百分比：ffmpeg 合并/转码不吐进度，写个固定 100%
- *  或者按时间猜都是在骗人（docs/01 诚实原则）——统一走条纹 + 文字说明。 */
+ *  或者按时间猜都是在骗人（docs/01 诚实原则）——统一走条纹 + 文字说明。
+ *  引擎已吐出真实百分比（progress>0，含合集任务的全局折算）时即使大小未知
+ *  也按确定进度显示——原先只看 expected_size，合集任务永远条纹满宽，
+ *  视觉上像「进度满了」被用户当成进度错误（2026-10-24 实测踩过）。 */
 const indeterminate = computed(
   () =>
     props.task.status === 'parsing' ||
     props.task.status === 'post' ||
-    (props.task.expected_size === null && props.task.status === 'downloading'),
+    (props.task.expected_size === null && props.task.status === 'downloading' && !(props.task.progress > 0)),
 )
 
 /** 不确定进度的说明文案：说清「在干什么」，不假装知道还剩多少。 */
@@ -56,7 +59,7 @@ const indeterminateText = computed(() => {
     case 'post':
       return '后处理中，进度未知'
     default:
-      return '大小未知'
+      return '下载中，大小未知'
   }
 })
 
@@ -83,7 +86,9 @@ const sizeText = computed(() => {
 <template>
   <div class="tprog" :class="[`tprog--${stage}`, { 'tprog--compact': compact }]">
     <div class="tprog-bar" :class="{ 'tprog-bar--indeterminate': indeterminate }">
-      <div class="tprog-fill" :style="{ width: indeterminate ? '100%' : pct + '%' }" />
+      <!-- 不确定进度的宽度由 CSS（28% 条纹块往复）控制，不设内联 width，
+           否则内联样式会盖住条纹块的移动宽度、退化为满格假进度。 -->
+      <div class="tprog-fill" :style="indeterminate ? undefined : { width: pct + '%' }" />
       <!-- 端点爪印滑块：不确定进度（条纹）没有端点语义，此时不画爪印。 -->
       <PawSlider
         v-if="!indeterminate"
@@ -127,7 +132,11 @@ const sizeText = computed(() => {
    显示成一条「蓝色条纹的绿色任务」，阶段色与条纹色自相矛盾。 */
 .tprog--parse { --stripe: var(--info); }
 .tprog--post { --stripe: var(--success); }
+/* 不确定进度（条纹块移动）：用一段 28% 宽的条纹在轨道内往复移动，
+   绝不能用 100% 宽的全条条纹——那在视觉上和「进度快满了」无法区分，
+   用户会把「大小未知」误读成「快下完了」（2026-10-24 实测踩过）。 */
 .tprog-bar--indeterminate .tprog-fill {
+  width: 28%;
   background: var(--stripe, var(--info));
   background-image: repeating-linear-gradient(
     115deg,
@@ -135,11 +144,11 @@ const sizeText = computed(() => {
     color-mix(in srgb, var(--stripe, var(--info)) 45%, transparent) 10px 20px
   );
   background-size: 28px 100%;
-  animation: tprog-stripe 1.1s linear infinite;
+  animation: tprog-slide 1.6s ease-in-out infinite alternate;
 }
-@keyframes tprog-stripe {
-  from { background-position: 0 0; }
-  to { background-position: 28px 0; }
+@keyframes tprog-slide {
+  from { margin-left: 0; }
+  to { margin-left: 72%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .tprog-bar--indeterminate .tprog-fill { animation: none; }

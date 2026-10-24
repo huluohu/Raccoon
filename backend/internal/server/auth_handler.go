@@ -61,6 +61,11 @@ func (s *Server) setupAuth() {
 // ---- handlers ----
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) error {
+	// 免登录模式：无需初始化也无需登录，前端直接进工作台。
+	if s.AuthDisabled() {
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"setup_required": false})
+		return nil
+	}
 	n, err := s.store.CountUsers()
 	if err != nil {
 		return httpx.Internal("读取用户状态失败")

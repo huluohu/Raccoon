@@ -31,4 +31,5 @@ services:
       # RACCOON_SERVER_ADDR: ":8530"   # 启动级设置（改动需重启，界面只读标注）
       # RACCOON_DATA_DIR: "/data"
       # RACCOON_DOWNLOAD_DIR: "/downloads"  # 下载目录默认已由镜像锁定为 /downloads；换路径改这里并同步挂载
+      # RACCOON_AUTH_DISABLED: "true"  # 免登录模式：打开即用（仅限隔离内网——任何能访问 8530 的人都有全部权限）
     restart: unless-stopped

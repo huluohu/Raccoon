@@ -96,24 +96,59 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		EmbedMetadata:  w.mgr.cfg.GetBool("download.embed_metadata"),
 	}
 	var lastWrite time.Time
+	// 播放列表（合集/频道）进度聚合：yt-dlp 逐条目下载，单个条目的百分比/字节
+	// 会在每个视频开始时清零——直接透传会让进度条反复回跳、已下载量永远是
+	// 「当前那条视频」的量。worker 在这里折算成全局口径：
+	//   downloaded_size = 已完成条目累计字节 + 当前条目已下载
+	//   progress        = ((itemIndex-1) + 当前条目百分比/100) / itemTotal * 100
+	accBytes, lastItem := int64(0), 0
+	var lastFileTotal int64
+	expectedWritten := false // expected_size 只回填一次（单条目任务才有可信总大小）
 	onProgress := func(p engine.Progress) {
+		if p.ItemIndex > lastItem {
+			// 进入下一条目：上一条的字节总量计入累计（含跳过/秒完的小视频）。
+			if lastItem > 0 {
+				accBytes += lastFileTotal
+			}
+			lastItem = p.ItemIndex
+		}
+		lastFileTotal = p.Total
+		downloaded := accBytes + p.Downloaded
+		pct := p.Percent
+		if p.ItemCount > 1 {
+			// 当前条目百分比未知时按 0 计入（条目计数是引擎真实输出，非估算；
+			// 直接透传 -1 会算出负的全局百分比）。
+			cur := p.Percent
+			if cur < 0 {
+				cur = 0
+			}
+			pct = (float64(p.ItemIndex-1) + cur/100) / float64(p.ItemCount) * 100
+		}
 		if time.Since(lastWrite) < time.Second {
 			return // 节流 1s（docs/05 §4）
 		}
 		lastWrite = time.Now()
-		pct := p.Percent
 		if pct < 0 {
 			pct = 0 // DB 列 NOT NULL DEFAULT 0；未知进度前端按 -1 口径展示 expected_size=NULL
 		}
-		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
-			"downloaded_size": p.Downloaded,
+		fields := map[string]any{
+			"downloaded_size": downloaded,
 			"speed_bps":       p.SpeedBps,
 			"progress":        pct,
-		}, "")
+		}
+		// 单条目任务：引擎报了可信总大小 → 回填 expected_size，
+		// 前端进度条从「不确定条纹」切换为真实百分比（修「进度像满了」）。
+		// 播放列表的总大小不可知（禁估算），expected_size 保持 NULL。
+		if !expectedWritten && p.ItemCount <= 1 && p.Total > 0 {
+			fields["expected_size"] = p.Total
+			expectedWritten = true
+		}
+		_ = w.mgr.st.UpdateTaskFields(t.ID, fields, "")
 		w.mgr.hub.Broadcast("task.progress", map[string]any{
 			"task_id": t.ID, "progress": pct, "speed_bps": p.SpeedBps,
-			"eta_sec": p.ETASec, "downloaded_size": p.Downloaded, "expected_size": p.Total,
-			"progress_known": p.Percent >= 0,
+			"eta_sec": p.ETASec, "downloaded_size": downloaded, "expected_size": p.Total,
+			"progress_known": pct >= 0,
+			"item_index":     p.ItemIndex, "item_count": p.ItemCount,
 		})
 	}
 	files, err := w.eng.Download(ctx, t.URL, opts, onProgress)

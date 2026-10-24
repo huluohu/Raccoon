@@ -152,3 +152,25 @@ func TestClassify_真账号问题仍归AUTH_REQUIRED(t *testing.T) {
 		}
 	}
 }
+
+func TestParseItemOf(t *testing.T) {
+	cases := []struct {
+		line         string
+		index, total int
+		ok           bool
+	}{
+		{"[download] Downloading item 3 of 25", 3, 25, true},
+		{"[download] Downloading video 3 of 25", 3, 25, true},
+		{"[download] Downloading item 1 of 1", 1, 1, true},
+		{"[download] Destination: x.mp4", 0, 0, false},
+		{"[download] Downloading item 9 of 3", 0, 0, false}, // total < index 视为坏行
+		{"[download] Downloading item abc of 25", 0, 0, false},
+		{"PROGRESS|12|1|2|3|4", 0, 0, false},
+	}
+	for _, tc := range cases {
+		i, n, ok := parseItemOf(tc.line)
+		if ok != tc.ok || (ok && (i != tc.index || n != tc.total)) {
+			t.Fatalf("parseItemOf(%q) = (%d,%d,%v)，期望 (%d,%d,%v)", tc.line, i, n, ok, tc.index, tc.total, tc.ok)
+		}
+	}
+}

@@ -24,6 +24,12 @@ type Progress struct {
 	Total      int64   // 字节；0 = 未知
 	SpeedBps   int64
 	ETASec     int64
+	// 播放列表/合集任务的条目维度（单视频任务为 0）：
+	// ItemIndex 当前第几个条目（1 起），ItemCount 总条目数。
+	// worker 据此计算全局进度（(X-1 + 当前百分比)/Y），避免进度条
+	// 在每个视频开始时清零回跳、被误读为「进度不对」。
+	ItemIndex int
+	ItemCount int
 }
 
 // DownloadedFile 引擎产物（绝对路径）。

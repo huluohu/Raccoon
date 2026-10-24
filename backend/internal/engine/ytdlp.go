@@ -333,12 +333,20 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 	var tail []string // 错误分类用的输出尾部
 	var destinations []string
 	merging := false
+	itemIndex, itemCount := 0, 0 // 播放列表条目游标（"Downloading item X of Y" 行）
 	err := RunCmd(ctx, y.Bin, args, func(line string) {
 		if strings.HasPrefix(line, progressPrefix) {
 			if p, ok := parseProgress(line); ok && onProgress != nil {
+				p.ItemIndex, p.ItemCount = itemIndex, itemCount
 				onProgress(p)
 			}
 			return
+		}
+		// 播放列表逐条目下载时 yt-dlp 输出 "[download] Downloading item 3 of 25"
+		// （老版本用 video 一词，两种都收）。worker 靠它把「当前视频的百分比」
+		// 折算成合集的全局进度——否则进度条在每个视频开始时清零回跳。
+		if n, total, ok := parseItemOf(line); ok {
+			itemIndex, itemCount = n, total
 		}
 		tail = append(tail, line)
 		if len(tail) > 40 {
@@ -411,6 +419,33 @@ func formatSelector(q string) string {
 		// 已知 format id 透传（解析预览 Agent 回来具体 id 的场景）。
 		return q
 	}
+}
+
+// parseItemOf 解析播放列表条目行 "[download] Downloading item 3 of 25"
+// （老版本 yt-dlp 用 "Downloading video 3 of 25"）。非条目行返回 ok=false。
+func parseItemOf(line string) (index, total int, ok bool) {
+	s := strings.TrimPrefix(line, "[download] ")
+	s = strings.TrimSpace(s)
+	for _, verb := range []string{"Downloading item ", "Downloading video "} {
+		if !strings.HasPrefix(s, verb) {
+			continue
+		}
+		rest := strings.TrimPrefix(s, verb)
+		i, after, found := strings.Cut(rest, " of ")
+		if !found {
+			return 0, 0, false
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(i))
+		if err != nil || n <= 0 {
+			return 0, 0, false
+		}
+		t, err := strconv.Atoi(strings.TrimSpace(strings.TrimSpace(after)))
+		if err != nil || t < n {
+			return 0, 0, false
+		}
+		return n, t, true
+	}
+	return 0, 0, false
 }
 
 // parseProgress 解析 PROGRESS 行；percent 实测可能为 NA → 自算。

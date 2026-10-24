@@ -16,6 +16,9 @@ const routes: RouteRecordRaw[] = [
   { path: '/media', name: 'media', component: () => import('@/views/Media.vue'), meta: { title: '媒体库' } },
   { path: '/subscriptions', name: 'subscriptions', component: () => import('@/views/Subscriptions.vue'), meta: { title: '订阅' } },
   { path: '/live', name: 'live', component: () => import('@/views/Live.vue'), meta: { title: '直播' } },
+  // 平台账号（内容源登录态）与连接（系统集成）分家：2026-10-24 用户裁决——
+  // B站/YouTube 的账号不是「与系统的连接」，专属一页管理（扫码/Cookie）。
+  { path: '/accounts', name: 'accounts', component: () => import('@/views/Accounts.vue'), meta: { title: '平台账号' } },
   { path: '/logs', name: 'logs', component: () => import('@/views/Logs.vue'), meta: { title: '日志' } },
   { path: '/monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '监控' } },
   { path: '/connections', name: 'connections', component: () => import('@/views/Connections.vue'), meta: { title: '连接' } },

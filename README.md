@@ -153,6 +153,7 @@ NAS 部署与上面完全同构——镜像名、端口、挂载、环境变量�
 | 入口 | 一句话 |
 | --- | --- |
 | Web 界面 | 全功能管理台（实时进度、订阅、直播、媒体库、设置） |
+| 平台账号页 | B站/YouTube 等内容源登录态：扫码 / 粘贴 Cookie，下载自动注入（与「连接」的系统集成分开） |
 | `rc` CLI | `rc login` 一次，之后 `rc add <url>` 提交、`rc list / status / files` 管理 |
 | MCP | `rc mcp` 注册进 Claude 等 MCP 客户端，AI 助手代管下载 |
 | Telegram Bot | 设置页填 Bot Token，发链接即入队，进度/完成主动推送 |

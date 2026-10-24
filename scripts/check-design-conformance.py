@@ -947,11 +947,14 @@ def check_round3_ia() -> None:
     for path in ["/history", "/logs", "/monitor"]:
         check(f"§3 路由 {path}", f"'{path}'" in router, "router/index.ts")
 
-    # ---- 2. 侧导航 10 项 + 底部栏 5 高频 + 「更多」----
+    # ---- 2. 侧导航 11 项 + 底部栏 5 高频 + 「更多」----
+    # 2026-10-24 用户裁决：导航从 10 项扩到 11 项——新增「平台账号」（内容源登录态，
+    # 与「连接」的系统集成分家）。连接页不再是凭据大杂烩。
     app = read("App.vue")
     nav_count = app.count("icon: 'M")
-    check("§3 侧导航 10 项", nav_count == 10, f"实际 {nav_count} 项")
-    check("§3 导航项带底部栏短标签 short", app.count("short: '") == 10, f"实际 {app.count('short:')} 项")
+    check("§3 侧导航 11 项（含平台账号）", nav_count == 11, f"实际 {nav_count} 项")
+    check("§3 导航项带底部栏短标签 short", app.count("short: '") == 11, f"实际 {app.count('short:')} 项")
+    check("§3 平台账号路由与导航项", "'/accounts'" in router and "to: '/accounts'" in app, "router + App.vue")
     check("§6 底部栏 5 高频 + 「更多」",
           "TAB_ITEMS" in app and "MORE_ITEMS" in app
           and "tabbar-more" in app and "more-sheet" in app, "App.vue")

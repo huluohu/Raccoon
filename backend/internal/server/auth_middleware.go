@@ -57,7 +57,21 @@ func (s *Server) csrfForSession(h HandlerFunc) HandlerFunc {
 }
 
 // authenticate 解析请求身份：优先 Cookie 会话；否则 Bearer Token（docs/04 §1.1）。
+// anonymousLocalUser 免登录模式下注入的伪用户（不落库，users 表可为空）。
+func anonymousLocalUser() *store.User {
+	return &store.User{ID: "local", Username: "local"}
+}
+
+// AuthDisabled 免登录模式是否开启（security.auth_disabled；Restart 生效）。
+func (s *Server) AuthDisabled() bool { return s.cfg.GetBool("security.auth_disabled") }
+
 func (s *Server) authenticate(r *http.Request) (*store.User, error) {
+	// 免登录模式（homelab 内网可信场景）：所有请求匿名放行为本地用户，
+	// 绕过会话/Token/初始化一切检查——打开即用，无需登录。
+	// 只应部署在隔离网络：任何能访问 8530 的人都拥有全部权限。
+	if s.AuthDisabled() {
+		return anonymousLocalUser(), nil
+	}
 	if c, err := r.Cookie(sessionCookieName); err == nil && c.Value != "" {
 		uid, _, ok := s.sessions.Get(c.Value)
 		if !ok {

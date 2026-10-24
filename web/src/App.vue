@@ -73,6 +73,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/media', label: '媒体库', en: 'MEDIA', short: '文件', tab: true, icon: 'M2.4 4.4h3.9l1.2 1.6h6.1v6.9a1 1 0 0 1-1 1H3.4a1 1 0 0 1-1-1z M6.6 9.9l1.5 1.7 1.1-1.2 1.6 1.8' },
   { to: '/subscriptions', label: '订阅', en: 'SUBS', short: '订阅', tab: false, icon: 'M3.2 6.6a5.4 5.4 0 0 1 5.4 5.4M3.2 3.4a8.6 8.6 0 0 1 8.6 8.6M4.4 12a.9.9 0 1 0 0-.1' },
   { to: '/live', label: '直播', en: 'LIVE', short: '直播', tab: false, icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
+  // 平台账号：内容源登录态（与「连接」的系统集成区分，2026-10-24 裁决）。
+  { to: '/accounts', label: '平台账号', en: 'ACCOUNTS', short: '账号', tab: false, icon: 'M8 7.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4zM3.4 13.4c.4-2.4 2.3-3.8 4.6-3.8s4.2 1.4 4.6 3.8M12.6 4.2v3.6M14.4 6h-3.6' },
   { to: '/logs', label: '日志', en: 'LOGS', short: '日志', tab: false, icon: 'M3.4 3.6h9.2M3.4 6.6h9.2M3.4 9.6h5.6M3.4 12.4h3.2' },
   { to: '/monitor', label: '监控', en: 'MONITOR', short: '监控', tab: false, icon: 'M2.2 8h2.3l1.5-3.8 2.5 7.6 1.5-3.8h3.8' },
   { to: '/connections', label: '连接', en: 'CHANNELS', short: '连接', tab: false, icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },

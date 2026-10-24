@@ -1,13 +1,17 @@
 <script setup lang="ts">
-// 连接页（docs/07 §3 Connections / docs/04 §2.5）：凭据中心。
+// 连接页（docs/07 §3 Connections / docs/04 §2.5）：与外部系统的集成通道。
+//
+// 职责边界（2026-10-24 用户裁决）：本页只管「系统集成」——qBittorrent /
+// 115 / Telegram 的连接参数与凭据；内容平台（B站 / YouTube / 优酷…）的
+// 登录态归「平台账号」页（/accounts），下载源账号不是「与系统的连接」。
 //
 // 铁律：前端永远拿不到明文，只能拿到 credential.Mask 的打码预览；
 // 换绑时留空 value 表示不改内容，提交空值等于「保持原样」而非「清空」。
-// 凭据类目由 kind 决定（cookie_file 粘 Cookie 原文，token/session 粘令牌串）。
 import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import type { ConfigItem, Credential, IntegrationChannelStatus, IntegrationStatus, TelegramStatus } from '@/api/types'
+import { INTEGRATION_PLATFORMS } from '@/utils/platforms'
 import RButton from '@/components/base/RButton.vue'
 import RInput from '@/components/base/RInput.vue'
 import PageHeader from '@/components/base/PageHeader.vue'
@@ -16,7 +20,6 @@ import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import CredentialList from '@/components/conn/CredentialList.vue'
 import QbTestPanel from '@/components/conn/QbTestPanel.vue'
 import TelegramPanel from '@/components/conn/TelegramPanel.vue'
-import BiliQrLogin from '@/components/conn/BiliQrLogin.vue'
 
 const toast = useToastStore()
 
@@ -24,12 +27,17 @@ const items = ref<Credential[]>([])
 const loading = ref(true)
 const loadErr = ref('')
 
+/** 只显示集成组件的凭据；内容平台账号在「平台账号」页。 */
+const integrationCreds = computed(() =>
+  items.value.filter((c) => (INTEGRATION_PLATFORMS as readonly string[]).includes(c.platform)),
+)
+
 /** 表单：新建与编辑共用。 */
 const formOpen = ref(false)
 const editing = ref<Credential | null>(null)
 const saving = ref(false)
 const form = ref({
-  platform: 'bilibili',
+  platform: 'telegram',
   kind: 'cookie_file',
   label: '',
   note: '',
@@ -43,11 +51,9 @@ const checking = ref('')
 const checkResult = ref<Record<string, { ok: boolean; status: string; message: string }>>({})
 
 const PLATFORMS = [
-  { value: 'bilibili', label: '哔哩哔哩' },
   { value: 'telegram', label: 'Telegram' },
   { value: 'n115', label: '115 网盘' },
   { value: 'qbittorrent', label: 'qBittorrent' },
-  { value: 'douyu', label: '斗鱼' },
 ]
 
 const KINDS = [
@@ -67,7 +73,7 @@ const valuePlaceholder = computed(() =>
 )
 
 const expiringSoon = computed(() =>
-  items.value.filter((c) => c.status === 'expiring' || c.status === 'expired'),
+  integrationCreds.value.filter((c) => c.status === 'expiring' || c.status === 'expired'),
 )
 
 // ---- 外部集成通道（docs/04 §2.10 / docs/08 W4.6–W4.8）----
@@ -270,7 +276,7 @@ async function load() {
 }
 
 function resetForm() {
-  form.value = { platform: 'bilibili', kind: 'cookie_file', label: '', note: '', value: '', expires_at: '' }
+  form.value = { platform: 'telegram', kind: 'cookie_file', label: '', note: '', value: '', expires_at: '' }
   editing.value = null
   formOpen.value = true
 }
@@ -364,10 +370,9 @@ onMounted(() => {
     <PageHeader
       eyebrow="CHANNELS"
       title="连接"
-      sub="平台凭据中心 · 内容 AES-256-GCM 加密落库，界面只回打码预览"
+      sub="与外部系统的集成：qBittorrent / 115 / Telegram · 内容平台的登录态在「平台账号」页"
     >
       <template #actions>
-        <BiliQrLogin @done="load" />
         <RButton variant="accent" @click="resetForm">新建凭据</RButton>
       </template>
     </PageHeader>
@@ -427,18 +432,18 @@ onMounted(() => {
     <p v-if="loadErr" class="alert alert--danger">{{ loadErr }}</p>
 
     <REmpty
-      v-else-if="!loading && items.length === 0"
+      v-else-if="!loading && integrationCreds.length === 0"
       face="waiting"
-      title="还没有配置任何凭据"
-      hint="不配凭据也能下载公开内容；只有 1080P 以上、会员专享、自己的收藏夹才需要登录态。"
-      action-label="新建第一条凭据"
+      title="还没有集成组件的凭据"
+      hint="内容平台（B站 / YouTube 等）的登录态在「平台账号」页；这里管 qBittorrent / 115 / Telegram 的连接凭据。"
+      action-label="新建凭据"
       @action="resetForm"
     />
 
     <!-- 凭据列表（方案 §3 视图级组件 CredentialList：只回打码预览） -->
     <CredentialList
       v-else
-      :items="items"
+      :items="integrationCreds"
       :checking="checking"
       :results="checkResult"
       @check="check"

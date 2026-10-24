@@ -31,9 +31,9 @@ vi.mock('@/api/client', () => ({ api: mocks }))
 function makeCred(over: Record<string, unknown> = {}) {
   return {
     id: 'c-1',
-    platform: 'bilibili',
-    kind: 'cookie_file',
-    label: 'B站主号',
+    platform: 'qbittorrent',
+    kind: 'account',
+    label: 'qB 凭据',
     status: 'active',
     note: '主号，PASS 全部',
     expires_at: Date.now() + 30 * 86_400_000,
@@ -87,20 +87,20 @@ describe('Connections 视图', () => {
     await flushPromises()
 
     const card = w.find('.card')
-    expect(card.text()).toContain('B站主号')
+    expect(card.text()).toContain('qB 凭据')
     expect(card.text()).toContain('SESSDATA=ab********cd')
-    expect(card.text()).toContain('Cookie')
+    expect(card.text()).toContain('账号')
     expect(card.text()).toContain('可用')
     expect(card.text()).toContain('主号，PASS 全部')
     // 页面级承诺
-    expect(w.text()).toContain('内容 AES-256-GCM 加密落库，界面只回打码预览')
+    expect(w.text()).toContain('内容平台的登录态在「平台账号」页')
   })
 
   it('空凭据显示引导空态并说明「不配也能下公开内容」', async () => {
     const w = mountConn()
     await flushPromises()
-    expect(w.find('.stub-empty').text()).toContain('还没有配置任何凭据')
-    expect(w.find('.stub-empty').text()).toContain('不配凭据也能下载公开内容')
+    expect(w.find('.stub-empty').text()).toContain('还没有集成组件的凭据')
+    expect(w.find('.stub-empty').text()).toContain('平台账号')
   })
 
   it('新建凭据内容为空时被前端拦下，不发请求', async () => {
@@ -121,18 +121,18 @@ describe('Connections 视图', () => {
     await btnByText(w, '新建凭据').trigger('click')
     await flushPromises()
 
-    await w.find('input[placeholder="如：B站主号"]').setValue('小号')
-    await w.find('textarea').setValue('SESSDATA=xxx; bili_jct=yyy')
+    await w.find('input[placeholder*="主号"]').setValue('小号')
+    await w.find('textarea').setValue('bot-token-xxx')
     await w.find('input[type="date"]').setValue('2027-01-31')
     await w.find('form').trigger('submit')
     await flushPromises()
 
     expect(mocks.createCredential).toHaveBeenCalledWith(
       expect.objectContaining({
-        platform: 'bilibili',
+        platform: 'telegram',
         kind: 'cookie_file',
         label: '小号',
-        value: 'SESSDATA=xxx; bili_jct=yyy',
+        value: 'bot-token-xxx',
       }),
     )
     // 到期日转成当天 23:59:59 的时间戳
@@ -158,7 +158,7 @@ describe('Connections 视图', () => {
     await w.find('form').trigger('submit')
     await flushPromises()
 
-    expect(mocks.updateCredential).toHaveBeenCalledWith('c-1', { label: 'B站主号', note: '主号，PASS 全部' })
+    expect(mocks.updateCredential).toHaveBeenCalledWith('c-1', { label: 'qB 凭据', note: '主号，PASS 全部' })
     const body = mocks.updateCredential.mock.calls[0][1] as Record<string, unknown>
     expect('value' in body).toBe(false)
   })

@@ -84,7 +84,7 @@ function press(key: string, init: KeyboardEventInit = {}) {
 }
 
 describe('App 外壳', () => {
-  it('侧导航 10 项，顺序与 docs/15 裁决一致', async () => {
+  it('侧导航 11 项，顺序与 docs/15 裁决一致（2026-10-24 新增平台账号）', async () => {
     const w = await mountApp()
     // 双行导航（中文主标签 + 等宽英文副标签），断言只取中文主标签
     const links = w.findAll('.nav nav a')
@@ -95,6 +95,7 @@ describe('App 外壳', () => {
       '媒体库',
       '订阅',
       '直播',
+      '平台账号',
       '日志',
       '监控',
       '连接',
@@ -102,11 +103,11 @@ describe('App 外壳', () => {
     ])
     // 英文副标签与导航同序（双语信息密度是控制台方向的签名）
     expect(links.map((a) => a.find('.nav-en').text())).toEqual([
-      'OVERVIEW', 'TASKS', 'HISTORY', 'MEDIA', 'SUBS', 'LIVE', 'LOGS', 'MONITOR', 'CHANNELS', 'SETTINGS',
+      'OVERVIEW', 'TASKS', 'HISTORY', 'MEDIA', 'SUBS', 'LIVE', 'ACCOUNTS', 'LOGS', 'MONITOR', 'CHANNELS', 'SETTINGS',
     ])
   })
 
-  it('底部栏 5 个高频入口 + 「更多」，更多面板里是其余 5 项', async () => {
+  it('底部栏 5 个高频入口 + 「更多」，更多面板里是其余 6 项', async () => {
     const w = await mountApp()
     const tabs = w.findAll('.tabbar a')
     expect(tabs.map((a) => a.text())).toEqual(['主页', '任务', '历史', '文件', '设置'])
@@ -118,6 +119,7 @@ describe('App 外壳', () => {
     expect(w.findAll('.more-item').map((a) => a.text())).toEqual([
       '订阅',
       '直播',
+      '平台账号',
       '日志',
       '监控',
       '连接',

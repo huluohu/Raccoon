@@ -72,6 +72,10 @@ var Registry = []Setting{
 	// 远程提交下载仍走 Telegram / CLI / 快捷指令（docs/16）。
 	{Key: "notify.serverchan_sendkey", Desc: "Server酱 SendKey（微信推送任务通知，留空不启用；免费额度 5 条/天）", Default: "", Effective: Immediate, Sensitive: true},
 	{Key: "log.level", Desc: "日志级别（debug/info/warn/error）", Default: "info", Effective: Immediate, EnvVar: "RACCOON_LOG_LEVEL"},
+	// 免登录模式（homelab 内网可信场景）：开启后所有 API 匿名放行（伪用户 local），
+	// 前端跳过登录页/初始化向导，打开即用。只应部署在隔离网络里——任何能访问
+	// 8530 的人都拥有全部权限（提交/删除/凭据/配置）。默认关闭。
+	{Key: "security.auth_disabled", Desc: "免登录模式（内网可信环境；开启后任何人可全权访问）", Default: false, Effective: Restart, EnvVar: "RACCOON_AUTH_DISABLED"},
 	// ---- 外部集成通道（docs/08 W4.6–W4.8）----
 	// 这几项是「服务连接参数」，与凭据中心的「平台账号凭据」是两类东西：
 	// 前者指本服务要连到哪里（qB 地址、Bot Token），后者指用谁的账号去下载。
