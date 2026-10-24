@@ -96,14 +96,14 @@ describe('App 外壳', () => {
       '订阅',
       '直播',
       '平台账号',
+      '连接',
       '日志',
       '监控',
-      '连接',
       '设置',
     ])
     // 英文副标签与导航同序（双语信息密度是控制台方向的签名）
     expect(links.map((a) => a.find('.nav-en').text())).toEqual([
-      'OVERVIEW', 'TASKS', 'HISTORY', 'MEDIA', 'SUBS', 'LIVE', 'ACCOUNTS', 'LOGS', 'MONITOR', 'CHANNELS', 'SETTINGS',
+      'OVERVIEW', 'TASKS', 'HISTORY', 'MEDIA', 'SUBS', 'LIVE', 'ACCOUNTS', 'CHANNELS', 'LOGS', 'MONITOR', 'SETTINGS',
     ])
   })
 
@@ -120,9 +120,9 @@ describe('App 外壳', () => {
       '订阅',
       '直播',
       '平台账号',
+      '连接',
       '日志',
       '监控',
-      '连接',
     ])
 
     // 再点一次收起（按钮要有可逆的开关语义）
@@ -182,8 +182,8 @@ describe('App 外壳', () => {
     // .app 自身不再重复挂属性：留着会让人误以为浮层也在它的作用域内
     expect(w.find('.app').attributes('data-theme')).toBeUndefined()
 
-    // 切换主题：属性跟着走（第一个 .foot-btn 就是主题按钮）
-    await w.find('.foot-btn').trigger('click')
+    // 切换主题：属性跟着走（主题按钮 2026-10-24 挪至顶栏）
+    await w.find('.theme-topbar-btn').trigger('click')
     await flushPromises()
     const items = w.findAll('.theme-item')
     expect(items.length).toBe(4)

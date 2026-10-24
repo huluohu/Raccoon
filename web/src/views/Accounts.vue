@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 平台账号页：内容平台（下载源）的登录态管理——B站扫码 / 粘贴 Cookie。
+// 平台账号页：内容平台（下载源）的登录态管理——B站扫码 / 其它平台粘贴 Cookie。
 //
 // 与「连接」页的职责边界（2026-10-24 用户裁决）：连接页管「与系统集成」（qB /
 // 115 / Telegram），本页管「内容源账号」（B站 / YouTube / 优酷…的登录态）。
@@ -164,7 +164,8 @@ onMounted(load)
     >
       <template #actions>
         <BiliQrLogin @done="load" />
-        <RButton variant="accent" @click="resetForm">粘贴 Cookie</RButton>
+        <!-- 空态时隐藏：空态卡自带同名 CTA，两个同功能按钮不同屏（同直播页裁决） -->
+        <RButton v-if="contentCreds.length > 0" variant="accent" @click="resetForm">添加平台凭证</RButton>
       </template>
     </PageHeader>
 
@@ -179,7 +180,7 @@ onMounted(load)
       face="waiting"
       title="还没有配置任何平台账号"
       hint="公开内容无需登录；1080P 以上、会员专享内容需要对应平台的登录态。B站可用扫码登录，其它平台粘贴 Cookie。"
-      action-label="粘贴 Cookie"
+      action-label="添加平台凭证"
       @action="resetForm"
     />
 
@@ -193,7 +194,7 @@ onMounted(load)
       @remove="remove"
     />
 
-    <DetailDrawer :open="formOpen" :title="isEditing ? '编辑平台账号' : '粘贴 Cookie'" @close="formOpen = false">
+    <DetailDrawer :open="formOpen" :title="isEditing ? '编辑平台账号' : '添加平台凭证'" @close="formOpen = false">
       <form class="form" @submit.prevent="save">
         <label class="field">
           <span class="field-label">平台</span>

@@ -77,9 +77,9 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/live', label: '直播', en: 'LIVE', short: '直播', tab: false, icon: 'M8 9.1a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM5.1 5.1a4.6 4.6 0 0 0 0 5.8m5.8 0a4.6 4.6 0 0 0 0-5.8M2.7 2.7a7.8 7.8 0 0 0 0 10.6m10.6 0a7.8 7.8 0 0 0 0-10.6' },
   // 平台账号：内容源登录态（与「连接」的系统集成区分，2026-10-24 裁决）。
   { to: '/accounts', label: '平台账号', en: 'ACCOUNTS', short: '账号', tab: false, icon: 'M8 7.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4zM3.4 13.4c.4-2.4 2.3-3.8 4.6-3.8s4.2 1.4 4.6 3.8M12.6 4.2v3.6M14.4 6h-3.6' },
+  { to: '/connections', label: '连接', en: 'CHANNELS', short: '连接', tab: false, icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
   { to: '/logs', label: '日志', en: 'LOGS', short: '日志', tab: false, icon: 'M3.4 3.6h9.2M3.4 6.6h9.2M3.4 9.6h5.6M3.4 12.4h3.2' },
   { to: '/monitor', label: '监控', en: 'MONITOR', short: '监控', tab: false, icon: 'M2.2 8h2.3l1.5-3.8 2.5 7.6 1.5-3.8h3.8' },
-  { to: '/connections', label: '连接', en: 'CHANNELS', short: '连接', tab: false, icon: 'M6.4 9.6 9.6 6.4M5.4 7.2 3.9 8.7a2.4 2.4 0 0 0 3.4 3.4l1.5-1.5M10.6 8.8l1.5-1.5a2.4 2.4 0 0 0-3.4-3.4L7.2 5.4' },
   { to: '/settings', label: '设置', en: 'SETTINGS', short: '设置', tab: true, icon: 'M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8zM13 8c0-.6-.1-1.1-.2-1.6l1.3-1-1.3-2.2-1.5.6c-.5-.4-1.1-.8-1.7-1l-.2-1.6h-2.6l-.2 1.6c-.6.2-1.2.6-1.7 1l-1.5-.6-1.3 2.2 1.3 1c-.1.5-.2 1-.2 1.6s.1 1.1.2 1.6l-1.3 1 1.3 2.2 1.5-.6c.5.4 1.1.8 1.7 1l.2 1.6h2.6l.2-1.6c.6-.2 1.2-.6 1.7-1l1.5.6 1.3-2.2-1.3-1c.1-.5.2-1 .2-1.6z' },
 ]
 
@@ -282,17 +282,6 @@ onUnmounted(() => {
               {{ tasks.connected ? '实时' : '重连中' }}
             </span>
           </div>
-          <!-- 主题切换器：四套浣熊主题（docs/07 §2）。 -->
-          <button
-            class="foot-btn"
-            type="button"
-            aria-haspopup="listbox"
-            :aria-expanded="themeOpen ? 'true' : 'false'"
-            @click="themeOpen = !themeOpen"
-          >
-            <span class="foot-swatch" :style="{ background: currentTheme.swatch }" aria-hidden="true" />
-            <span class="btn-text">主题 · {{ currentTheme.label }}</span>
-          </button>
           <button class="foot-btn" type="button" @click="aboutRef?.openDialog()">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path d="M8 7.2v4.2M8 4.6a.7.7 0 1 0 0-1.4.7.7 0 0 0 0 1.4zM8 14.6A6.6 6.6 0 1 0 8 1.4a6.6 6.6 0 0 0 0 13.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
@@ -305,29 +294,7 @@ onUnmounted(() => {
             </svg>
             <span class="btn-text">退出登录</span>
           </button>
-          <!-- 主题弹层：必须留在页脚容器内部（bottom: 100% 相对它解析，
-               放到外层会以整条侧栏为基准弹到视口外——实测踩过）。 -->
-          <div v-if="themeOpen" class="pop-mask" @click="themeOpen = false" />
-          <div v-if="themeOpen" class="theme-pop" role="listbox" aria-label="选择主题">
-            <button
-              v-for="t in ui.themes"
-              :key="t.id"
-              class="theme-item"
-              type="button"
-              role="option"
-              :aria-selected="t.id === ui.theme ? 'true' : 'false'"
-              @click="pickTheme(t.id)"
-            >
-              <span class="foot-swatch" :style="{ background: t.swatch }" aria-hidden="true" />
-              <span class="theme-item-txt">
-                <span class="theme-item-label">{{ t.label }}</span>
-                <span class="theme-item-en">{{ t.en }}</span>
-              </span>
-              <svg v-if="t.id === ui.theme" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                <path d="M3.4 8.4 6.6 11.6 12.6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </button>
-          </div>
+
         </div>
       </aside>
       <AboutDialog ref="aboutRef" />
@@ -352,7 +319,40 @@ onUnmounted(() => {
                 {{ tasks.connected ? '实时' : '重连中' }}
               </span>
               <span class="topbar-clock tnum">{{ clock }}</span>
+              <!-- 主题切换器（2026-10-24 从侧栏底部挪来：用户区只留关于/退出） -->
+              <button
+                class="theme-topbar-btn"
+                type="button"
+                aria-haspopup="listbox"
+                :aria-expanded="themeOpen ? 'true' : 'false'"
+                title="切换主题"
+                @click="themeOpen = !themeOpen"
+              >
+                <span class="foot-swatch" :style="{ background: currentTheme.swatch }" aria-hidden="true" />
+                <span class="theme-topbar-label">{{ currentTheme.label }}</span>
+              </button>
               <NotifCenter />
+              <div v-if="themeOpen" class="pop-mask" @click="themeOpen = false" />
+              <div v-if="themeOpen" class="theme-pop theme-pop--topbar" role="listbox" aria-label="选择主题">
+                <button
+                  v-for="t in ui.themes"
+                  :key="t.id"
+                  class="theme-item"
+                  type="button"
+                  role="option"
+                  :aria-selected="t.id === ui.theme ? 'true' : 'false'"
+                  @click="pickTheme(t.id)"
+                >
+                  <span class="foot-swatch" :style="{ background: t.swatch }" aria-hidden="true" />
+                  <span class="theme-item-txt">
+                    <span class="theme-item-label">{{ t.label }}</span>
+                    <span class="theme-item-en">{{ t.en }}</span>
+                  </span>
+                  <svg v-if="t.id === ui.theme" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                    <path d="M3.4 8.4 6.6 11.6 12.6 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </div>
         </header>
@@ -581,6 +581,29 @@ onUnmounted(() => {
 .topbar-inner { width: 100%; max-width: 1440px; margin: 0 auto; display: flex; align-items: center; gap: 20px; }
 .topbar-inner > :first-child { flex: 1; max-width: 620px; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+/* 顶栏主题切换（2026-10-24 从侧栏挪入）：色板 + 当前主题名，紧凑一行。 */
+.theme-topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--font-aux);
+  cursor: pointer;
+}
+.theme-topbar-btn:hover { color: var(--text-1); border-color: var(--text-3); }
+/* 顶栏弹层：right:0 对齐按钮右缘、自按钮下方展开（覆盖侧栏版的 bottom 定位）。 */
+.theme-pop--topbar {
+  bottom: auto;
+  top: calc(100% + 8px);
+  left: auto;
+  right: 0;
+  width: 200px;
+}
+.topbar-right { position: relative; }
 /* 顶栏连接状态与告警：辅助档 13.5px（这是要读的一句话，不是表头）。 */
 .topbar-conn { color: var(--text-3); }
 .topbar-warn {

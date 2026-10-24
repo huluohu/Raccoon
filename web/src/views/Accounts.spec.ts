@@ -56,11 +56,19 @@ describe('平台账号页', () => {
     expect(text).not.toContain('qB')
   })
 
-  it('有扫码登录入口与「粘贴 Cookie」动作', async () => {
-    const w = await mountWithCreds([])
-    const labels = w.findAll('button').map((b) => b.text())
-    expect(labels.some((l) => l.includes('扫码'))).toBe(true)
-    expect(labels.some((l) => l.includes('粘贴 Cookie'))).toBe(true)
+  it('空态有扫码入口与「添加平台凭证」动作；有凭证时页头按钮出现', async () => {
+    const empty = await mountWithCreds([])
+    const emptyBtns = empty.findAll('button').map((b) => b.text())
+    expect(emptyBtns.some((l) => l.includes('扫码'))).toBe(true)
+    expect(emptyBtns.some((l) => l.includes('添加平台凭证'))).toBe(true)
+    // 空态时页头按钮隐藏（与空态卡 CTA 不同屏，同直播页裁决）
+    expect(emptyBtns.filter((l) => l.includes('添加平台凭证')).length).toBe(1)
+
+    const withCreds = await mountWithCreds([
+      { id: 'c1', platform: 'bilibili', kind: 'session', label: 'B站扫码' },
+    ])
+    const btns = withCreds.findAll('button').map((b) => b.text())
+    expect(btns.filter((l) => l.includes('添加平台凭证')).length).toBe(1)
   })
 
   it('空态文案指明内容平台归属与去向', async () => {
