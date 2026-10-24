@@ -26,24 +26,103 @@ Telegram Bot / 微信推送 / iOS 快捷指令 / CLI / MCP 多端触达，全部
 | 媒体库 | 入库检索、直链/预览、批量管理 |
 | 安全 | 登录 + 双通道鉴权（Cookie 会话 / Bearer Token + scope）、CSRF、SSRF 校验、路径穿越防护、SQL 全参数化、非 root 容器 |
 
-## 快速开始
+## 部署
+
+镜像：`fooololo/raccoon-server`（`1.0.0` 与 `latest`，linux/amd64 + linux/arm64 双架构）。
+镜像内已内置 yt-dlp / gallery-dl / FFmpeg / mutagen 等全部引擎，**无需宿主机安装任何依赖**。
+
+部署要素只有四个：
+
+| 要素 | 值 | 说明 |
+| --- | --- | --- |
+| 端口 | `8530`（容器内）→ 自选宿主端口 | Web 与 API 同口 |
+| 数据卷 | `/data` | 数据库/配置/凭据/日志/默认下载，**唯一必需挂载** |
+| 环境变量 | `TZ=Asia/Shanghai`（推荐） | 可选：`RACCOON_SERVER_ADDR`、`RACCOON_LOG_LEVEL` |
+| 权限 | 容器以 uid `1000` 运行 | 数据目录需允许该用户写入 |
+
+### 方式一：Docker CLI
 
 ```bash
-docker run -d --name raccoon --restart unless-stopped \
-  -p 8530:8530 -v /opt/raccoon/data:/data -e TZ=Asia/Shanghai \
+# 1. 建数据目录（属主交给 uid 1000，避免权限问题）
+mkdir -p /opt/raccoon/data
+chown 1000:1000 /opt/raccoon/data
+
+# 2. 起容器
+docker run -d \
+  --name raccoon \
+  --restart unless-stopped \
+  -p 8530:8530 \
+  -v /opt/raccoon/data:/data \
+  -e TZ=Asia/Shanghai \
   fooololo/raccoon-server:1.0.0
+
+# 3. 健康检查（应返回 {"status":true,...}）
+curl http://127.0.0.1:8530/healthz
 ```
 
-浏览器打开 `http://<主机IP>:8530`：
+升级：`docker stop raccoon && docker rm raccoon` 后用新 tag 重复第 2 步（数据都在挂载目录里）。
 
-1. 首次访问进入初始化向导，创建管理员账号；
-2. 粘贴任意视频链接 → 解析预览 → 选清晰度/格式 → 加入队列；
-3. 需要会员内容：连接页「B 站扫码登录」扫一下即可。
+### 方式二：Docker Compose（推荐长期使用）
 
-健康检查：`curl http://127.0.0.1:8530/healthz`。
+`docker-compose.yml`：
 
-完整部署（compose、NAS、反向代理与 HTTPS、数据备份、升级与回滚、排障）见
-**[docs/17-部署指南.md](docs/17-部署指南.md)**。
+```yaml
+services:
+  raccoon:
+    image: fooololo/raccoon-server:1.0.0   # 升级 = 改这一行
+    container_name: raccoon
+    restart: unless-stopped
+    ports:
+      - "8530:8530"
+    volumes:
+      - ./data:/data          # 数据库/配置/凭据/日志/默认下载（唯一必需挂载）
+      # - ./media:/media      # 可选：挂已有媒体库，在设置里把下载目录指到 /media 下
+    environment:
+      TZ: Asia/Shanghai
+```
+
+```bash
+docker compose up -d      # 启动
+docker compose pull && docker compose up -d   # 升级（先改 image 的 tag）
+curl http://127.0.0.1:8530/healthz            # 健康检查
+```
+
+备份 = 打包 `./data` 目录（含数据库与凭据主密钥，两者必须一起备份）。
+
+### 方式三：NAS（群晖 / 威联通等）
+
+NAS 部署与上面完全同构——镜像名、端口、挂载、环境变量都一样，只是界面操作路径不同。
+通用注意：**容器以 uid 1000 运行，数据目录必须允许该用户写入**；浏览器访问 `http://NAS的IP:8530`。
+
+**群晖 Synology（DSM 7.x，Container Manager）**
+
+1. **File Station** 建目录 `docker/raccoon`，右键 → 属性 → 权限 → 新增用户/用户组（uid 1000 或 `docker`）→ 勾选「可读写」；
+2. **Container Manager → 注册表**：搜索 `fooololo/raccoon-server`，选 tag `1.0.0` 下载（ DSM 7.2 也可以直接用「项目 Project」功能贴上面的 compose 文件，后面跳过 3–5 步）；
+3. **映像**：选中下载好的镜像 → 运行 → 常规设置容器名 `raccoon`，勾选「开机自动重新启动」；
+4. **端口设置**：本地端口填 `8530`（被占可改如 `18530`），容器端口 `8530`，类型 TCP；
+5. **存储空间**：添加文件夹 `/docker/raccoon` → 装载路径 `/data`；**环境**：添加 `TZ=Asia/Shanghai`；完成。
+
+**威联通 QNAP（QTS 5.x，Container Station）**
+
+1. **File Station** 建共享文件夹或子目录 `raccoon`，设置权限允许 uid 1000（或 admin）读写；
+2. **Container Station → 映像文件**：提取 `fooololo/raccoon-server:1.0.0`（ registry 仓库地址填 `fooololo/raccoon-server`）；
+3. 映像列表 → **+ 创建容器**：名称 `raccoon`，重启策略 `always`；
+4. **高级设置**：
+   - 网络：转发端口 `8530 → 8530`（TCP）；
+   - 存储区：主机路径 `<你的目录>` ↔ 容器路径 `/data`；
+   - 环境：`TZ=Asia/Shanghai`；
+5. 创建后在「容器」页确认运行中，浏览器访问 `http://NAS_IP:8530`。
+
+**其它 NAS / 家庭系统（unRAID、飞牛 fnOS、OpenMediaVault 等）**：
+都能跑 Docker——用「方式二」的 compose 文件（unRAID 用 Compose 插件 / Apps 里 Docker Compose Manager；fnOS 的 Docker 管理器直接支持 compose），或按「部署要素」表逐项填入对应 UI 即可。
+
+### 部署后：3 分钟上手
+
+1. 浏览器打开 `http://<主机IP>:8530`，首次访问进入**初始化向导**，创建管理员账号；
+2. 粘贴任意视频链接 → 解析预览 → 选清晰度 / 格式（源格式 / MP4 / MP3）→ 加入队列；
+3. 需要会员内容：连接页点 **B 站扫码登录**，手机 B 站 App 扫码即用。
+
+公网访问请务必套 HTTPS 反向代理（Nginx 需 `proxy_buffering off` 以支持实时进度流），并使用强口令与最小权限的 API 令牌。
 
 ### 能力边界（诚实声明）
 
@@ -53,32 +132,14 @@ docker run -d --name raccoon --restart unless-stopped \
 
 ## 使用入口
 
-| 入口 | 一句话 | 文档 |
-| --- | --- | --- |
-| Web 界面 | 全功能管理台 | docs/07 |
-| `rc` CLI | `rc login` 一次，`rc add <url>` 提交、`rc list/status/files` 管理 | docs/16 |
-| MCP | `rc mcp` 注册进 Claude 等 MCP 客户端，AI 助手代管下载 | docs/16 |
-| Telegram Bot | 发链接即入队，进度/完成主动推送 | docs/04 |
-| iOS 快捷指令 | Safari 分享 → 一键提交到家里实例（API 令牌通道） | docs/12 |
-| 浏览器扩展 | Chrome/Edge 一键发送当前页 | `extension/` |
-
-## 文档索引
-
-| 文档 | 内容 |
+| 入口 | 一句话 |
 | --- | --- |
-| [docs/01](docs/01-需求规格与行为契约.md) | 需求规格与行为契约（六大模块 + 七态状态机 + 验收口径） |
-| [docs/02](docs/02-架构详细设计.md) | 架构设计（ADR / 模块边界 / 安全 / 可观测） |
-| [docs/03](docs/03-数据模型设计.md) | 数据模型（全量 DDL，与迁移同源） |
-| [docs/04](docs/04-API详细设计.md) | HTTP API 契约（端点 + SSE + 错误码） |
-| [docs/05](docs/05-任务系统详细设计.md) | 任务系统（调度 / 恢复 / 父子任务 / 后处理） |
-| [docs/06](docs/06-配置中心详细设计.md) | 配置中心（五要素 / 三时机 / 环境变量锁定） |
-| [docs/07](docs/07-前端设计落地.md) | 前端设计（设计 Token / 组件 / 交互铁律） |
-| [docs/08](docs/08-开发计划.md) | 开发计划与验证门禁 |
-| [docs/09](docs/09-Wave1-2交付与验证.md) / [docs/10](docs/10-Wave4-5交付与验收.md) | 分波交付与验收记录（含未实测清单） |
-| [docs/12](docs/12-iOS快捷指令契约.md) | iOS 快捷指令契约（服务端侧已回归验证） |
-| [docs/13](docs/13-系统性重构-增量PRD.md) – [docs/15](docs/15-系统性重构-增量设计.md) | 系统性重构 PRD 与设计 |
-| [docs/16](docs/16-AI助手接入-Agent-Skill指引.md) | CLI / MCP / AI 助手接入指引 |
-| [docs/17](docs/17-部署指南.md) | 部署指南（docker run / compose / 升级 / 备份 / 反代 / 排障） |
+| Web 界面 | 全功能管理台（实时进度、订阅、直播、媒体库、设置） |
+| `rc` CLI | `rc login` 一次，之后 `rc add <url>` 提交、`rc list / status / files` 管理 |
+| MCP | `rc mcp` 注册进 Claude 等 MCP 客户端，AI 助手代管下载 |
+| Telegram Bot | 设置页填 Bot Token，发链接即入队，进度/完成主动推送 |
+| iOS 快捷指令 | Safari 分享 → 一键提交到家里实例（设置页签发 API 令牌） |
+| 浏览器扩展 | Chrome/Edge MV3，当前页一键发送（见仓库 `extension/` 目录） |
 
 ## 开发
 
@@ -86,21 +147,18 @@ docker run -d --name raccoon --restart unless-stopped \
 
 ```bash
 make verify          # 一键验证：gofmt / go vet / 后端编译 / 前端 typecheck+build / 设计符合度对账
-make backend-test    # 后端全量测试（14 包）
-make web-test        # 前端全量测试（vitest）
+make backend-test    # 后端全量测试
+make web-test        # 前端全量测试
 make web-dev         # 前端开发服务器 :5173（/api 代理到 8530）
-make docker-build    # 本地构建镜像（raccoon-server:<VERSION>）
+make docker-build    # 本地构建镜像
 make docker-release  # 双架构构建并推 Docker Hub（需 docker login）
 ```
-
-本地运行推荐 compose（`docker compose up -d --build`，端口 8530，数据落 `./data`）；
-质量门禁详情见 docs/10。
 
 ## 目录结构
 
 ```
 Raccoon/
-├── docs/                   # 全量设计文档（01 需求契约 … 17 部署指南）
+├── docs/                   # 设计与运维文档（需求契约 / 架构 / API / 部署指南等）
 ├── extension/              # 浏览器扩展（Chrome/Edge MV3，零依赖）
 ├── backend/                # Go 服务端
 │   ├── cmd/raccoon/        # 服务入口；cmd/rc/ 为 CLI + MCP 服务器
@@ -120,14 +178,7 @@ Raccoon/
 
 - **单一任务系统**：所有入口操作同一队列、同一状态机，没有第二套任务系统；
 - **状态即真相**：失败不美化、大小未知不估算、不支持的能力不说「能」；
-- **配置五要素**：每项设置带说明/默认值/校验/敏感级/生效时机；
 - **数据单目录**：`/data` 承载数据库、配置、凭据、日志与下载文件，备份恢复只认这一个目录。
-
-## 已知限制
-
-- 115 / qBittorrent / Telegram 按官方契约实现且有单测，但无真实账号的长期实战验证；
-- iOS 快捷指令的服务端契约已由集成测试锁定，快捷指令 App 内的动作组装未真机实测；
-- 会员内容的边界见上文「能力边界」。完整未实测清单见 docs/10 §6。
 
 ## 许可证
 
