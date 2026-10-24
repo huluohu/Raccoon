@@ -17,7 +17,7 @@ services:
         # TLS 指纹伪装库：PornHub 等站点对非浏览器指纹返回 410 Gone。
         # 同样必须与 Dockerfile 的 ARG 默认值一致。
         CURLCFFI_VERSION: "0.16.3"
-    image: fooololo/raccoon-server:1.0.4
+    image: fooololo/raccoon-server:1.0.5
     container_name: raccoon
     network_mode: bridge
     ports:
