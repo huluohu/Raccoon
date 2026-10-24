@@ -61,6 +61,12 @@ async function submit() {
         <RaccoonLogo :size="56" tagline="自托管多媒体下载中心" />
       </div>
 
+      <!-- 会话过期提示：被动登出（SSE/接口 401）时说明「为什么让我登录」，
+           与主动登出区分——否则用户会误以为某个操作（如提交下载）要求登录。 -->
+      <p v-if="auth.sessionExpired" class="expired-hint" role="status">
+        登录状态已过期，请重新登录后继续之前的操作。
+      </p>
+
       <form @submit.prevent="submit">
         <label>
           <span>用户名</span>
@@ -132,6 +138,15 @@ button { margin-top: 6px; padding: 11px 16px; border: none; border-radius: var(-
 button:hover:not(:disabled) { background: var(--cta-bg-strong); }
 button:disabled { opacity: 0.6; cursor: progress; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-aux); }
+.expired-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  background: var(--gold-soft);
+  color: var(--text-2);
+  font-size: var(--font-aux);
+}
 .hint { margin: 18px 0 0; font-size: var(--font-caption); color: var(--text-3); }
 /* 主题切换行：四枚色板圆点 + 名字，登录前的第一印象跟着主题走。 */
 .themes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 16px; }

@@ -12,6 +12,8 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   const busy = ref(false)
   const error = ref('')
+  /** 会话过期/失效被登出（区别于主动登出）：登录页据此提示「为什么让我登录」。 */
+  const sessionExpired = ref(false)
 
   /** 启动判定：先问 setup_required，再探 me（cookie 可能仍有效）。 */
   async function bootstrap(): Promise<void> {
@@ -62,6 +64,7 @@ export const useAuthStore = defineStore('auth', () => {
       const res = await api.authLogin(username, password, remember)
       setCsrfToken(res.csrf_token)
       user.value = res.user
+      sessionExpired.value = false
       phase.value = 'ready'
     } catch (e) {
       error.value = e instanceof ApiError ? e.message : '登录失败'
@@ -113,8 +116,9 @@ export const useAuthStore = defineStore('auth', () => {
   function markUnauthenticated(): void {
     setCsrfToken('')
     user.value = null
+    sessionExpired.value = true
     phase.value = 'login'
   }
 
-  return { phase, user, busy, error, bootstrap, setup, login, logout, markUnauthenticated, changeUsername, changePassword, hasCsrf: () => !!getCsrfToken() }
+  return { phase, user, busy, error, sessionExpired, bootstrap, setup, login, logout, markUnauthenticated, changeUsername, changePassword, hasCsrf: () => !!getCsrfToken() }
 })

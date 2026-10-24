@@ -99,6 +99,7 @@ var RetryableErrorCodes = map[string]bool{
 	"WORKER_PANIC": true,
 	"ENGINE_ERROR": true,
 	"TIMEOUT":      true,
+	"BOT_CHECK":    true, // 平台 IP 人机验证：间歇性，重试大概率过（docs/05 §7）
 }
 
 func IsRetryable(code string) bool { return RetryableErrorCodes[code] }

@@ -487,6 +487,8 @@ func fixHintFor(code string) string {
 	switch code {
 	case "AUTH_REQUIRED":
 		return fixHintGotoCredentials()
+	case "BOT_CHECK":
+		return `{"action":"retry","label":"平台对本服务器 IP 的人机验证（非账号问题），可直接重试；频繁出现可在「连接」页配该平台 Cookie 或在「设置」页配代理"}`
 	case "FORMAT_UNAVAILABLE":
 		return fixHintChangeQuality()
 	case "NOT_FOUND":

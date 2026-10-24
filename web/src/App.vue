@@ -148,6 +148,9 @@ async function quickSubmit(target: string) {
   try {
     await tasks.submit(target)
     quickUrl.value = ''
+    // 单条与批量同规格的回执：顶栏提交后用户可能停留在任意页面，
+    // 任务列表不一定可见，没有 toast 就像「按了没反应」。
+    toast.success('已加入下载队列')
   } catch (e) {
     quickErr.value = e instanceof Error ? e.message : '提交失败'
   }

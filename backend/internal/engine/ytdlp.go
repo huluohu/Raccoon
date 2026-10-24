@@ -593,6 +593,15 @@ func classify(err error, output string) error {
 		strings.Contains(low, "requires impersonation"):
 		ue.Code = "IMPERSONATION_UNAVAILABLE"
 		ue.Message = "该站点要求浏览器指纹伪装，运行环境缺少 curl_cffi 支持"
+	// 平台人机验证（YouTube 为典型）：数据中心/家宽出口 IP 会被间歇性要求
+	// "Sign in to confirm you're not a bot"。这不是账号问题（匿名同样可下），
+	// 是 IP 信誉问题，且多数时候重试即过——必须与真正的账号鉴权失败分开：
+	// 早先裸匹配 "log in" 把它归入 AUTH_REQUIRED（不可自动重试 + 建议
+	// 「去连接页更新凭据」），用户读作「必须登录才能下载」。
+	case strings.Contains(low, "confirm you're not a bot"), strings.Contains(low, "confirm you are not a bot"),
+		strings.Contains(low, "not a bot"):
+		ue.Code = "BOT_CHECK"
+		ue.Message = "平台对本服务器 IP 触发了人机验证（非账号问题），通常重试即可；频繁出现可在「连接」页配置该平台 Cookie 或在「设置」页配置代理出口"
 	// 引擎版本落后于平台改版：YouTube 改内部实现后老版 yt-dlp 会稳定报
 	// "The page needs to be reloaded."。这是本机可修的确定性问题（升级引擎），
 	// 不该和普通网络抖动混在一起自动重试。
@@ -606,6 +615,9 @@ func classify(err error, output string) error {
 		strings.Contains(low, "requested format not available"):
 		ue.Code = "FORMAT_UNAVAILABLE"
 		ue.Message = "所选清晰度不可用，可换其他清晰度重试"
+	// 真正的账号鉴权失败（members-only / 私享视频 / 年龄验证要求登录 /
+	// Cookie 过期）。注意 "sign in to confirm your age" 这类年龄闸也归这里，
+	// 但 "sign in to confirm you're not a bot" 已被上方 BOT_CHECK 截走。
 	case strings.Contains(low, "sign in to confirm"), strings.Contains(low, "log in"), strings.Contains(low, "members-only"),
 		strings.Contains(low, "cookies"), strings.Contains(low, "authentication"), strings.Contains(low, "private video"):
 		ue.Code = "AUTH_REQUIRED"

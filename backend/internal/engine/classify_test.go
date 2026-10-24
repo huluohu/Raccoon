@@ -110,3 +110,45 @@ func TestEngineDetail_超长截断(t *testing.T) {
 		t.Fatalf("截断后应以省略号结尾，实际 %q", got)
 	}
 }
+
+func TestClassify_平台人机验证归类为BOT_CHECK(t *testing.T) {
+	// 2026-10-24 用户实测：容器出口 IP 被 YouTube 间歇性要求
+	// "Sign in to confirm you're not a bot"。裸匹配 "log in" 曾把它归为
+	// AUTH_REQUIRED（不可自动重试 + 建议「去连接页更新凭据」），
+	// 用户读作「必须登录才能下载」——实际是 IP 人机验证，重试大概率过。
+	for _, out := range []string{
+		"ERROR: [youtube] dQw4w9WgXcQ: Sign in to confirm you're not a bot. This helps protect our community. Learn more\n",
+		"ERROR: [youtube] abc: Sign in to confirm you are not a bot\n",
+	} {
+		err := classify(&ExitError{Code: 1}, out)
+		var ee *EngineError
+		if !errors.As(err, &ee) {
+			t.Fatalf("期望 EngineError，实际 %T", err)
+		}
+		if ee.Code != "BOT_CHECK" {
+			t.Fatalf("输出 %q 的错误码应为 BOT_CHECK，实际 %s", out, ee.Code)
+		}
+		if strings.Contains(ee.Message, "登录") || strings.Contains(ee.Message, "凭据") {
+			t.Fatalf("BOT_CHECK 文案不应引导用户去登录/配凭据: %s", ee.Message)
+		}
+	}
+}
+
+func TestClassify_真账号问题仍归AUTH_REQUIRED(t *testing.T) {
+	// bot check 截走后，真正的账号类错误（年龄验证/members-only/Cookie 失效）
+	// 仍应归 AUTH_REQUIRED。
+	for _, out := range []string{
+		"ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some users.\n",
+		"ERROR: [youtube] abc: Private video. Sign in if you've been granted access\n",
+		"ERROR: [bilibili] abc: account is required, use --cookies\n",
+	} {
+		err := classify(&ExitError{Code: 1}, out)
+		var ee *EngineError
+		if !errors.As(err, &ee) {
+			t.Fatalf("期望 EngineError，实际 %T", err)
+		}
+		if ee.Code != "AUTH_REQUIRED" {
+			t.Fatalf("输出 %q 的错误码应为 AUTH_REQUIRED，实际 %s", out, ee.Code)
+		}
+	}
+}
