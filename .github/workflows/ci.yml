@@ -4,10 +4,11 @@ name: CI
 # 只做验证不发布——发布（Docker Hub + GHCR）走 release.yml 的 tag 流水线。
 
 on:
-  push:
-    branches: [main]
+  # 约定（2026-10-24）：推 main 不触发任何流水线；CI 只在 PR 与手动时跑。
+  # 发布行为（Docker Hub / GHCR）只由 v* 标签触发（release.yml，内含同口径门禁）。
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
