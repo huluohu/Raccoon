@@ -14,7 +14,7 @@ services:
       args:
         YTDLP_VERSION: "2026.10.21"
         CURLCFFI_VERSION: "0.16.3"
-    image: fooololo/raccoon-server:1.0.8
+    image: fooololo/raccoon-server:latest
     container_name: raccoon
     network_mode: bridge
     ports:
