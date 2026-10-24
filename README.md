@@ -70,7 +70,7 @@ docker run -d \
   -v /opt/raccoon/data:/data \
   -v /opt/raccoon/downloads:/downloads \
   -e TZ=Asia/Shanghai \
-  fooololo/raccoon-server:1.0.3
+  fooololo/raccoon-server:latest
 
 # 3. 健康检查（应返回 {"status":true,...}）
 curl http://127.0.0.1:8530/healthz
@@ -85,7 +85,7 @@ curl http://127.0.0.1:8530/healthz
 ```yaml
 services:
   raccoon:
-    image: fooololo/raccoon-server:1.0.3   # 升级 = 改这一行
+    image: fooololo/raccoon-server:latest   # 升级 = 改这一行
     container_name: raccoon
     restart: unless-stopped
     ports:
@@ -123,7 +123,7 @@ NAS 部署与上面完全同构——镜像名、端口、挂载、环境变量�
 **威联通 QNAP（QTS 5.x，Container Station）**
 
 1. **File Station** 建共享文件夹或子目录 `raccoon`，设置权限允许 uid 1000（或 admin）读写；
-2. **Container Station → 映像文件**：提取 `fooololo/raccoon-server:1.0.3`（ registry 仓库地址填 `fooololo/raccoon-server`）；
+2. **Container Station → 映像文件**：提取 `fooololo/raccoon-server:latest`（ registry 仓库地址填 `fooololo/raccoon-server`）；
 3. 映像列表 → **+ 创建容器**：名称 `raccoon`，重启策略 `always`；
 4. **高级设置**：
    - 网络：转发端口 `8530 → 8530`（TCP）；
