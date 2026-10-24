@@ -10,6 +10,7 @@ const version = ref('')
 
 const REPO_URL = 'https://github.com/huluohu/Raccoon'
 const AUTHOR = 'huluohu'
+const AUTHOR_BLOG = 'https://www.huluohu.com'
 
 onMounted(async () => {
   try {
@@ -53,7 +54,7 @@ defineExpose({ openDialog })
           </div>
           <div class="about-row">
             <dt>作者</dt>
-            <dd>{{ AUTHOR }}</dd>
+            <dd>{{ AUTHOR }} · <a :href="AUTHOR_BLOG" target="_blank" rel="noopener noreferrer">www.huluohu.com</a></dd>
           </div>
         </dl>
         <p class="about-note">MIT License · 不设付费激活、设备数量限制或功能墙</p>

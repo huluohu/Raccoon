@@ -283,18 +283,24 @@ onUnmounted(() => {
             <span class="conn" :class="tasks.connected ? 'on' : 'off'" :title="tasks.connected ? '实时连接正常' : '实时连接断开，正在重连'">
               {{ tasks.connected ? '实时' : '重连中' }}
             </span>
+            <!-- 退出并入用户行（2026-10-24 用户设计诉求）：用户名/状态在左，退出图标在右 -->
+            <button
+              class="logout-inline"
+              type="button"
+              title="退出登录"
+              aria-label="退出登录"
+              @click="auth.logout()"
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path d="M6.4 3.6H3.8a1 1 0 0 0-1 1v6.8a1 1 0 0 0 1 1h2.6M10.4 5.6 13 8l-2.6 2.4M13 8H6.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
           </div>
           <button class="foot-btn" type="button" @click="aboutRef?.openDialog()">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path d="M8 7.2v4.2M8 4.6a.7.7 0 1 0 0-1.4.7.7 0 0 0 0 1.4zM8 14.6A6.6 6.6 0 1 0 8 1.4a6.6 6.6 0 0 0 0 13.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
             <span class="btn-text">关于</span>
-          </button>
-          <button class="foot-btn" type="button" @click="auth.logout()">
-            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-              <path d="M6.4 3.6H3.8a1 1 0 0 0-1 1v6.8a1 1 0 0 0 1 1h2.6M10.4 5.6 13 8l-2.6 2.4M13 8H6.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <span class="btn-text">退出登录</span>
           </button>
 
         </div>
@@ -508,6 +514,22 @@ onUnmounted(() => {
 /* 用户区与导航列表之间必须有分隔：否则账户区会和上面的导航项连成一条无尽列表。 */
 .nav-foot { position: relative; margin-top: auto; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--nav-border); padding-top: 14px; }
 .user-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; min-width: 0; }
+/* 行内退出按钮（并入用户行，2026-10-24）：常态低调，悬停转危险色示退出意图。 */
+.logout-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-ctrl);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.logout-inline:hover { color: var(--danger); background: var(--surface-2); }
 /* 用户名是「当前身份」，正文档 + 反白，不当辅助信息。 */
 .user { font-size: var(--font-body); font-weight: var(--weight-strong); color: var(--nav-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 /* 实时连接状态：辅助档 13.5px（§2「12px 仅表头/徽章」，这是状态提示不是徽章）。 */
