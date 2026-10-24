@@ -30,9 +30,9 @@ type Setting struct {
 // Registry 全部设置的定义；新增设置必须五要素齐全（评审门禁）。
 var Registry = []Setting{
 	{Key: "server.addr", Desc: "HTTP 监听地址", Default: ":8530", Effective: Restart, EnvVar: "RACCOON_SERVER_ADDR"},
-	{Key: "storage.data_dir", Desc: "数据根目录（数据库/配置/凭据/日志/默认下载）", Default: "/data", Effective: Restart, EnvVar: "RACCOON_DATA_DIR"},
+	{Key: "storage.data_dir", Desc: "数据根目录（数据库/配置/凭据/日志；下载文件在 storage.download_dir）", Default: "/data", Effective: Restart, EnvVar: "RACCOON_DATA_DIR"},
 	{Key: "storage.download_dir", Desc: "默认下载目录（绝对路径如 /downloads，或相对数据根；Docker 镜像内由 RACCOON_DOWNLOAD_DIR 锁定为 /downloads）", Default: "downloads", Effective: NextTask, EnvVar: "RACCOON_DOWNLOAD_DIR"},
-	{Key: "storage.naming_rule", Desc: "目录与文件名命名规则", Default: "{platform}/{uploader}/{title}.{ext}", Effective: NextTask},
+	{Key: "storage.naming_rule", Desc: "文件命名规则（预留：当前文件名由引擎模板固定为「标题 [ID].扩展名」，修改暂不生效）", Default: "{platform}/{uploader}/{title}.{ext}", Effective: NextTask},
 	{Key: "storage.disk_warn_pct", Desc: "磁盘余量预警百分比", Default: 5, Effective: Immediate},
 	// ---- 存储策略路由（docs/01 §3.4 / docs/15 §3.7）----
 	// local：磁力/种子直接走 qB、其余走本地引擎（存量行为，升级零变化）；
