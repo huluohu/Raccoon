@@ -159,7 +159,9 @@ onMounted(load)
       :sub="`直播源 ${items.length} 个，直播中 ${liveCount} 个 · ${supportedNote}`"
     >
       <template #actions>
-        <RButton variant="accent" :disabled="supported.length === 0" @click="resetForm">添加直播源</RButton>
+        <!-- 空态时页头不放按钮：空态卡里已有「添加第一个直播源」，两个同功能
+             按钮同屏是重复（2026-10-24 用户反馈）。有源后才显示页头入口。 -->
+        <RButton v-if="items.length > 0" variant="accent" :disabled="supported.length === 0" @click="resetForm">添加直播源</RButton>
       </template>
     </PageHeader>
 

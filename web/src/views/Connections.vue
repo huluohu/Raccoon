@@ -275,12 +275,6 @@ async function load() {
   }
 }
 
-function resetForm() {
-  form.value = { platform: 'telegram', kind: 'cookie_file', label: '', note: '', value: '', expires_at: '' }
-  editing.value = null
-  formOpen.value = true
-}
-
 function openEdit(c: Credential) {
   editing.value = c
   form.value = {
@@ -372,9 +366,8 @@ onMounted(() => {
       title="连接"
       sub="与外部系统的集成：qBittorrent / 115 / Telegram · 内容平台的登录态在「平台账号」页"
     >
-      <template #actions>
-        <RButton variant="accent" @click="resetForm">新建凭据</RButton>
-      </template>
+      <!-- 无「新建凭据」入口（2026-10-24 用户裁决）：集成参数走各通道的
+           「填写参数」；内容平台凭据在「平台账号」页。 -->
     </PageHeader>
 
     <!-- 外部集成通道 -->
@@ -435,9 +428,7 @@ onMounted(() => {
       v-else-if="!loading && integrationCreds.length === 0"
       face="waiting"
       title="还没有集成组件的凭据"
-      hint="内容平台（B站 / YouTube 等）的登录态在「平台账号」页；这里管 qBittorrent / 115 / Telegram 的连接凭据。"
-      action-label="新建凭据"
-      @action="resetForm"
+      hint="集成参数在上方各通道的「填写参数」里就地配置；内容平台的登录态在「平台账号」页。"
     />
 
     <!-- 凭据列表（方案 §3 视图级组件 CredentialList：只回打码预览） -->

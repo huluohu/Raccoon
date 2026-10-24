@@ -59,7 +59,9 @@ function btnByText(w: any, text: string) {
 
 beforeEach(() => {
   mocks.listLiveSources.mockReset().mockResolvedValue({
-    items: [],
+    // 预置一个源：页头「添加直播源」按钮按 2026-10-24 裁决仅在非空态显示
+    // （空态时空态卡自带「添加第一个直播源」，两个同功能按钮不同屏）。
+    items: [{ id: 'ls1', url: 'https://live.bilibili.com/1', platform: 'bilibili', status: 'offline' }],
     supported: ['bilibili', 'douyu'],
     supported_note: '实测：B 站 / 斗鱼可稳定拉流',
   })
@@ -99,7 +101,11 @@ describe('Live 视图', () => {
   })
 
   it('后端一个平台都没实测时禁用添加按钮，不开放填写', async () => {
-    mocks.listLiveSources.mockResolvedValueOnce({ items: [], supported: [], supported_note: '未实测' })
+    mocks.listLiveSources.mockResolvedValueOnce({
+      items: [{ id: 'ls1', url: 'https://live.bilibili.com/1', platform: 'bilibili', status: 'offline' }],
+      supported: [],
+      supported_note: '未实测',
+    })
     const w = mountLive()
     await flushPromises()
 
@@ -127,6 +133,7 @@ describe('Live 视图', () => {
   })
 
   it('空数据显示引导空态', async () => {
+    mocks.listLiveSources.mockResolvedValueOnce({ items: [], supported: ['bilibili'], supported_note: '' })
     const w = mountLive()
     await flushPromises()
     expect(w.find('.stub-empty').text()).toContain('还没有直播源')

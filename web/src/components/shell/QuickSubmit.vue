@@ -187,11 +187,12 @@ const linkCount = computed(() => extractUrls(props.modelValue).length)
 }
 .qsubmit-btn {
   flex-shrink: 0;
-  padding: 9px 20px;
+  /* 高度跟随输入框（自带上下 padding 会比输入框高出一截，2026-10-24 反馈）。 */
+  align-self: stretch;
+  padding: 0 20px;
   border: none;
   border-radius: var(--radius-ctrl);
-  /* 围巾金实底：全站最高频动作（提交下载）。深墨字压金底，
-     不用白字——白压金只有 1.9:1，根本读不清（tokens.css --cta-fg 注释同源）。 */
+  /* 围巾金实底：全站最高频动作（深墨字压金底，白压金对比不足）。 */
   background: var(--cta-bg);
   color: var(--cta-fg);
   font-size: var(--font-body);

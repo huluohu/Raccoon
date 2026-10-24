@@ -324,22 +324,25 @@ def check_typography_semantics() -> None:
           f"--font-body 引用数：{body_usage}（阈值 20）")
 
 
-# ------------------------------------------------- §6 网格轨道塌陷（禁 auto-fill）
-# auto-fill 与 auto-fit 的差别在数据少的时候才显出来：
-# auto-fill 会把空轨道也占上，于是 1184px 宽的内容区排 4 条 285px 轨道，
-# 页面只有 2 个卡片时右侧空出 570px——整页看着「东西全挤在左边」。
-# 这是「布局不成比例」最直接的来源，必须由闸门兜住。
+# ------------------------------------------------- §6 网格轨道（媒体库 auto-fill，其余 auto-fit）
+# 2026-10-24 用户裁决（推翻本条早先的全局 auto-fit）：媒体库网格用 auto-fill——
+# auto-fit 在文件很少时会把唯一有内容的卡片拉伸占满整行（「1 个视频排满全宽」，
+# 用户实测截图裁决为更丑）；卡片保持固有尺寸、不足留白才是网格的常规语义。
+# 其余页面维持 auto-fit（通道卡/订阅卡常态多卡，塌陷无拉伸副作用且不留白）。
 def check_grid_collapse() -> None:
-    """§6 卡片网格用 auto-fit（空轨道塌陷），不用 auto-fill。"""
+    """§6 媒体库网格 auto-fill（卡片不拉伸）；其余网格 auto-fit。"""
     offenders = []
+    media = (WEB / "views" / "Media.vue").read_text(encoding="utf-8", errors="ignore")
+    check("§6 媒体库网格 auto-fill（单卡不拉伸满宽）",
+          "repeat(auto-fill" in media, "views/Media.vue")
     for p in WEB.rglob("*.vue"):
-        if p.name.endswith(".spec.ts"):
+        if p.name.endswith(".spec.ts") or p.name == "Media.vue":
             continue
         txt = p.read_text(encoding="utf-8", errors="ignore")
         for m in re.finditer(r"grid-template-columns\s*:\s*repeat\(\s*auto-fill", txt):
             line = txt[:m.start()].count("\n") + 1
             offenders.append(f"{p.relative_to(WEB)}:{line}")
-    check("§6 卡片网格用 auto-fit（空轨道塌陷，不留右侧空白）", not offenders,
+    check("§6 其余网格维持 auto-fit（空轨道塌陷，不留右侧空白）", not offenders,
           f"仍用 auto-fill：{offenders}" if offenders else "")
 
     # 行内操作区必须横排：竖排时「速度/大小/取消/重试/删除」挤成一摞，

@@ -103,43 +103,6 @@ describe('Connections 视图', () => {
     expect(w.find('.stub-empty').text()).toContain('平台账号')
   })
 
-  it('新建凭据内容为空时被前端拦下，不发请求', async () => {
-    const w = mountConn()
-    await flushPromises()
-    await btnByText(w, '新建凭据').trigger('click')
-    await flushPromises()
-
-    // 直接提交表单：内容为空必须拦住
-    await w.find('form').trigger('submit')
-    await flushPromises()
-    expect(mocks.createCredential).not.toHaveBeenCalled()
-  })
-
-  it('新建凭据带上平台/类型/内容与到期日', async () => {
-    const w = mountConn()
-    await flushPromises()
-    await btnByText(w, '新建凭据').trigger('click')
-    await flushPromises()
-
-    await w.find('input[placeholder*="主号"]').setValue('小号')
-    await w.find('textarea').setValue('bot-token-xxx')
-    await w.find('input[type="date"]').setValue('2027-01-31')
-    await w.find('form').trigger('submit')
-    await flushPromises()
-
-    expect(mocks.createCredential).toHaveBeenCalledWith(
-      expect.objectContaining({
-        platform: 'telegram',
-        kind: 'cookie_file',
-        label: '小号',
-        value: 'bot-token-xxx',
-      }),
-    )
-    // 到期日转成当天 23:59:59 的时间戳
-    const arg = mocks.createCredential.mock.calls[0][0] as { expires_at?: number }
-    expect(arg.expires_at).toBe(new Date('2027-01-31T23:59:59').getTime())
-  })
-
   it('编辑态留空 value = 保持原样，不把空串写上去', async () => {
     mocks.listCredentials.mockResolvedValueOnce({ items: [makeCred()] })
     const w = mountConn()

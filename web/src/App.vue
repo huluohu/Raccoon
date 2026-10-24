@@ -24,6 +24,7 @@ import Login from '@/views/Login.vue'
 import Setup from '@/views/Setup.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
+import AboutDialog from '@/components/shell/AboutDialog.vue'
 import RToast from '@/components/base/RToast.vue'
 import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
 import { useNowTick } from '@/utils/now'
@@ -45,6 +46,7 @@ const quickUrl = ref('')
 const quickErr = ref('')
 /** 768–1023 抽屉态：侧导航收进抽屉时的开合。 */
 const navOpen = ref(false)
+const aboutRef = ref<InstanceType<typeof AboutDialog> | null>(null)
 /** <768 底部栏「更多」面板的开合（10 项塞不进 375px，5 高频 + 更多）。 */
 const moreOpen = ref(false)
 /** 主题切换弹层的开合（侧栏底部）。 */
@@ -291,6 +293,12 @@ onUnmounted(() => {
             <span class="foot-swatch" :style="{ background: currentTheme.swatch }" aria-hidden="true" />
             <span class="btn-text">主题 · {{ currentTheme.label }}</span>
           </button>
+          <button class="foot-btn" type="button" @click="aboutRef?.openDialog()">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path d="M8 7.2v4.2M8 4.6a.7.7 0 1 0 0-1.4.7.7 0 0 0 0 1.4zM8 14.6A6.6 6.6 0 1 0 8 1.4a6.6 6.6 0 0 0 0 13.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="btn-text">关于</span>
+          </button>
           <button class="foot-btn" type="button" @click="auth.logout()">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path d="M6.4 3.6H3.8a1 1 0 0 0-1 1v6.8a1 1 0 0 0 1 1h2.6M10.4 5.6 13 8l-2.6 2.4M13 8H6.2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
@@ -322,6 +330,7 @@ onUnmounted(() => {
           </div>
         </div>
       </aside>
+      <AboutDialog ref="aboutRef" />
       <!-- 抽屉态遮罩：点它即关，Esc 也关（键盘兜底见下方 onKeydown） -->
       <div v-if="navOpen" class="nav-mask" @click="navOpen = false" />
 

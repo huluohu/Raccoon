@@ -280,9 +280,9 @@ onMounted(load)
 .vt-btn + .vt-btn { border-left: 1px solid var(--border); }
 .vt-btn.on { background: var(--accent); color: var(--on-accent); }
 .cell-name { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 卡片网格：auto-fit 让空轨道塌陷。
-   auto-fill 在 1184px 宽下排 4 条 285px 轨道，文件只有 2 个时右侧空出 570px，
-   整页看着「东西全挤在左边」——这是比例失衡最直接的来源。 */
-.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
+/* 卡片网格：auto-fill 保持卡片固有尺寸（2026-10-24 用户裁决，推翻早先的 auto-fit）。
+   auto-fit 的空轨道塌陷会把唯一有内容的卡片拉伸占满整行——
+   「1 个视频排满全宽」比右侧留白更丑（用户实测截图裁决）。 */
+.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
 .deleting-hint { margin: 8px 0 0; font-size: var(--font-aux); color: var(--text-3); }</style>
