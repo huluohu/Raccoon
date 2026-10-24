@@ -31,9 +31,29 @@ FROM debian:bookworm-slim
 ARG YTDLP_VERSION=2026.10.21
 ARG GALLERYDL_VERSION=1.32.17
 ARG CURLCFFI_VERSION=0.16.3
+ARG TARGETARCH
+# ffmpeg 用 yt-dlp 社区的静态构建而非 Debian 包（2026-10-25 瘦身）：
+# Debian 的 ffmpeg 会拖入 libgl1→mesa→libllvm15（109MB）+libz3（21MB）+mesa-dri（23MB）
+# 一整条 GPU 依赖链（容器内无用，且 purge 会连带删掉 ffmpeg 本身）。
+# 静态构建单二进制含全部编解码器（h264/mp3lame/aac），bin/ 里取 ffmpeg+ffprobe 两个文件。
+ARG FFMPEG_TAG=latest
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl ffmpeg tzdata python3 python3-pip \
+      ca-certificates curl tzdata python3 python3-pip tar xz-utils \
     && rm -rf /var/lib/apt/lists/* \
+    # 静态 ffmpeg：按目标架构选包（amd64→linux64 / arm64→linuxarm64）
+    && case "${TARGETARCH}" in \
+         amd64) FF_AR=linux64 ;; \
+         arm64) FF_AR=linuxarm64 ;; \
+         *) echo "不支持的架构: ${TARGETARCH}"; exit 1 ;; \
+       esac \
+    # 资产名里也带 tag 段（tag=latest → ffmpeg-master-latest-linux64-gpl.tar.xz）
+    && curl -fsSL -o /tmp/ff.tar.xz \
+      "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/${FFMPEG_TAG}/ffmpeg-master-${FFMPEG_TAG}-${FF_AR}-gpl.tar.xz" \
+    && mkdir -p /tmp/ff \
+    && tar -xJf /tmp/ff.tar.xz -C /tmp/ff --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' \
+    && mv /tmp/ff/ffmpeg /tmp/ff/ffprobe /usr/local/bin/ \
+    && rm -rf /tmp/ff /tmp/ff.tar.xz \
+    && ffmpeg -version | head -1 \
     # yt-dlp 固定版本（升级引擎=升级镜像，docs/02 §8）
     && curl -fsSL -o /usr/local/bin/yt-dlp \
       "https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/yt-dlp" \

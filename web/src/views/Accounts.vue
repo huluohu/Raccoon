@@ -11,7 +11,7 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '@/api/client'
 import { useToastStore } from '@/stores/toast'
 import type { Credential } from '@/api/types'
-import { CONTENT_PLATFORMS, PLATFORM_LABELS } from '@/utils/platforms'
+import { CONTENT_PLATFORMS, INTEGRATION_PLATFORMS, PLATFORM_LABELS } from '@/utils/platforms'
 import RButton from '@/components/base/RButton.vue'
 import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
@@ -26,7 +26,15 @@ const loading = ref(true)
 const loadErr = ref('')
 
 /** 只管内容平台的账号；集成组件（Telegram/115/qB）在「连接」页。 */
-const contentCreds = computed(() => items.value.filter((c) => (CONTENT_PLATFORMS as readonly string[]).includes(c.platform)))
+const contentCreds = computed(() => {
+  const integ = new Set<string>(INTEGRATION_PLATFORMS as readonly string[])
+  return items.value.filter((c) => !integ.has(c.platform))
+})
+
+/** 是否自定义平台（不在内置清单里，如 NAS 上的私人影库、小众站点）。 */
+const isCustomPlatform = computed(
+  () => form.value.platform.trim() !== '' && !(CONTENT_PLATFORMS as readonly string[]).includes(form.value.platform.trim()),
+)
 
 const formOpen = ref(false)
 const editing = ref<Credential | null>(null)
@@ -38,6 +46,9 @@ const form = ref({
   note: '',
   value: '',
   expires_at: '',
+  /** 自定义平台的 Cookie 域名（如 .example.com）：提交时拼进凭据内容，
+   *  引擎注入按域限发（writeCookieFile 对无域凭据拒绝产文件）。 */
+  customDomain: '',
 })
 
 const checking = ref('')
@@ -76,7 +87,7 @@ async function load() {
 }
 
 function resetForm() {
-  form.value = { platform: 'bilibili', kind: 'cookie_file', label: '', note: '', value: '', expires_at: '' }
+  form.value = { platform: 'bilibili', kind: 'cookie_file', label: '', note: '', value: '', expires_at: '', customDomain: '' }
   editing.value = null
   formOpen.value = true
 }
@@ -90,6 +101,7 @@ function openEdit(c: Credential) {
     note: c.note ?? '',
     value: '',
     expires_at: c.expires_at ? new Date(c.expires_at).toISOString().slice(0, 10) : '',
+    customDomain: '',
   }
   formOpen.value = true
 }
@@ -108,12 +120,19 @@ async function save() {
       await api.updateCredential(editing.value.id, body)
       toast.success('凭据已更新')
     } else {
+      // 自定义平台：把 Cookie 域名拼进凭据内容（引擎按域限发 Cookie；
+      // 无域凭据引擎注入层会拒产文件），平台名按输入原文（trim + 小写化由用户保证语义）。
+      const plat = form.value.platform.trim().toLowerCase()
+      const domain = form.value.customDomain.trim()
+      const value = domain && !/domain=/i.test(form.value.value)
+        ? `domain=${domain}; ${form.value.value}`
+        : form.value.value
       await api.createCredential({
-        platform: form.value.platform,
+        platform: plat,
         kind: form.value.kind,
         label: form.value.label,
         note: form.value.note,
-        value: form.value.value,
+        value,
         expires_at: expiresAt,
       })
       toast.success('凭据已加密保存')
@@ -197,10 +216,24 @@ onMounted(load)
     <DetailDrawer :open="formOpen" :title="isEditing ? '编辑平台账号' : '添加平台凭证'" @close="formOpen = false">
       <form class="form" @submit.prevent="save">
         <label class="field">
-          <span class="field-label">平台</span>
-          <select v-model="form.platform" :disabled="isEditing">
+          <span class="field-label">平台（内置可选，也可直接输入自定义平台名）</span>
+          <input
+            v-model="form.platform"
+            type="text"
+            list="platform-options"
+            :disabled="isEditing"
+            placeholder="bilibili / youtube / 或任意自定义平台名"
+            autocomplete="off"
+          />
+          <datalist id="platform-options">
             <option v-for="p in PLATFORM_OPTIONS" :key="p.value" :value="p.value">{{ p.label }}</option>
-          </select>
+          </datalist>
+        </label>
+
+        <label v-if="isCustomPlatform && form.kind === 'cookie_file'" class="field">
+          <span class="field-label">Cookie 域名（自定义平台必填，如 .example.com）</span>
+          <input v-model="form.customDomain" type="text" placeholder=".example.com" autocomplete="off" />
+          <span class="field-hint">保存后会以 domain= 前缀并入凭据，下载时只发给该域，不会扩散</span>
         </label>
 
         <label class="field">

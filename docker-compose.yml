@@ -1,23 +1,20 @@
-# Raccoon 单容器部署：一个应用容器、一个 Web 端口、一个持久化数据目录（方案 §7）。
+# Raccoon 单容器部署：一个应用容器、一个 Web 端口、持久化数据 + 下载两个卷。
 # network_mode 显式 bridge：容器接入默认网桥，宿主机反代（Nginx Proxy Manager 等）经 127.0.0.1:8530 访问不断链。
 # 镜像发布在 Docker Hub（fooololo/raccoon-server）；本地开发/自建走 build。
+#
+# 镜像 tag 用 latest（2026-10-25 裁决）：不随发版改这个文件——
+# 更新 = docker compose pull && docker compose up -d；
+# 需要钉版本自行替换 tag（生产建议，见 docs/17 §5）。
 services:
   raccoon:
     build:
       context: .
+      # 版本号不在 compose 里维护（发版由 make docker-release VERSION=x.y.z 传入）。
+      # 引擎版本与 Dockerfile ARG 默认值保持一致（docs/02 §8：升级引擎 = 升级镜像）。
       args:
-        # 应用版本（与 Dockerfile ARG 默认一致；发布多架构镜像用 make docker-release）。
-        VERSION: "1.0.0"
-        # 引擎版本（docs/02 §8：升级引擎 = 升级镜像）。
-        # 必须与 Dockerfile 的 ARG 默认值保持一致，否则 compose 会覆盖掉
-        # Dockerfile 里已升级的版本，容器里仍是旧引擎。
-        # 2026-10-21：旧版 2025.01.15 在 YouTube 改版后解析全部失败
-        # （"The page needs to be reloaded."）。
         YTDLP_VERSION: "2026.10.21"
-        # TLS 指纹伪装库：PornHub 等站点对非浏览器指纹返回 410 Gone。
-        # 同样必须与 Dockerfile 的 ARG 默认值一致。
         CURLCFFI_VERSION: "0.16.3"
-    image: fooololo/raccoon-server:1.0.5
+    image: fooololo/raccoon-server:latest
     container_name: raccoon
     network_mode: bridge
     ports:
