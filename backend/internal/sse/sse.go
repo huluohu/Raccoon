@@ -77,7 +77,11 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer unsub()
 	connectedAt := time.Now()
 	h.log.Info("SSE 订阅建立", map[string]any{"remote": r.RemoteAddr})
-	defer h.log.Info("SSE 订阅结束", map[string]any{"remote": r.RemoteAddr, "alive_sec": int(time.Since(connectedAt).Seconds())})
+	// time.Since 必须延迟到断连时求值：直接写在 defer 参数里会在建立连接
+	// 那一刻取值（alive_sec 恒为 0），go vet 的 time_since 规则会拦下这种写法。
+	defer func() {
+		h.log.Info("SSE 订阅结束", map[string]any{"remote": r.RemoteAddr, "alive_sec": int(time.Since(connectedAt).Seconds())})
+	}()
 
 	flusher.Flush()
 	// 心跳 15s：要短于常见反代/端口转发的空闲超时（Nginx 默认 60s、
