@@ -26,6 +26,19 @@ Telegram Bot / 微信推送 / iOS 快捷指令 / CLI / MCP 多端触达，全部
 | 媒体库 | 入库检索、直链/预览、批量管理 |
 | 安全 | 登录 + 双通道鉴权（Cookie 会话 / Bearer Token + scope）、CSRF、SSRF 校验、路径穿越防护、SQL 全参数化、非 root 容器 |
 
+## UI 总览
+
+<p align="center">
+  <img src="docs/screenshots/ui-overview.png" alt="总览仪表盘" width="880">
+</p>
+总览仪表盘：实时指标、下载趋势、系统健康、进行中任务与失败重试入口一屏尽收。
+
+|  |  |
+| --- | --- |
+| <img src="docs/screenshots/ui-tasks-preview.png" width="420" alt="解析预览与格式选择"> **解析预览**：封面/时长/清晰度（带体积）+ 产物格式（源格式 / MP4 / MP3）一步选定 | <img src="docs/screenshots/ui-bili-qrcode.png" width="420" alt="B站扫码登录"> **B 站扫码登录**：手机扫码即配好会员下载凭据，免手抄 Cookie |
+| <img src="docs/screenshots/ui-tasks-done.png" width="420" alt="实时任务列表"> **任务列表**：七态状态机 + SSE 实时进度，失败任务带一键修复建议 | <img src="docs/screenshots/ui-media.png" width="420" alt="媒体库"> **媒体库**：下载自动入库，检索 / 预览 / 直链 |
+| <img src="docs/screenshots/ui-connections.png" width="420" alt="连接页"> **连接页**：凭据中心（AES-256-GCM 加密）与 qB / 115 / Telegram 通道状态 | <img src="docs/screenshots/ui-settings.png" width="420" alt="设置页"> **设置中心**：配置项带生效时机，敏感项打码存储 |
+
 ## 部署
 
 镜像：`fooololo/raccoon-server`（`1.0.0` 与 `latest`，linux/amd64 + linux/arm64 双架构）。
