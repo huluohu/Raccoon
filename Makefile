@@ -25,6 +25,9 @@ backend-run: backend-build ## 本地运行（数据目录 ./data，监听 :8530�
 backend-test: ## 后端测试
 	cd backend && $(GOTEST) ./...
 
+web-test: ## 前端测试（vitest）
+	cd web && $(NPM) run test
+
 web-install: ## 安装前端依赖
 	cd web && $(NPM) install
 

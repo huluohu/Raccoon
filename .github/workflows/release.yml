@@ -1,0 +1,121 @@
+name: Release
+
+# 发布流水线：推 v* 标签（或手动触发填版本号）→ 先跑全部测试 →
+# 双架构构建 → 同时推 Docker Hub（fooololo/raccoon-server）与 GHCR。
+# 版本号写入镜像内 server.version（Dockerfile ARG VERSION）。
+#
+# 所需仓库 secrets（Settings → Secrets and variables → Actions）：
+#   DOCKERHUB_USERNAME  Docker Hub 账号（fooololo）
+#   DOCKERHUB_TOKEN     Docker Hub 的 Access Token（hub.docker.com → Account Settings → Security）
+# GHCR 用内置 GITHUB_TOKEN，无需额外配置。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（如 1.0.1，不带 v 前缀）"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # ---- 发布前置：与 CI 完全同口径的测试门禁（测试不绿不出镜像）----
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: backend/go.sum
+      - run: go build -buildvcs=false ./...
+      - run: go vet -buildvcs=false ./...
+      - run: go test -buildvcs=false -count=1 ./...
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/check-design-conformance.py
+
+  # ---- 双架构构建并发布（Docker Hub + GHCR 同步）----
+  publish:
+    needs: [backend, web, design]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 解析版本号
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          case "$V" in
+            ''|*[!0-9A-Za-z._-]*) echo "非法版本号: $V"; exit 1;;
+          esac
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: 登录 Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送（amd64 + arm64）
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ steps.ver.outputs.version }}
+          tags: |
+            fooololo/raccoon-server:${{ steps.ver.outputs.version }}
+            fooololo/raccoon-server:latest
+            ghcr.io/huluohu/raccoon-server:${{ steps.ver.outputs.version }}
+            ghcr.io/huluohu/raccoon-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 发布摘要
+        run: |
+          echo "## 发布完成 🦝" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 版本：\`${{ steps.ver.outputs.version }}\`（latest 已同步指向）" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Docker Hub：\`fooololo/raccoon-server:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GHCR：\`ghcr.io/huluohu/raccoon-server:${{ steps.ver.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 架构：linux/amd64 + linux/arm64" >> "$GITHUB_STEP_SUMMARY"

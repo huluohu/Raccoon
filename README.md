@@ -1,5 +1,6 @@
 # 🦝 Raccoon（浣熊）· 自托管多媒体下载中心
 
+[![CI](https://github.com/huluohu/Raccoon/actions/workflows/ci.yml/badge.svg)](https://github.com/huluohu/Raccoon/actions/workflows/ci.yml)
 [![Docker Version](https://img.shields.io/docker/v/fooololo/raccoon-server?sort=semver&label=Docker%20Hub)](https://hub.docker.com/r/fooololo/raccoon-server)
 [![Platforms](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-blue)](https://hub.docker.com/r/fooololo/raccoon-server)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -166,6 +167,12 @@ make web-dev         # 前端开发服务器 :5173（/api 代理到 8530）
 make docker-build    # 本地构建镜像
 make docker-release  # 双架构构建并推 Docker Hub（需 docker login）
 ```
+
+提交到 main 自动触发 [CI](https://github.com/huluohu/Raccoon/actions/workflows/ci.yml)
+（后端 gofmt/vet/测试、前端类型检查/构建/vitest、设计符合度对账、镜像可构建四道门禁）；
+**发版**推 `v*` 标签（如 `git tag v1.0.1 && git push --tags`）自动走
+[Release 流水线](https://github.com/huluohu/Raccoon/actions/workflows/release.yml)：
+测试全绿后双架构构建，同步推 Docker Hub 与 GHCR 并更新 `latest`。
 
 ## 目录结构
 

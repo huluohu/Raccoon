@@ -1,9 +1,11 @@
 name: CI
 
+# 质量门禁（与本地 make verify 同口径）：后端 / 前端 / 设计符合度 / 镜像可构建。
+# 只做验证不发布——发布（Docker Hub + GHCR）走 release.yml 的 tag 流水线。
+
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -11,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  # ---- 后端：构建 + 静态检查 + 全量单测（docs/08 W5.3 门禁）----
+  # ---- 后端：gofmt / vet / 编译 / 全量单测 ----
   backend:
     runs-on: ubuntu-latest
     defaults:
@@ -22,6 +24,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
+          cache-dependency-path: backend/go.sum
+      - name: gofmt 检查
+        run: test -z "$(gofmt -l .)" || (echo "gofmt 未通过：" && gofmt -l . && exit 1)
       - name: Build
         run: go build -buildvcs=false ./...
       - name: Vet
@@ -29,7 +34,7 @@ jobs:
       - name: Test
         run: go test -buildvcs=false -count=1 ./...
 
-  # ---- 前端：类型检查 + 构建 + vitest（docs/08 W5.3 门禁）----
+  # ---- 前端：typecheck + 构建 + vitest ----
   web:
     runs-on: ubuntu-latest
     defaults:
@@ -40,40 +45,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
       - run: npm ci
       - name: Typecheck + Build
         run: npm run build
       - name: Vitest
         run: npm test
 
-  # ---- 双架构镜像：amd64 + arm64（docs/08 W5.5 门禁）----
-  docker:
-    needs: [backend, web]
+  # ---- 设计符合度对账（docs/07 §2 Token / §3 路由 / §4 组件 / §7 交互）----
+  design:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - name: 设计符合度对账
+        run: python3 scripts/check-design-conformance.py
+
+  # ---- 镜像可构建（amd64，只验证不推送）----
+  docker:
+    needs: [backend, web, design]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Derive image tags
-        id: meta
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            echo "tags=ghcr.io/${{ github.repository }}:${{ github.ref_name }},ghcr.io/${{ github.repository }}:latest" >> "$GITHUB_OUTPUT"
-          else
-            echo "tags=ghcr.io/${{ github.repository }}:edge" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build and push (amd64 + arm64)
+      - name: Build（不出产物）
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: linux/amd64
+          push: false
+          build-args: VERSION=ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
