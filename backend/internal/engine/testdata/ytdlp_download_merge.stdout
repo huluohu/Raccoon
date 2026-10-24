@@ -1,0 +1,11 @@
+[youtube] Extracting URL: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+[youtube] dQw4w9WgXcQ: Downloading webpage
+[info] dQw4w9WgXcQ: Downloading 1 format(s): 401+251
+[download] Destination: Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster) [dQw4w9WgXcQ].f401.mp4
+PROGRESS|NA|3072|240334643|2253787.28|106
+PROGRESS|NA|7168|240334643|4557339.86|52
+[download] Destination: Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster) [dQw4w9WgXcQ].f251.webm
+PROGRESS|NA|3433755|3433755|1456510.11|NA
+[Merger] Merging formats into "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster) [dQw4w9WgXcQ].webm"
+Deleting original file Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster) [dQw4w9WgXcQ].f401.mp4 (pass -k to keep)
+Deleting original file Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster) [dQw4w9WgXcQ].f251.webm (pass -k to keep)

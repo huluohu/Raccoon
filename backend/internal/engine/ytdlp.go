@@ -330,7 +330,8 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 	}
 	args = append(args, url)
 
-	var tail []string // 错误分类用的输出尾部
+	var tail []string     // 错误分类用的输出尾部（末 40 行）
+	var allLines []string // 产物解析用：Destination / Merger 行可能出现在很靠前的位置
 	var destinations []string
 	merging := false
 	itemIndex, itemCount := 0, 0 // 播放列表条目游标（"Downloading item X of Y" 行）
@@ -352,6 +353,15 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 		if len(tail) > 40 {
 			tail = tail[1:]
 		}
+		// 产物相关行单独收：Destination / Merger / 「已存在」提示。
+		// 不受 tail 长度限制——合集任务里 Merger 行可能在很靠前的位置，
+		// 只留末尾 40 行会把真正的产物路径截掉。
+		if strings.HasPrefix(line, "[download] Destination:") ||
+			strings.Contains(line, "[Merger]") ||
+			strings.Contains(line, "[FixupM3u8]") ||
+			strings.Contains(line, "has already been downloaded") {
+			allLines = append(allLines, line)
+		}
 		if strings.HasPrefix(line, "[download] Destination:") {
 			destinations = append(destinations, strings.TrimSpace(strings.TrimPrefix(line, "[download] Destination:")))
 		}
@@ -370,9 +380,10 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 	if err != nil {
 		return nil, classify(err, strings.Join(tail, "\n"))
 	}
-	// 产物：Destination > 全量收集（.part 过滤）> 目录新文件兜底。
+	// 产物：Merger 合并产物 > Destination > 全量收集（.part 过滤）> 目录新文件兜底。
 	// Destination 行输出的是相对路径（-o 为相对模板、cwd=SaveDir），须拼回 SaveDir。
-	files := collectFiles(destinations, before, opts.SaveDir)
+	productLines := strings.Join(allLines, "\n")
+	files := collectFiles(destinations, before, opts.SaveDir, parseMergedPaths(productLines))
 	if len(files) == 0 {
 		files = newFilesSince(opts.SaveDir, before)
 	}
@@ -380,6 +391,51 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 		return nil, &EngineError{Code: "NO_OUTPUT", Message: "引擎退出成功但未发现产物文件"}
 	}
 	return files, nil
+}
+
+// parseDestinationPaths 从引擎输出里提取所有 "[download] Destination: <路径>" 行。
+// 供 Download 与 golden 测试共用——避免两处解析规则漂移。
+func parseDestinationPaths(output string) []string {
+	var out []string
+	for _, line := range strings.Split(output, "\n") {
+		if !strings.HasPrefix(line, "[download] Destination:") {
+			continue
+		}
+		out = append(out, strings.TrimSpace(strings.TrimPrefix(line, "[download] Destination:")))
+	}
+	return out
+}
+
+// parseMergedPaths 从引擎输出里提取合并产物路径。
+//
+// 合并场景下 Destination 行给出的是**分片**（.f401.mp4 / .f251.webm），
+// 真正的产物是 [Merger] 行里的合并文件（.webm）——它从未出现在任何
+// Destination 行里。只认 Destination 会漏掉合并产物（走到目录兜底才碰巧捡到，
+// 而一旦分片残留就会把碎片当产物收进媒体库）。
+//
+// 格式：[Merger] Merging formats into "<路径>"
+// 另有 [FixupM3u8] 用 = 分隔（无引号），一并处理。
+func parseMergedPaths(output string) []string {
+	var out []string
+	for _, line := range strings.Split(output, "\n") {
+		var path string
+		switch {
+		case strings.Contains(line, "[Merger]") && strings.Contains(line, "Merging formats into"):
+			rest := line[strings.Index(line, "Merging formats into")+len("Merging formats into"):]
+			path = strings.TrimSpace(rest)
+			path = strings.Trim(path, `"`)
+		case strings.Contains(line, "[FixupM3u8]") && strings.Contains(line, "FixupM3u8:"):
+			rest := line[strings.Index(line, "FixupM3u8:")+len("FixupM3u8:"):]
+			path = strings.TrimSpace(rest)
+			path = strings.Trim(path, `"`)
+		default:
+			continue
+		}
+		if path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 // formatSelector 内部质量值 → yt-dlp format 表达式（docs/06 默认 best）。
@@ -543,9 +599,14 @@ func alreadyDownloadedPath(line string) string {
 	return p
 }
 
-// collectFiles 收集产物：存在的 Destination + 目录内非 .part 新文件。
-// dir 为 SaveDir：Destination 为相对路径时拼回（子进程 cwd 即 SaveDir）。
-func collectFiles(destinations []string, before map[string]bool, dir string) []DownloadedFile {
+// collectFiles 收集产物：存在的合并产物 + 存在的 Destination + 目录内非 .part 新文件。
+// dir 为 SaveDir：Destination / Merger 路径为相对路径时拼回（子进程 cwd 即 SaveDir）。
+//
+// merged 为合并产物路径（[Merger]/[FixupM3u8] 行解析而来）。合并场景下
+// Destination 给的是分片，真产物只在 merged 里——所以 merged 优先，且
+// 分片路径一律不作为产物（否则媒体库里会出现一堆 .f401.mp4 碎片，
+// 真正的合并文件反而缺失）。
+func collectFiles(destinations []string, before map[string]bool, dir string, merged []string) []DownloadedFile {
 	seen := map[string]bool{}
 	var out []DownloadedFile
 	add := func(path string) {
@@ -563,10 +624,65 @@ func collectFiles(destinations []string, before map[string]bool, dir string) []D
 			out = append(out, DownloadedFile{Path: path, Size: st.Size()})
 		}
 	}
+	// 合并产物优先（它是最终成品），再收 Destination。
+	for _, m := range merged {
+		add(m)
+	}
 	for _, d := range destinations {
+		if isStreamFragment(d, merged) {
+			continue // 分片不是产物
+		}
 		add(d)
 	}
 	return out
+}
+
+// isStreamFragment 判断路径是否为某个合并产物的流分片。
+//
+// 精确比对，不靠猜文件名形状：yt-dlp 的分片名是
+// `%(title)s [%(id)s].f%(format_id)s.%(ext)s`，合并产物是
+// `%(title)s [%(id)s].%(ext)s` —— 分片去掉扩展名后 = 合并产物去掉扩展名
+// + ".f" + format_id（纯数字）。
+//
+// 为什么不用「文件名里出现 .f 就算分片」：那会把用户视频里正常的
+// ".file" 之类片段误伤（早先按字母数字段判定，"my.file.name.mp4" 被当成碎片，
+// 表现为「下载成功但媒体库里没有文件」）。比对合并产物名是零猜测的。
+//
+// merged 为合并产物路径（可多个）；merged 为空时返回 false（没有合并就没有分片）。
+func isStreamFragment(path string, merged []string) bool {
+	base := filepath.Base(path)
+	destStem := stemOf(base)
+	for _, m := range merged {
+		mergedStem := stemOf(filepath.Base(m))
+		if mergedStem == "" || destStem == "" {
+			continue
+		}
+		prefix := mergedStem + ".f"
+		if !strings.HasPrefix(destStem, prefix) {
+			continue
+		}
+		// ".f" 之后必须是纯数字 format_id。
+		id := destStem[len(prefix):]
+		if id == "" {
+			continue
+		}
+		allDigits := true
+		for _, r := range id {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			return true
+		}
+	}
+	return false
+}
+
+// stemOf 去掉文件名扩展名（.tar.gz 这类双扩展名只去最后一个）。
+func stemOf(name string) string {
+	return strings.TrimSuffix(name, filepath.Ext(name))
 }
 
 // newFilesSince 兜底：下载启动后新出现且非临时后缀的文件。

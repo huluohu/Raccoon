@@ -49,6 +49,7 @@ type Server struct {
 	restartFn      func()                // 让出重启回调（main 注入）
 	monitor        *monitor.Sampler      // 资源监控采样器（docs/15 §3.2）
 	monitorCancel  context.CancelFunc    // 停机时停采样器
+	credProbe      *credentialProbe      // 凭据健康探针（定期验证 Cookie 有效性）
 
 	// Telegram 通道状态（docs/08 W4.8）。
 	tgClient *tgbot.Client
@@ -95,6 +96,11 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	s.monitor = monitor.New(st, 2*time.Second, 60)
 	s.monitorCancel = monitorCancel
 	s.monitor.Start(monitorCtx)
+	// 凭据健康探针：定期用平台 API 验证 Cookie 有效性，
+	// 把「过期才发现」变成「过期前就提示」。间隔可配（0 = 关闭）。
+	s.credProbe = newCredentialProbe(st, vault, defaultPlatformProbe,
+		time.Duration(s.cfg.GetInt("credential.probe_interval_minutes"))*time.Minute, logger)
+	s.credProbe.Start(context.Background())
 	s.registerRoutes()
 	return s, nil
 }
@@ -130,6 +136,10 @@ func (s *Server) ShutdownTasks(timeout time.Duration) {
 			s.monitorCancel()
 		}
 		s.monitor.Stop()
+	}
+	// 停凭据探针（避免停机后还在发探测请求）。
+	if s.credProbe != nil {
+		s.credProbe.Stop()
 	}
 	s.log.Info("任务系统已停止", nil)
 }

@@ -274,7 +274,7 @@ func (g *GalleryDL) Download(ctx context.Context, url string, opts DownloadOpts,
 	files := newFilesSince(opts.SaveDir, before)
 	// 被跳过的已存在文件同样是本次任务的产物——任务的目标是
 	// 「这个链接的内容在本地」，不在于这一次有没有真的发生网络传输。
-	files = append(files, collectFiles(skipped, before, opts.SaveDir)...)
+	files = append(files, collectFiles(skipped, before, opts.SaveDir, nil)...)
 	if len(files) == 0 {
 		return nil, &EngineError{Code: "NO_OUTPUT", Message: "gallery-dl 退出成功但未发现产物文件"}
 	}

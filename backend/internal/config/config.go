@@ -71,6 +71,11 @@ var Registry = []Setting{
 	// 这是「微信侧只收通知」的正路：个人微信没有可用的收消息机器人接口，
 	// 远程提交下载仍走 Telegram / CLI / 快捷指令（docs/16）。
 	{Key: "notify.serverchan_sendkey", Desc: "Server酱 SendKey（微信推送任务通知，留空不启用；免费额度 5 条/天）", Default: "", Effective: Immediate, Sensitive: true},
+	// ---- 凭据健康探测 ----
+	// 定期用平台 API 验证 Cookie 是否还有效，把「Cookie 过期」从事后
+	// （下载失败才知道）变成事前（平台账号页直接标「已失效」）。
+	// 0 = 关闭探测（不主动发任何平台请求）。
+	{Key: "credential.probe_interval_minutes", Desc: "凭据健康探测间隔（分钟，0=关闭）", Default: 60, Effective: Immediate},
 	{Key: "log.level", Desc: "日志级别（debug/info/warn/error）", Default: "info", Effective: Immediate, EnvVar: "RACCOON_LOG_LEVEL"},
 	// 免登录模式（homelab 内网可信场景）：开启后所有 API 匿名放行（伪用户 local），
 	// 前端跳过登录页/初始化向导，打开即用。只应部署在隔离网络里——任何能访问

@@ -18,6 +18,7 @@ type Set struct {
 	YTDLP      *YTDLP
 	GalleryDL  *GalleryDL
 	FFmpegBin  string // 可为空（降级）
+	FFprobeBin string // 可为空（降级）；由 NewSet 自动探测，与 ffmpeg 同目录
 	ffmpegErr  error  // 缓存 ffmpeg 自检结果
 	ffmpedDone bool
 }
@@ -30,11 +31,28 @@ func NewSet(ytdlpBin, ffmpegBin string) *Set {
 	if ffmpegBin == "" {
 		ffmpegBin = Lookup("ffmpeg")
 	}
+	// ffprobe 通常与 ffmpeg 同目录（静态构建包含两个二进制）。
+	ffprobeBin := ffprobeNext(ffmpegBin)
 	return &Set{
-		YTDLP:     NewYTDLP(ytdlpBin, ffmpegBin),
-		GalleryDL: NewGalleryDL(Lookup("gallery-dl")),
-		FFmpegBin: ffmpegBin,
+		YTDLP:      NewYTDLP(ytdlpBin, ffmpegBin),
+		GalleryDL:  NewGalleryDL(Lookup("gallery-dl")),
+		FFmpegBin:  ffmpegBin,
+		FFprobeBin: ffprobeBin,
 	}
+}
+
+// ffprobeNext 从 ffmpeg 路径推断 ffprobe 路径（同目录同名前缀替换）。
+// 找不到时返回空串（降级：产物校验跳过）。
+func ffprobeNext(ffmpegBin string) string {
+	if ffmpegBin == "" {
+		return Lookup("ffprobe")
+	}
+	dir := filepath.Dir(ffmpegBin)
+	candidate := filepath.Join(dir, "ffprobe")
+	if isRegularFile(candidate) {
+		return candidate
+	}
+	return Lookup("ffprobe")
 }
 
 // CheckAll 启动自检：yt-dlp 必须可用（失败即不可启动下载域）；

@@ -21,6 +21,10 @@ import (
 type Worker struct {
 	mgr *Manager
 	eng engine.Engine
+	// usedCredential 本次任务是否真的带上了凭据。
+	// 决定 AUTH_REQUIRED 时能否把平台凭据降级为「待确认」：
+	// 没带凭据就报 AUTH_REQUIRED 说明内容本身要登录，与用户存的凭据无关。
+	usedCredential bool
 }
 
 // Run 执行任务全生命周期。约定：入口状态必为 parsing（manager CAS 后启动）。
@@ -47,6 +51,7 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	// 解密失败或凭据不存在都不阻断任务：无凭据时引擎照常跑，命中需要登录的内容时
 	// 会返回 AUTH_REQUIRED，届时 fix_hint 指向「连接」页 —— 比在此处直接失败更准确。
 	cookieFile := w.prepareCookieFile(t)
+	w.usedCredential = cookieFile != ""
 	defer w.cleanupCookieFile(cookieFile)
 
 	// ---- parsing ----
@@ -151,8 +156,19 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 			"item_index":     p.ItemIndex, "item_count": p.ItemCount,
 		})
 	}
+	// before 快照：下载开始前目录状态（失败时清孤儿文件用）。
+	// 先确保目录存在再快照，否则快照读不到（返回空表）会把目录里原有的
+	// .part 文件误判为「本次新增」而删掉。
+	_ = os.MkdirAll(saveDir, 0o755)
+	before := engine.DirSnapshot(saveDir)
 	files, err := w.eng.Download(ctx, t.URL, opts, onProgress)
 	if err != nil {
+		// 下载失败：清理 yt-dlp 留下的 .part / .ytdl 孤儿文件。
+		// 只清本次下载开始后新增的临时文件，不动之前已存在的文件。
+		if n := engine.CleanOrphanFiles(saveDir, before); n > 0 {
+			_ = w.mgr.st.AppendEvent(t.ID, "info", "orphan_cleaned",
+				fmt.Sprintf("已清理 %d 个下载中断产生的临时文件", n), "")
+		}
 		w.handleEngineErr(ctx, t, "downloading", err)
 		return
 	}
@@ -172,6 +188,9 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		w.markCancelled(t.ID, "post")
 		return
 	}
+	// ffprobe 产物校验（warn 级别，不影响 done 终态）。
+	// ffprobe 不可用时自动跳过（降级而非失败）。
+	w.probeFiles(t.ID, files)
 	w.finish(t, files, res.Duration, plat, res.Uploader)
 }
 
@@ -333,6 +352,19 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 	// 自动重试与最终失败两条路都要写：重试期间「引擎原文」不该缺位。
 	if detail != "" {
 		_ = w.mgr.st.AppendEvent(t.ID, "error", "engine_error", detail, "")
+	}
+	// 凭据失效被动检测：AUTH_REQUIRED 说明当前凭据很可能已不可用，
+	// 把该平台的凭据降级为 expiring（待确认）——平台账号页立刻显示
+	// 「已失效或待确认」，用户不必逐个手动点「检查」才发现 Cookie 过期。
+	//
+	// 只降级不判死：AUTH_REQUIRED 也可能是内容本身要大会员/私有视频，
+	// 而凭据本身好着。真正的 expired 只由平台 API 探针确认
+	// （server 层 probeCredentialPlatform）。
+	//
+	// 条件：本次任务确实带了该平台的凭据。无凭据时报 AUTH_REQUIRED
+	// 与用户存的凭据无关，误标会让用户白跑一趟。
+	if code == "AUTH_REQUIRED" && w.usedCredential {
+		w.markCredentialExpiring(t)
 	}
 	// 重试判定（docs/05 §7）：可重试错误码且 attempt<max → 指数退避回 waiting。
 	// attempt 必须在本分支递增，否则 t.Attempt 恒为 0、条件恒真 → 30s 间隔无限重试，
@@ -622,4 +654,48 @@ func guessMime(ext string) string {
 		return "image/webp"
 	}
 	return ""
+}
+
+// probeFiles ffprobe 校验产物完整性（warn 级别，不影响 done 终态）。
+// ffprobe 不可用或文件非媒体类型时自动跳过（降级而非失败）。
+func (w *Worker) probeFiles(taskID string, files []engine.DownloadedFile) {
+	ffprobe := w.mgr.Engines().FFprobeBin
+	if ffprobe == "" {
+		return // 无 ffprobe 工具，跳过
+	}
+	for _, f := range files {
+		res := engine.ProbeFile(context.Background(), ffprobe, f.Path)
+		if res.Warn != "" {
+			_ = w.mgr.st.AppendEvent(taskID, "warn", "probe_warn",
+				fmt.Sprintf("产物校验警告 %s：%s", filepath.Base(f.Path), res.Warn), "")
+		}
+	}
+}
+
+// markCredentialExpiring 把该平台的凭据降级为「待确认」（expiring）。
+//
+// 触发点：任务因 AUTH_REQUIRED 失败且本次确实带了该平台的凭据。
+// 语义边界：降级而非判死——AUTH_REQUIRED 也可能是内容要大会员/私有视频，
+// 凭据本身好着。真正的 expired 由平台 API 探针确认（server 层）。
+//
+// 平台标识用任务的 platform（解析后已用 extractor 覆盖，比 URL 推断准）。
+func (w *Worker) markCredentialExpiring(t *store.Task) {
+	platform := t.Platform
+	if platform == "" {
+		return
+	}
+	n, err := w.mgr.st.MarkPlatformCredentialStatus(platform, "expiring")
+	if err != nil {
+		w.mgr.log.Warn("凭据状态降级失败", map[string]any{
+			"task_id": t.ID, "platform": platform, "err": err.Error(),
+		})
+		return
+	}
+	if n == 0 {
+		return // 该平台没有凭据（或已是 expiring）——不制造噪音事件
+	}
+	_ = w.mgr.st.AppendEvent(t.ID, "warn", "credential_expiring",
+		fmt.Sprintf("平台 %s 的凭据已降级为「待确认」：下载返回鉴权失败，请到「平台账号」页检查", platform), "")
+	w.mgr.notify("credential_expiring", "warn",
+		"平台凭据可能已失效："+platform, "下载返回鉴权失败，请到「平台账号」页检查或更新 Cookie", t.ID)
 }

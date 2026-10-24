@@ -132,6 +132,31 @@ func (s *Store) UpdateCredentialStatus(id, status string) error {
 	return nil
 }
 
+// MarkPlatformCredentialStatus 把某平台所有「非 disabled」的凭据标记为指定状态。
+//
+// 场景一（被动检测）：任务因 AUTH_REQUIRED 失败 → 标 expiring（待确认）。
+// 场景二（主动探针）：平台 API 明确返回未登录 → 标 expired（已失效）。
+//
+// 只改 status 不动 ciphertext：凭据内容可能只是过期而非作废，用户刷新
+// Cookie 后应能原地恢复（不新建条目、不丢历史）。
+//
+// disabled 是用户主动停用，不该被系统改写——跳过。
+// expired 不再降级：已是终态的失效凭据不需要重复标记。
+// 返回被标记的凭据条数（0 = 该平台没有可标记的凭据）。
+func (s *Store) MarkPlatformCredentialStatus(platform, status string) (int, error) {
+	if platform == "" || status == "" {
+		return 0, nil
+	}
+	now := time.Now().UnixMilli()
+	res, err := s.RW.Exec(`UPDATE credentials SET status=?, last_check_at=?, updated_at=?
+		WHERE platform=? AND status != 'disabled' AND status != ?`, status, now, now, platform, status)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // DeleteCredential 删除凭据（已下载文件不受影响）。
 func (s *Store) DeleteCredential(id string) error {
 	res, err := s.RW.Exec(`DELETE FROM credentials WHERE id=?`, id)
