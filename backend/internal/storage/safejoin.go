@@ -132,6 +132,20 @@ func WithinRoot(root, abs string) bool {
 	return strings.HasPrefix(target, absRoot+string(os.PathSeparator))
 }
 
+// WithinAnyRoot 判断绝对路径是否位于任一允许根内。
+//
+// 引入原因：下载目录支持独立于数据根（如容器内 /downloads）后，
+// 媒体库预览/删除、任务产物删除的路径校验只认数据根就会把独立下载根里的
+// 文件误判越界（403）。产物文件的合法根集合 = 数据根 ∪ 下载根（绝对时）。
+func WithinAnyRoot(roots []string, abs string) bool {
+	for _, root := range roots {
+		if WithinRoot(root, abs) {
+			return true
+		}
+	}
+	return false
+}
+
 // EnsureDir 确保目录存在（0750）。
 func EnsureDir(dir string) error {
 	return os.MkdirAll(dir, 0o750)

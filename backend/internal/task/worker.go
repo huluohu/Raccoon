@@ -447,6 +447,8 @@ func (w *Worker) cleanupCookieFile(path string) {
 }
 
 // saveDir 计算保存目录：save_path（相对数据根，SafeJoin 校验）或 download_dir/platform/。
+// download_dir 支持绝对路径（如容器内 /downloads，独立于数据根——数据库/凭据
+// 备份不必背着视频文件）；相对路径保持「相对数据根」的存量语义。
 func (w *Worker) saveDirFor(t *store.Task, platform string) string {
 	root := w.mgr.cfg.GetString("storage.data_dir")
 	base := w.mgr.cfg.GetString("storage.download_dir")
@@ -461,6 +463,9 @@ func (w *Worker) saveDirFor(t *store.Task, platform string) string {
 	p := platform
 	if p == "" {
 		p = "web"
+	}
+	if filepath.IsAbs(base) {
+		return filepath.Join(base, p)
 	}
 	return filepath.Join(root, base, p)
 }

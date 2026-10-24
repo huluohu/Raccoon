@@ -41,9 +41,9 @@ func (s *Server) handleFileDelete(w http.ResponseWriter, r *http.Request) error 
 		abs = filepath.Join(root, abs)
 	}
 	abs = filepath.Clean(abs)
-	if !storage.WithinRoot(root, abs) {
+	if !storage.WithinAnyRoot(s.allowedFileRoots(), abs) {
 		s.log.Warn("文件删除路径越界已拦截", map[string]any{"path": f.Path})
-		return httpx.Forbidden("文件路径超出数据目录范围")
+		return httpx.Forbidden("文件路径超出允许的存储目录范围")
 	}
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		s.log.Error("文件删除失败", map[string]any{"path": abs, "err": err.Error()})
@@ -136,7 +136,18 @@ func (s *Server) handleFilePreview(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// resolveMediaPath 解析媒体文件真实路径并校验在数据根内。
+// allowedFileRoots 产物文件的合法根集合：数据根 + 独立下载根（当 download_dir
+// 是绝对路径时，它脱离数据根；预览/下载/删除的越界校验必须把它算进来，
+// 否则独立下载根里的文件会被误判 403）。
+func (s *Server) allowedFileRoots() []string {
+	roots := []string{s.cfg.GetString("storage.data_dir")}
+	if dl := s.cfg.GetString("storage.download_dir"); filepath.IsAbs(dl) {
+		roots = append(roots, filepath.Clean(dl))
+	}
+	return roots
+}
+
+// resolveMediaPath 解析媒体文件真实路径并校验在允许根集合内。
 func (s *Server) resolveMediaPath(p string) (string, error) {
 	if p == "" {
 		return "", httpx.NotFound("文件路径为空")
@@ -146,9 +157,9 @@ func (s *Server) resolveMediaPath(p string) (string, error) {
 		abs = filepath.Join(s.cfg.GetString("storage.data_dir"), abs)
 	}
 	abs = filepath.Clean(abs)
-	if !storage.WithinRoot(s.cfg.GetString("storage.data_dir"), abs) {
+	if !storage.WithinAnyRoot(s.allowedFileRoots(), abs) {
 		s.log.Warn("媒体文件路径越界已拦截", map[string]any{"path": p})
-		return "", httpx.Forbidden("文件路径超出数据目录范围")
+		return "", httpx.Forbidden("文件路径超出允许的存储目录范围")
 	}
 	return abs, nil
 }

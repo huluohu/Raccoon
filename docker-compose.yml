@@ -17,16 +17,18 @@ services:
         # TLS 指纹伪装库：PornHub 等站点对非浏览器指纹返回 410 Gone。
         # 同样必须与 Dockerfile 的 ARG 默认值一致。
         CURLCFFI_VERSION: "0.16.3"
-    image: raccoon-server:1.0.0
+    image: raccoon-server:1.0.3
     container_name: raccoon
     network_mode: bridge
     ports:
       - "8530:8530"
     volumes:
-      - ./data:/data          # 数据库/配置/凭据/日志/默认下载（唯一必需挂载）
-      - ./media:/media        # 可选：已有 NAS 媒体库（设置中把下载目录切到 /media 下）
+      - ./data:/data                # 数据库/配置/凭据/日志（唯一必需挂载）
+      - ./downloads:/downloads      # 下载文件（镜像内 env 锁定 RACCOON_DOWNLOAD_DIR=/downloads）
+      - ./media:/media              # 可选：已有 NAS 媒体库；要用它当下载目录时，在 environment 里设 RACCOON_DOWNLOAD_DIR=/media
     environment:
       TZ: Asia/Shanghai
       # RACCOON_SERVER_ADDR: ":8530"   # 启动级设置（改动需重启，界面只读标注）
       # RACCOON_DATA_DIR: "/data"
+      # RACCOON_DOWNLOAD_DIR: "/downloads"  # 下载目录默认已由镜像锁定为 /downloads；换路径改这里并同步挂载
     restart: unless-stopped

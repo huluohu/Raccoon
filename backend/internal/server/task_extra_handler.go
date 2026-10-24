@@ -100,16 +100,16 @@ func (s *Server) handleTaskFileDelete(w http.ResponseWriter, r *http.Request) er
 	if target == nil {
 		return httpx.NotFound("文件不存在")
 	}
-	// 路径二次校验：必须仍在数据根内（不信前端传的路径）。
+	// 路径二次校验：必须仍在允许根集合内（数据根 ∪ 独立下载根；不信前端传的路径）。
 	root := s.cfg.GetString("storage.data_dir")
 	abs := target.Path
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(root, abs)
 	}
 	abs = filepath.Clean(abs)
-	if !storage.WithinRoot(root, abs) {
+	if !storage.WithinAnyRoot(s.allowedFileRoots(), abs) {
 		s.log.Warn("文件删除路径越界已拦截", map[string]any{"path": target.Path})
-		return httpx.Forbidden("文件路径超出数据目录范围")
+		return httpx.Forbidden("文件路径超出允许的存储目录范围")
 	}
 	if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 		return httpx.Internal("文件删除失败: " + err.Error())

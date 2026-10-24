@@ -17,6 +17,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/huluohu/raccoon/internal/config"
+	"github.com/huluohu/raccoon/internal/engine"
+	"github.com/huluohu/raccoon/internal/logx"
+	"github.com/huluohu/raccoon/internal/sse"
+	"github.com/huluohu/raccoon/internal/store"
 )
 
 // assertWithinRoot 铁律断言：got 必须等于 root 或严格位于 root 之下。
@@ -137,4 +143,31 @@ func TestSafeJoin_不解析符号链接(t *testing.T) {
 	// 放行时至少保证字面路径在 root 内（不解析链接的前提下）
 	assertWithinRoot(t, root, got)
 	t.Log("task.SafeJoin 未解析符号链接：escape/secret.txt 经软链可指向 root 外（storage 版会拒绝）")
+}
+
+// TestSaveDirFor_独立下载根 绝对 download_dir 脱离数据根（独立路径部署形态）。
+func TestSaveDirFor_独立下载根(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	cfg := config.New()
+	_ = cfg.Set("storage.data_dir", filepath.Join(dir, "data"))
+	_ = cfg.Set("storage.download_dir", "/downloads")
+	m := NewManager(st, cfg, &engine.Set{}, sse.New(logx.New(nil, "t", logx.LevelError)), testLogger())
+	w := &Worker{mgr: m}
+
+	got := w.saveDirFor(&store.Task{Platform: "bilibili"}, "bilibili")
+	if got != filepath.Join("/downloads", "bilibili") {
+		t.Fatalf("绝对下载根应直接使用（数据根之外），实际 %q", got)
+	}
+	// 相对路径保持存量语义：相对数据根。
+	_ = cfg.Set("storage.download_dir", "downloads")
+	got = w.saveDirFor(&store.Task{Platform: "youtube"}, "youtube")
+	want := filepath.Join(dir, "data", "downloads", "youtube")
+	if got != want {
+		t.Fatalf("相对下载根应相对数据根，实际 %q 期望 %q", got, want)
+	}
 }

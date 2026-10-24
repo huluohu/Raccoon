@@ -50,16 +50,17 @@ Telegram Bot / 微信推送 / iOS 快捷指令 / CLI / MCP 多端触达，全部
 | 要素 | 值 | 说明 |
 | --- | --- | --- |
 | 端口 | `8530`（容器内）→ 自选宿主端口 | Web 与 API 同口 |
-| 数据卷 | `/data` | 数据库/配置/凭据/日志/默认下载，**唯一必需挂载** |
-| 环境变量 | `TZ=Asia/Shanghai`（推荐） | 可选：`RACCOON_SERVER_ADDR`、`RACCOON_LOG_LEVEL` |
-| 权限 | 容器以 uid `1000` 运行 | 数据目录需允许该用户写入 |
+| 数据卷 | `/data` | 数据库/配置/凭据/日志，**必需挂载** |
+| 下载卷 | `/downloads` | 下载的视频/音频文件，独立于数据卷（分开备份/清理） |
+| 环境变量 | `TZ=Asia/Shanghai`（推荐） | 可选：`RACCOON_DOWNLOAD_DIR`（换下载路径）、`RACCOON_SERVER_ADDR`、`RACCOON_LOG_LEVEL` |
+| 权限 | 容器以 uid `1000` 运行 | 挂载目录需允许该用户写入 |
 
 ### 方式一：Docker CLI
 
 ```bash
-# 1. 建数据目录（属主交给 uid 1000，避免权限问题）
-mkdir -p /opt/raccoon/data
-chown 1000:1000 /opt/raccoon/data
+# 1. 建数据目录与下载目录（属主交给 uid 1000，避免权限问题）
+mkdir -p /opt/raccoon/data /opt/raccoon/downloads
+chown -R 1000:1000 /opt/raccoon
 
 # 2. 起容器
 docker run -d \
@@ -67,8 +68,9 @@ docker run -d \
   --restart unless-stopped \
   -p 8530:8530 \
   -v /opt/raccoon/data:/data \
+  -v /opt/raccoon/downloads:/downloads \
   -e TZ=Asia/Shanghai \
-  fooololo/raccoon-server:1.0.0
+  fooololo/raccoon-server:1.0.3
 
 # 3. 健康检查（应返回 {"status":true,...}）
 curl http://127.0.0.1:8530/healthz
@@ -83,14 +85,15 @@ curl http://127.0.0.1:8530/healthz
 ```yaml
 services:
   raccoon:
-    image: fooololo/raccoon-server:1.0.0   # 升级 = 改这一行
+    image: fooololo/raccoon-server:1.0.3   # 升级 = 改这一行
     container_name: raccoon
     restart: unless-stopped
     ports:
       - "8530:8530"
     volumes:
-      - ./data:/data          # 数据库/配置/凭据/日志/默认下载（唯一必需挂载）
-      # - ./media:/media      # 可选：挂已有媒体库，在设置里把下载目录指到 /media 下
+      - ./data:/data            # 数据库/配置/凭据/日志（必需）
+      - ./downloads:/downloads  # 下载文件（独立于数据卷，分开备份）
+      # - ./media:/media        # 可选：挂已有媒体库当下载目录（需配 RACCOON_DOWNLOAD_DIR=/media）
     environment:
       TZ: Asia/Shanghai
 ```
@@ -101,12 +104,13 @@ docker compose pull && docker compose up -d   # 升级（先改 image 的 tag）
 curl http://127.0.0.1:8530/healthz            # 健康检查
 ```
 
-备份 = 打包 `./data` 目录（含数据库与凭据主密钥，两者必须一起备份）。
+备份：数据卷 `./data`（小、含数据库与凭据主密钥，建议高频）与下载卷 `./downloads`（大，按需）分开打包。
 
 ### 方式三：NAS（群晖 / 威联通等）
 
 NAS 部署与上面完全同构——镜像名、端口、挂载、环境变量都一样，只是界面操作路径不同。
-通用注意：**容器以 uid 1000 运行，数据目录必须允许该用户写入**；浏览器访问 `http://NAS的IP:8530`。
+通用注意：**容器以 uid 1000 运行，数据目录和下载目录都需允许该用户写入**；需要挂载
+两个目录（`/data` 与 `/downloads`）；浏览器访问 `http://NAS的IP:8530`。
 
 **群晖 Synology（DSM 7.x，Container Manager）**
 
@@ -114,16 +118,16 @@ NAS 部署与上面完全同构——镜像名、端口、挂载、环境变量�
 2. **Container Manager → 注册表**：搜索 `fooololo/raccoon-server`，选 tag `1.0.0` 下载（ DSM 7.2 也可以直接用「项目 Project」功能贴上面的 compose 文件，后面跳过 3–5 步）；
 3. **映像**：选中下载好的镜像 → 运行 → 常规设置容器名 `raccoon`，勾选「开机自动重新启动」；
 4. **端口设置**：本地端口填 `8530`（被占可改如 `18530`），容器端口 `8530`，类型 TCP；
-5. **存储空间**：添加文件夹 `/docker/raccoon` → 装载路径 `/data`；**环境**：添加 `TZ=Asia/Shanghai`；完成。
+5. **存储空间**：添加两个挂载——`/docker/raccoon` → `/data`、`/docker/raccoon-downloads` → `/downloads`；**环境**：添加 `TZ=Asia/Shanghai`；完成。
 
 **威联通 QNAP（QTS 5.x，Container Station）**
 
 1. **File Station** 建共享文件夹或子目录 `raccoon`，设置权限允许 uid 1000（或 admin）读写；
-2. **Container Station → 映像文件**：提取 `fooololo/raccoon-server:1.0.0`（ registry 仓库地址填 `fooololo/raccoon-server`）；
+2. **Container Station → 映像文件**：提取 `fooololo/raccoon-server:1.0.3`（ registry 仓库地址填 `fooololo/raccoon-server`）；
 3. 映像列表 → **+ 创建容器**：名称 `raccoon`，重启策略 `always`；
 4. **高级设置**：
    - 网络：转发端口 `8530 → 8530`（TCP）；
-   - 存储区：主机路径 `<你的目录>` ↔ 容器路径 `/data`；
+   - 存储区：两个挂载——主机目录 ↔ `/data`、另一目录 ↔ `/downloads`；
    - 环境：`TZ=Asia/Shanghai`；
 5. 创建后在「容器」页确认运行中，浏览器访问 `http://NAS_IP:8530`。
 

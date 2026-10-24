@@ -58,7 +58,10 @@ COPY --from=go-build /out/raccoon /usr/local/bin/raccoon
 RUN useradd --system --uid 1000 --create-home --home-dir /data raccoon
 USER raccoon
 WORKDIR /data
-ENV RACCOON_DATA_DIR=/data RACCOON_SERVER_ADDR=:8530
+# 下载文件独立于数据目录：数据库/凭据/配置（/data）与视频文件（/downloads）分开挂载，
+# 备份小体积的数据目录时不必背着媒体文件。路径由 env 锁定（设置页该项只读并标注来源），
+# 挂载点由部署方决定——不挂载时文件落在容器可写层，容器删除即丢失，务必显式挂载。
+ENV RACCOON_DATA_DIR=/data RACCOON_DOWNLOAD_DIR=/downloads RACCOON_SERVER_ADDR=:8530
 EXPOSE 8530
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8530/healthz || exit 1
