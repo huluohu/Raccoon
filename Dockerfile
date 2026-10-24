@@ -10,8 +10,12 @@ RUN npm run build
 
 # ---- 阶段 2：Go 构建（纯 Go 无 cgo，交叉编译友好）----
 FROM golang:1.22-bookworm AS go-build
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
+# TARGETOS/TARGETARCH 由 BuildKit 按目标平台自动注入（docs/dockerfile 自动平台参数）。
+# ⚠️ 不能写默认值（如 ARG TARGETARCH=amd64）：阶段内带默认值的重声明会压过
+# 平台注入值，多架构构建时 arm64 镜像里会被编进 amd64 二进制（exec format error，
+# 2026-10-24 实测踩过）。不带默认值时若为空，go 回退构建容器本机平台，语义安全。
+ARG TARGETOS
+ARG TARGETARCH
 # 应用版本（打进 server.version；发布命令见 Makefile docker-release / docs/17）。
 ARG VERSION=1.0.0
 WORKDIR /src
