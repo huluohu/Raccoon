@@ -906,6 +906,8 @@ func platformOf(extractorKey, url string) string {
 		return "tencent"
 	case strings.Contains(host, "iqiyi.com"):
 		return "iqiyi"
+	case strings.Contains(host, "weixin.qq.com"), strings.Contains(host, "channels.weixin.qq.com"), strings.Contains(host, "finder.video.qq.com"):
+		return "wechat"
 	}
 	return "web"
 }

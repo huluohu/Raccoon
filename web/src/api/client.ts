@@ -154,6 +154,9 @@ export const api = {
   taskEvents: (id: string, after = 0) =>
     request<{ items: import('./types').TaskEvent[] | null }>(`/tasks/${id}/events?after=${after}`),
   cancelTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
+  /** 任务生成 AI 结构化总结（POST /tasks/:id/summary）。 */
+  taskSummary: (id: string) =>
+    request<{ ok: boolean; summary: string }>(`/tasks/${id}/summary`, { method: 'POST' }),
   /** 置顶/取消置顶（仅 waiting 任务；priority 0=普通 1=置顶）。 */
   setTaskPriority: (id: string, priority: number) =>
     request<{ ok: boolean; priority: number }>(`/tasks/${id}/priority`, {
@@ -260,6 +263,15 @@ export const api = {
   },
   fileDownloadUrl: (id: string) => `${BASE}/files/${id}/download`,
   filePreviewUrl: (id: string) => `${BASE}/files/${id}/preview`,
+  /** 媒体文件按需提取音频或转码（POST /files/:id/convert）。 */
+  convertFile: (id: string, target: 'mp3' | 'mp4') =>
+    request<{ ok: boolean; mode: string; file: import('./types').MediaFile }>(`/files/${id}/convert`, {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    }),
+  /** 媒体文件生成 AI 结构化总结（POST /files/:id/summary）。 */
+  mediaSummary: (id: string) =>
+    request<{ ok: boolean; summary: string }>(`/files/${id}/summary`, { method: 'POST' }),
   /** 媒体库删文件（删磁盘文件 + 索引；与「删任务记录」彻底分离）。 */
   deleteFile: (id: string) => request<{ ok: boolean }>(`/files/${id}`, { method: 'DELETE' }),
 

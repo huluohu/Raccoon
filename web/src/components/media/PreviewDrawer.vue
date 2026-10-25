@@ -8,7 +8,8 @@
 // 2) 预览地址由后端接口生成（/api/files/{id}/preview），
 //    组件通过注入的函数拿 URL，不直接依赖 api 层（便于单测）。
 // 3) 抽屉本体复用 DetailDrawer（桌面右侧 360–400px、移动全屏，§4）。
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { api } from '@/api/client'
 import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import RButton from '@/components/base/RButton.vue'
 import { formatBytes, formatRelative, platformText } from '@/utils/format'
@@ -26,6 +27,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   download: [file: MediaFile]
+  convert: [file: MediaFile, target: 'mp3' | 'mp4']
 }>()
 
 const isVideo = computed(() => props.file?.kind === 'video')
@@ -34,6 +36,30 @@ const isImage = computed(() => props.file?.kind === 'image')
 
 /** 预览地址：只在抽屉打开时算，避免空文件时拼出坏 URL。 */
 const previewUrl = computed(() => (props.file ? props.previewUrl(props.file.id) : ''))
+
+const loadingSummary = ref(false)
+const summaryText = ref(props.file?.summary || '')
+watch(
+  () => props.file,
+  (f) => {
+    summaryText.value = f?.summary || ''
+  },
+  { immediate: true },
+)
+
+async function generateSummary() {
+  if (!props.file) return
+  loadingSummary.value = true
+  try {
+    const res = await api.mediaSummary(props.file.id)
+    summaryText.value = res.summary
+    props.file.summary = res.summary
+  } catch (e: unknown) {
+    summaryText.value = '生成失败: ' + (e instanceof Error ? e.message : '请检查设置页中的 AI 配置')
+  } finally {
+    loadingSummary.value = false
+  }
+}
 </script>
 
 <template>
@@ -66,6 +92,32 @@ const previewUrl = computed(() => (props.file ? props.previewUrl(props.file.id) 
         <dt>路径</dt><dd class="path">{{ file.path }}</dd>
       </dl>
 
+      <div v-if="isVideo" class="detail-convert">
+        <RButton size="sm" variant="ghost" @click="emit('convert', file, 'mp3')">
+          提取 MP3 音频
+        </RButton>
+        <RButton
+          v-if="!file.name.endsWith('.mp4')"
+          size="sm"
+          variant="ghost"
+          @click="emit('convert', file, 'mp4')"
+        >
+          转为 MP4 格式
+        </RButton>
+      </div>
+
+      <!-- AI 智能总结 -->
+      <div v-if="isVideo || isAudio" class="detail-ai-summary">
+        <div class="ai-summary-head">
+          <span class="ai-summary-title">AI 智能总结</span>
+          <RButton size="sm" variant="ghost" :disabled="loadingSummary" @click="generateSummary">
+            {{ loadingSummary ? '正在总结…' : summaryText ? '重新生成' : '生成 AI 总结' }}
+          </RButton>
+        </div>
+        <p v-if="summaryText" class="ai-summary-content">{{ summaryText }}</p>
+        <p v-else class="ai-summary-empty">点击上方按钮，基于字幕或音视频内容提取结构化看点总结。</p>
+      </div>
+
       <RButton variant="accent" block :href="downloadUrl(file.id)" @click="emit('download', file)">
         下载文件
       </RButton>
@@ -75,6 +127,36 @@ const previewUrl = computed(() => (props.file ? props.previewUrl(props.file.id) 
 
 <style scoped>
 .detail { display: flex; flex-direction: column; gap: 14px; }
+.detail-convert { display: flex; gap: 8px; flex-wrap: wrap; }
+.detail-ai-summary {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  padding: 12px;
+}
+.ai-summary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.ai-summary-title {
+  font-size: var(--font-aux);
+  font-weight: var(--weight-semibold);
+  color: var(--text-1);
+}
+.ai-summary-content {
+  font-size: var(--font-aux);
+  color: var(--text-2);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 0;
+}
+.ai-summary-empty {
+  font-size: var(--font-aux);
+  color: var(--text-3);
+  margin: 0;
+}
 .detail-preview { background: var(--surface-2); border-radius: var(--radius-ctrl); overflow: hidden; }
 .detail-preview img,
 .detail-preview video { width: 100%; display: block; }

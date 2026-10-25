@@ -120,4 +120,28 @@ describe('FileCard 组件', () => {
     await detail.trigger('click')
     expect(w.emitted('open')![0]).toEqual([file])
   })
+
+  it('视频卡片显示「提音频」动作并抛出 convert mp3 事件', async () => {
+    const file = makeFile({ kind: 'video', name: 'clip.webm' })
+    const w = mount(FileCard, {
+      props: { file, previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    const audioBtn = w.findAll('.file-actions button').find((b) => b.text().includes('提音频'))!
+    expect(audioBtn).toBeTruthy()
+    await audioBtn.trigger('click')
+    expect(w.emitted('convert')?.[0]).toEqual([file, 'mp3'])
+  })
+
+  it('非 MP4 视频卡片显示「转MP4」动作并抛出 convert mp4 事件', async () => {
+    const file = makeFile({ kind: 'video', name: 'clip.webm' })
+    const w = mount(FileCard, {
+      props: { file, previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    const mp4Btn = w.findAll('.file-actions button').find((b) => b.text().includes('转MP4'))!
+    expect(mp4Btn).toBeTruthy()
+    await mp4Btn.trigger('click')
+    expect(w.emitted('convert')?.[0]).toEqual([file, 'mp4'])
+  })
 })

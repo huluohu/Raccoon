@@ -12,7 +12,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/huluohu/raccoon/internal/engine"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/storage"
 	"github.com/huluohu/raccoon/internal/store"
@@ -23,6 +25,9 @@ func (s *Server) setupFiles() {
 	s.router.GET("/api/v1/files", s.requireAuth(s.handleFilesList))
 	s.router.GET("/api/v1/files/:id/download", s.requireAuth(s.handleFileDownload))
 	s.router.GET("/api/v1/files/:id/preview", s.requireAuth(s.handleFilePreview))
+	s.router.GET("/api/v1/files/:id/summary", s.requireAuth(s.handleFileSummaryGet))
+	s.router.POST("/api/v1/files/:id/summary", s.requireAuth(s.csrfForSession(s.handleFileSummary)))
+	s.router.POST("/api/v1/files/:id/convert", s.requireAuth(s.csrfForSession(s.handleFileConvert)))
 	s.router.DELETE("/api/v1/files/:id", s.requireAuth(s.csrfForSession(s.handleFileDelete)))
 }
 
@@ -56,6 +61,105 @@ func (s *Server) handleFileDelete(w http.ResponseWriter, r *http.Request) error 
 		s.log.Warn("产物索引同步删除失败", map[string]any{"path": f.Path, "err": err.Error()})
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	return nil
+}
+
+// handleFileConvert 按需二次格式转换 / 提取音频（POST /api/v1/files/:id/convert）。
+// 支持 target="mp3"（提取音轨）或 target="mp4"（转码/remux 视频）。
+func (s *Server) handleFileConvert(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		Target string `json:"target"`
+	}
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	target := strings.ToLower(strings.TrimSpace(req.Target))
+	if !engine.ConvertSupported(target) {
+		return httpx.Validation("目标格式不支持，仅支持 mp3 或 mp4")
+	}
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	abs, err := s.resolveMediaPath(f.Path)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return httpx.NotFound("源文件已不存在于磁盘")
+	}
+
+	ffmpeg := s.tasks.Engines().FFmpegBin
+	if ffmpeg == "" {
+		return httpx.Conflict("ffmpeg 未配置或不可用，无法执行格式转换")
+	}
+
+	dst, mode, err := engine.ConvertFile(r.Context(), ffmpeg, abs, target)
+	if err != nil {
+		s.log.Error("媒体文件转换失败", map[string]any{"id": f.ID, "target": target, "err": err.Error()})
+		return httpx.Internal("转换失败: " + err.Error())
+	}
+
+	var size int64
+	if st, err := os.Stat(dst); err == nil {
+		size = st.Size()
+	}
+	name := filepath.Base(dst)
+	mime := mimeByExt(name)
+	kind := store.MediaKindOf(mime, name)
+
+	now := time.Now().UnixMilli()
+	newMedia := &store.MediaFile{
+		ID:          store.NewTaskID(),
+		TaskID:      f.TaskID,
+		Path:        dst,
+		Name:        name,
+		Size:        size,
+		Mime:        mime,
+		Duration:    f.Duration,
+		Platform:    f.Platform,
+		Uploader:    f.Uploader,
+		Kind:        kind,
+		Previewable: kind == "video" || kind == "audio",
+		CreatedAt:   now,
+	}
+	if err := s.store.UpsertMediaFile(newMedia); err != nil {
+		s.log.Warn("转换产物入库失败", map[string]any{"path": dst, "err": err.Error()})
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"ok":   true,
+		"mode": mode,
+		"file": newMedia,
+	})
+	return nil
+}
+
+// handleFileSummary 生成或重新生成媒体文件的 AI 总结（POST /api/v1/files/:id/summary）。
+func (s *Server) handleFileSummary(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	if s.ai == nil {
+		return httpx.Internal("AI 服务未初始化")
+	}
+	summary, err := s.ai.GenerateMediaSummary(r.Context(), f)
+	if err != nil {
+		s.log.Warn("AI 总结生成失败", map[string]any{"id": f.ID, "err": err.Error()})
+		return httpx.Conflict("生成 AI 总结失败: " + err.Error())
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "summary": summary})
+	return nil
+}
+
+// handleFileSummaryGet 读取已缓存的 AI 总结（GET /api/v1/files/:id/summary）。
+func (s *Server) handleFileSummaryGet(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "summary": f.Summary})
 	return nil
 }
 

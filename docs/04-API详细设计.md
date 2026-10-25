@@ -76,6 +76,7 @@
 | GET | /tasks/{id}/events | 事件流（结构化 + 引擎日志 warn/error），游标分页 |
 | POST | /tasks/{id}/cancel | 取消（幂等：终态任务返回当前状态 200） |
 | POST | /tasks/{id}/priority | 置顶/取消置顶（仅 waiting；`{"priority":0|1..100}`，调度按 priority DESC + created_at 领取） |
+| POST | /tasks/{id}/summary | 一键调用 AI 服务生成已完成任务的结构化总结 |
 | POST | /tasks/{id}/retry | 重试。body 可选：缺省 = 普通重试（failed/cancelled；waiting+auto_retry 为立即重试，跳过剩余退避）；`{"kind":"n115"}` = 手动换通道重试（本地下载失败转 115 离线，failed/auto_retry 可用；115 未配置 409 如实拒绝）；`{"proxy":"..."}` 或 `{"use_proxy":true}` = 手工切换代理重试。保留原配置版本；failed 起步 attempt+1 |
 | DELETE | /tasks/{id} | 删除任务记录（不删文件；二次确认在前端；`?delete_files=1` 走文件删除端点） |
 | POST | /tasks/batch | 批量：`{action: cancel/retry/delete, ids: []}` → `{succeeded:[], failed:[{id,reason}]}` |
@@ -144,6 +145,9 @@
 | GET | /files | 文件视角列表：platform/uploader/kind/q 过滤；`previewable` 标记 |
 | GET | /files/{id}/download | 直链下载（Content-Disposition；路径必须在 data 根内） |
 | GET | /files/{id}/preview | 浏览器可播编码返回 Range 播放，否则 415 + 提示 |
+| POST | /files/{id}/convert | **二次格式转换 / 音频提取**：`{target: "mp3"|"mp4"}`，按需提取 MP3 或转码 MP4 并入库 |
+| GET | /files/{id}/summary | 读取已缓存的 AI 结构化总结 |
+| POST | /files/{id}/summary | 调用 AI 服务生成媒体文件结构化总结并持久化 |
 | DELETE | /files/{id} | **删文件**（磁盘 + 索引；路径从 DB 取并二次校验在 data 根内）。与「删任务记录」是两个动作 |
 
 ### 2.9 通知 `notifications` ｜ 事件流 `events` ｜ 系统 `system`

@@ -81,6 +81,11 @@ var Registry = []Setting{
 	// 前端跳过登录页/初始化向导，打开即用。只应部署在隔离网络里——任何能访问
 	// 8530 的人都拥有全部权限（提交/删除/凭据/配置）。默认关闭。
 	{Key: "security.auth_disabled", Desc: "免登录模式（内网可信环境；开启后任何人可全权访问）", Default: false, Effective: Restart, EnvVar: "RACCOON_AUTH_DISABLED"},
+	// ---- AI 智能总结与分析 ----
+	{Key: "ai.endpoint", Desc: "AI 服务 API 端点（OpenAI 兼容格式，如 https://api.deepseek.com/v1 或 http://host.docker.internal:11434/v1）", Default: "", Effective: Immediate},
+	{Key: "ai.api_key", Desc: "AI 服务 API 密钥 / Token（如 sk-…）", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "ai.model", Desc: "AI 总结模型名称（如 deepseek-chat, gpt-4o-mini 等）", Default: "deepseek-chat", Effective: Immediate},
+	{Key: "ai.prompt", Desc: "AI 总结系统提示词模板", Default: "请用中文对以下视频/媒体内容进行精炼的结构化总结，包含核心内容概述与关键看点要点。", Effective: Immediate},
 	// ---- 外部集成通道（docs/08 W4.6–W4.8）----
 	// 这几项是「服务连接参数」，与凭据中心的「平台账号凭据」是两类东西：
 	// 前者指本服务要连到哪里（qB 地址、Bot Token），后者指用谁的账号去下载。

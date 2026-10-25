@@ -127,6 +127,21 @@ async function confirmDeleteFile() {
   }
 }
 
+const converting = ref(false)
+
+async function convert(f: MediaFile, target: 'mp3' | 'mp4') {
+  converting.value = true
+  try {
+    const res = await api.convertFile(f.id, target)
+    toast.success(target === 'mp3' ? `已提取音频：${res.file.name}` : `已转换为 MP4：${res.file.name}`)
+    await load()
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : '格式转换失败')
+  } finally {
+    converting.value = false
+  }
+}
+
 let timer: number | undefined
 watch([query, kindFilter, platformFilter], () => {
   if (timer) window.clearTimeout(timer)
@@ -215,6 +230,16 @@ onMounted(load)
         <span class="tnum">{{ formatRelative((row as MediaFile).created_at) }}</span>
       </template>
       <template #actions="{ row }">
+        <RButton
+          v-if="(row as MediaFile).kind === 'video'"
+          size="sm"
+          variant="ghost"
+          :disabled="converting"
+          title="提取 MP3 音频"
+          @click="convert(row as MediaFile, 'mp3')"
+        >
+          提音频
+        </RButton>
         <DownloadBtn :href="downloadUrl((row as MediaFile).id)" @click="download(row as MediaFile)" />
         <RButton size="sm" variant="ghost" tone="danger" @click="pendingDelete = row as MediaFile">
           删除
@@ -230,6 +255,7 @@ onMounted(load)
         :preview-url="previewUrl"
         @open="openDetail"
         @download="download"
+        @convert="convert"
         @delete="pendingDelete = $event"
       />
     </ul>
@@ -244,6 +270,7 @@ onMounted(load)
       @confirm="confirmDeleteFile"
     />
     <p v-if="deleting" class="deleting-hint" role="status">正在删除…</p>
+    <p v-if="converting" class="deleting-hint" role="status">正在执行格式转换/提取音频…</p>
 
     <!-- 文件预览抽屉（方案 §3 视图级组件 PreviewDrawer） -->
     <PreviewDrawer
@@ -252,6 +279,7 @@ onMounted(load)
       :download-url="downloadUrl"
       @close="selected = null"
       @download="download"
+      @convert="convert"
     />
   </section>
 </template>

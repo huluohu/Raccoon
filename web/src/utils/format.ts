@@ -127,6 +127,7 @@ export const PLATFORM_TONE: Record<string, string> = {
   bandcamp: '#629AA9',
   pornhub: '#E7462F',
   netease: '#C62F2F',
+  wechat: '#07C160',
   generic: 'var(--text-3)',
 }
 
@@ -154,6 +155,7 @@ export const PLATFORM_TEXT: Record<string, string> = {
   bandcamp: 'Bandcamp',
   pornhub: 'PornHub',
   netease: '网易云音乐',
+  wechat: '微信视频号',
   web: '通用网页',
   batch: '批量',
   telegram: 'Telegram',

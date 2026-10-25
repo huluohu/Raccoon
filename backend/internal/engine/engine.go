@@ -17,9 +17,10 @@ import (
 type Set struct {
 	YTDLP      *YTDLP
 	GalleryDL  *GalleryDL
-	FFmpegBin  string // 可为空（降级）
-	FFprobeBin string // 可为空（降级）；由 NewSet 自动探测，与 ffmpeg 同目录
-	ffmpegErr  error  // 缓存 ffmpeg 自检结果
+	WeChat     *WeChatEngine // 微信视频号（腾讯元宝桥接）
+	FFmpegBin  string        // 可为空（降级）
+	FFprobeBin string        // 可为空（降级）；由 NewSet 自动探测，与 ffmpeg 同目录
+	ffmpegErr  error         // 缓存 ffmpeg 自检结果
 	ffmpedDone bool
 }
 
@@ -33,9 +34,11 @@ func NewSet(ytdlpBin, ffmpegBin string) *Set {
 	}
 	// ffprobe 通常与 ffmpeg 同目录（静态构建包含两个二进制）。
 	ffprobeBin := ffprobeNext(ffmpegBin)
+	ytdlp := NewYTDLP(ytdlpBin, ffmpegBin)
 	return &Set{
-		YTDLP:      NewYTDLP(ytdlpBin, ffmpegBin),
+		YTDLP:      ytdlp,
 		GalleryDL:  NewGalleryDL(Lookup("gallery-dl")),
+		WeChat:     NewWeChatEngine(ytdlp),
 		FFmpegBin:  ffmpegBin,
 		FFprobeBin: ffprobeBin,
 	}
@@ -63,10 +66,13 @@ func (s *Set) CheckAll() error {
 
 // EngineFor 按 URL 选引擎。
 //
-// 路由依据是站点类型而非平台名单：图片/图集类站点（图集、图库、小红书、X 时间线等）
-// 走 gallery-dl，视频/音频站点走 yt-dlp。
+// 路由依据是站点类型而非平台名单：微信视频号走 WeChatEngine，
+// 图片/图集类站点走 gallery-dl，视频/音频站点走 yt-dlp。
 // 判不准时一律回 yt-dlp —— 它的 extractor 覆盖面更广，回退不会让任务直接失败。
 func (s *Set) EngineFor(rawURL string) Engine {
+	if IsWeChatChannelsURL(rawURL) && s.WeChat != nil {
+		return s.WeChat
+	}
 	if IsGalleryURL(rawURL) {
 		return s.GalleryDL
 	}

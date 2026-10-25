@@ -26,6 +26,8 @@ const emit = defineEmits<{
   open: [file: MediaFile]
   /** 下载。 */
   download: [file: MediaFile]
+  /** 二次格式转换 / 提取音频。 */
+  convert: [file: MediaFile, target: 'mp3' | 'mp4']
   /** 删除文件（危险操作，二次确认由上层弹窗负责）。 */
   delete: [file: MediaFile]
 }>()
@@ -110,6 +112,12 @@ const thumbTint = computed(() => {
       </div>
     </button>
     <div class="file-actions">
+      <RButton v-if="file.kind === 'video'" size="sm" variant="ghost" title="提取 MP3 音轨" @click="emit('convert', file, 'mp3')">
+        提音频
+      </RButton>
+      <RButton v-if="file.kind === 'video' && !file.name.endsWith('.mp4')" size="sm" variant="ghost" title="转为 MP4 格式" @click="emit('convert', file, 'mp4')">
+        转MP4
+      </RButton>
       <RButton size="sm" variant="ghost" @click="emit('download', file)">下载</RButton>
       <RButton size="sm" variant="ghost" @click="emit('open', file)">详情</RButton>
       <RButton size="sm" variant="ghost" tone="danger" @click="emit('delete', file)">删除</RButton>

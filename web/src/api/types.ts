@@ -99,6 +99,8 @@ export interface Task {
   updated_at: number
   started_at?: number | null
   finished_at?: number | null
+  /** AI 结构化总结（OpenAI / DeepSeek / 本地模型生成）。 */
+  summary?: string
 }
 
 export interface TaskFile {
@@ -285,6 +287,8 @@ export interface MediaFile {
   uploader?: string
   kind: string
   previewable: boolean
+  /** AI 结构化总结文本。 */
+  summary?: string
   created_at: number
 }
 

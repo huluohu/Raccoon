@@ -26,6 +26,7 @@ type MediaFile struct {
 	Uploader       string `json:"uploader,omitempty"`
 	Kind           string `json:"kind"`
 	Previewable    bool   `json:"previewable"`
+	Summary        string `json:"summary,omitempty"` // AI 结构化总结
 	CreatedAt      int64  `json:"created_at"`
 }
 
@@ -42,7 +43,7 @@ type FileFilter struct {
 	Offset   int
 }
 
-const mediaSelect = `SELECT id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at FROM media_files`
+const mediaSelect = `SELECT id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at, summary FROM media_files`
 
 // ListMediaFiles 分页查询媒体库。
 func (s *Store) ListMediaFiles(f FileFilter) ([]*MediaFile, int, error) {
@@ -188,8 +189,8 @@ func scanMediaFile(sc rowScanner) (*MediaFile, error) {
 	var m MediaFile
 	var taskID, subID, mime, platform, uploader sql.NullString
 	var duration sql.NullInt64
-	var kind sql.NullString
-	err := sc.Scan(&m.ID, &taskID, &subID, &m.Path, &m.Name, &m.Size, &mime, &duration, &platform, &uploader, &kind, &m.CreatedAt)
+	var kind, summary sql.NullString
+	err := sc.Scan(&m.ID, &taskID, &subID, &m.Path, &m.Name, &m.Size, &mime, &duration, &platform, &uploader, &kind, &m.CreatedAt, &summary)
 	if err != nil {
 		return nil, err
 	}
@@ -199,11 +200,25 @@ func scanMediaFile(sc rowScanner) (*MediaFile, error) {
 	m.Platform = platform.String
 	m.Uploader = uploader.String
 	m.Kind = kind.String
+	m.Summary = summary.String
 	if duration.Valid {
 		m.Duration = &duration.Int64
 	}
 	m.Previewable = isPreviewable(m.Mime, m.Name)
 	return &m, nil
+}
+
+// UpdateMediaSummary 更新媒体文件的 AI 总结内容。
+func (s *Store) UpdateMediaSummary(id, summary string) error {
+	res, err := s.RW.Exec(`UPDATE media_files SET summary=? WHERE id=?`, summary, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNoSuchFile
+	}
+	return nil
 }
 
 // MediaKindOf 按 mime/扩展名判定媒体类别（公开给 worker 登记产物时用）。

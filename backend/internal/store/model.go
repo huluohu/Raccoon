@@ -38,6 +38,7 @@ type Task struct {
 	ScheduledAt     *int64  `json:"scheduled_at,omitempty"`
 	ChildTotal      int     `json:"child_total,omitempty"`  // 仅父任务：子任务数
 	ChildFailed     int     `json:"child_failed,omitempty"` // 仅父任务：失败子任务数
+	Summary         string  `json:"summary,omitempty"`      // AI 结构化总结
 	CreatedAt       int64   `json:"created_at"`
 	UpdatedAt       int64   `json:"updated_at"`
 	StartedAt       *int64  `json:"started_at,omitempty"`

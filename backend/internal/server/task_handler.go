@@ -59,6 +59,7 @@ func (s *Server) setupTasks() {
 	s.router.GET("/api/v1/tasks/:id/events", s.requireAuth(s.handleTaskEvents))
 	s.router.POST("/api/v1/tasks/:id/cancel", s.requireAuth(s.csrfForSession(s.handleTaskCancel)))
 	s.router.POST("/api/v1/tasks/:id/retry", s.requireAuth(s.csrfForSession(s.handleTaskRetry)))
+	s.router.POST("/api/v1/tasks/:id/summary", s.requireAuth(s.csrfForSession(s.handleTaskSummary)))
 	s.router.POST("/api/v1/tasks/:id/priority", s.requireAuth(s.csrfForSession(s.handleTaskPriority)))
 	s.router.DELETE("/api/v1/tasks/:id", s.requireAuth(s.csrfForSession(s.handleTaskDelete)))
 	s.router.POST("/api/v1/tasks/batch", s.requireAuth(s.csrfForSession(s.handleTasksBatch)))
@@ -246,6 +247,44 @@ func (s *Server) handleTaskRetry(w http.ResponseWriter, r *http.Request) error {
 		return taskErrToHTTP(err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "status": "waiting"})
+	return nil
+}
+
+// handleTaskSummary 任务详情页一键生成 AI 总结（POST /api/v1/tasks/:id/summary）。
+func (s *Server) handleTaskSummary(w http.ResponseWriter, r *http.Request) error {
+	id := param(r, "id")
+	t, err := s.store.GetTask(id)
+	if err != nil {
+		return taskErrToHTTP(err)
+	}
+	if t.Status != "done" {
+		return httpx.Conflict("仅已完成（done）的任务可以生成 AI 总结")
+	}
+	if s.ai == nil {
+		return httpx.Internal("AI 服务未初始化")
+	}
+	files, _, _ := s.store.ListMediaFiles(store.FileFilter{Limit: 100})
+	var targetFile *store.MediaFile
+	for _, f := range files {
+		if f.TaskID == id {
+			targetFile = f
+			break
+		}
+	}
+	if targetFile == nil {
+		targetFile = &store.MediaFile{
+			ID:       id,
+			TaskID:   id,
+			Name:     t.Title,
+			Platform: t.Platform,
+		}
+	}
+	summary, err := s.ai.GenerateMediaSummary(r.Context(), targetFile)
+	if err != nil {
+		return httpx.Conflict("生成总结失败: " + err.Error())
+	}
+	_ = s.store.UpdateTaskFields(id, map[string]any{"summary": summary}, "")
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "summary": summary})
 	return nil
 }
 

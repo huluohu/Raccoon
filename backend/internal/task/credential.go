@@ -210,6 +210,8 @@ func cookieDomainFor(platform string) string {
 		return ".vimeo.com"
 	case "soundcloud":
 		return ".soundcloud.com"
+	case "wechat", "wechat_channels", "yuanbao":
+		return ".yuanbao.tencent.com"
 	}
 	return ""
 }

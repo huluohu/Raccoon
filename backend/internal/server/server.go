@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/huluohu/raccoon/internal/ai"
 	"github.com/huluohu/raccoon/internal/auth"
 	"github.com/huluohu/raccoon/internal/config"
 	"github.com/huluohu/raccoon/internal/credential"
@@ -50,6 +51,7 @@ type Server struct {
 	monitor        *monitor.Sampler      // 资源监控采样器（docs/15 §3.2）
 	monitorCancel  context.CancelFunc    // 停机时停采样器
 	credProbe      *credentialProbe      // 凭据健康探针（定期验证 Cookie 有效性）
+	ai             *ai.Summarizer        // AI 视频总结与转录服务
 
 	// Telegram 通道状态（docs/08 W4.8）。
 	tgClient *tgbot.Client
@@ -101,6 +103,8 @@ func New(cfg *config.Config, st *store.Store, logger *logx.Logger) (*Server, err
 	s.credProbe = newCredentialProbe(st, vault, defaultPlatformProbe,
 		time.Duration(s.cfg.GetInt("credential.probe_interval_minutes"))*time.Minute, logger)
 	s.credProbe.Start(context.Background())
+	// AI 总结与转写服务
+	s.ai = ai.NewSummarizer(cfg, st)
 	s.registerRoutes()
 	return s, nil
 }

@@ -21,6 +21,7 @@ export const CONTENT_PLATFORMS = [
   'netease',
   'zhihu',
   'douyu',
+  'wechat',
 ] as const
 
 /** 集成组件：与外部系统的连接凭据（Telegram Bot、115、qBittorrent）。 */
@@ -46,4 +47,5 @@ export const PLATFORM_LABELS: Record<string, string> = {
   netease: '网易云音乐',
   zhihu: '知乎',
   douyu: '斗鱼',
+  wechat: '微信视频号（腾讯元宝）',
 }

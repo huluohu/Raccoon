@@ -10,7 +10,8 @@
 //    建议优先用服务端下发的 fix_hint（它知道引擎与凭据的真实状态），前端只做兜底文案。
 // 4) Cookie / 登录失效必须给一条真出口：emit('goto-connections')，由上层跳路由——
 //    组件里不写死路由，视图换了地址不用回来改组件。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { api } from '@/api/client'
 import StatusDot from './StatusDot.vue'
 import TaskProgress from './TaskProgress.vue'
 import PlatformBadge from './PlatformBadge.vue'
@@ -277,6 +278,20 @@ function fileName(f: TaskFile): string {
   const parts = f.path.split('/')
   return parts[parts.length - 1] || f.path
 }
+
+const generatingSummary = ref(false)
+
+async function onGenerateTaskSummary() {
+  generatingSummary.value = true
+  try {
+    const res = await api.taskSummary(props.task.id)
+    props.task.summary = res.summary
+  } catch (e: unknown) {
+    props.task.summary = '生成失败: ' + (e instanceof Error ? e.message : '请在设置页检查 AI 配置')
+  } finally {
+    generatingSummary.value = false
+  }
+}
 </script>
 
 <template>
@@ -317,6 +332,20 @@ function fileName(f: TaskFile): string {
         <template v-if="task.save_path">
           <dt>保存到</dt>
           <dd class="td-path">{{ task.save_path }}</dd>
+        </template>
+        <template v-if="task.status === 'done'">
+          <dt>AI 总结</dt>
+          <dd class="td-summary-box">
+            <p v-if="task.summary" class="td-summary-text">{{ task.summary }}</p>
+            <RButton
+              size="sm"
+              variant="ghost"
+              :disabled="generatingSummary"
+              @click="onGenerateTaskSummary"
+            >
+              {{ generatingSummary ? '正在分析总结…' : task.summary ? '重新总结' : '生成 AI 总结' }}
+            </RButton>
+          </dd>
         </template>
       </dl>
       <slot name="overview-extra" :task="task" />
@@ -607,6 +636,27 @@ function fileName(f: TaskFile): string {
   gap: 8px;
   color: var(--text-3);
   font-size: var(--font-aux);
+}
+
+.td-summary-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  width: 100%;
+}
+.td-summary-text {
+  font-size: var(--font-aux);
+  color: var(--text-2);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 0;
+  background: var(--surface-2);
+  padding: 8px 12px;
+  border-radius: var(--radius-ctrl);
+  border: 1px solid var(--border);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* 结论行：表情 + 人话结论并排，表情 36px 与结论基线对齐。 */

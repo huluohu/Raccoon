@@ -46,6 +46,7 @@ const GROUPS: { key: string; label: string }[] = [
   { key: 'subscription', label: '订阅' },
   { key: 'live', label: '直播' },
   { key: 'notify', label: '通知' },
+  { key: 'ai', label: 'AI 总结' },
   { key: 'log', label: '日志' },
   { key: 'server', label: '服务' },
   // qBittorrent / 115 / Telegram 的连接参数与通道测试已归位「连接」页
