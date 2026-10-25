@@ -25,6 +25,9 @@ type Worker struct {
 	// 决定 AUTH_REQUIRED 时能否把平台凭据降级为「待确认」：
 	// 没带凭据就报 AUTH_REQUIRED 说明内容本身要登录，与用户存的凭据无关。
 	usedCredential bool
+	// lastItemCount 引擎报告的条目总数（0=单条目 / >1=合集）。
+	// 完成态据此决定要不要用真实大小校正 expected_size（合集总大小不可知，禁估算）。
+	lastItemCount int
 }
 
 // Run 执行任务全生命周期。约定：入口状态必为 parsing（manager CAS 后启动）。
@@ -118,8 +121,23 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	//   progress        = ((itemIndex-1) + 当前条目百分比/100) / itemTotal * 100
 	accBytes, lastItem := int64(0), 0
 	var lastFileTotal int64
-	expectedWritten := false // expected_size 只回填一次（单条目任务才有可信总大小）
+	// 多流（DASH）下载的体积口径（docs/05 §4）：
+	//
+	// yt-dlp 对 **视频流**（分片下载）报 progress.total_bytes = NA，
+	// 对 **音频流**（单文件 range 请求）报的是**该音频流自己**的大小。
+	// 原实现「取第一帧有 total 的进度行」当 expected_size，于是 DASH 任务的
+	// 预期大小变成了音频流大小（实测 13.27 MiB），而真实文件是
+	// 视频+音频合并后的 210.58 MiB——进度条显示「210.6 MB / 13.3 MB」。
+	//
+	// 现在按「流」去重累加：每个不同的 total 值视为一个流，累加得总体积。
+	// 下载完成后还会用真实文件大小校正（见 finish），保证完成态精确。
+	streamTotals := map[int64]bool{}
+	// 跨流累计的已完成字节（切流时把上一流的 downloaded 结转）。
+	var streamDone int64
+	var lastStreamTotal int64
+	var lastStreamDownloaded int64
 	onProgress := func(p engine.Progress) {
+		w.lastItemCount = p.ItemCount
 		if p.ItemIndex > lastItem {
 			// 进入下一条目：上一条的字节总量计入累计（含跳过/秒完的小视频）。
 			if lastItem > 0 {
@@ -127,8 +145,19 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 			}
 			lastItem = p.ItemIndex
 		}
+		// 切流检测：total 变了说明换了另一个流（同一流内 total 恒定）。
+		// 切流时把上一流的已下载量结转到 streamDone，downloaded 才是全量。
+		if p.Total > 0 && lastStreamTotal > 0 && p.Total != lastStreamTotal {
+			streamDone += lastStreamDownloaded
+			lastStreamDownloaded = 0
+		}
+		if p.Total > 0 {
+			lastStreamTotal = p.Total
+			streamTotals[p.Total] = true
+		}
+		lastStreamDownloaded = p.Downloaded
 		lastFileTotal = p.Total
-		downloaded := accBytes + p.Downloaded
+		downloaded := accBytes + streamDone + p.Downloaded
 		pct := p.Percent
 		if p.ItemCount > 1 {
 			// 当前条目百分比未知时按 0 计入（条目计数是引擎真实输出，非估算；
@@ -151,17 +180,19 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 			"speed_bps":       p.SpeedBps,
 			"progress":        pct,
 		}
-		// 单条目任务：引擎报了可信总大小 → 回填 expected_size，
+		// 单条目任务：按流累加出总体积 → 回填 expected_size，
 		// 前端进度条从「不确定条纹」切换为真实百分比（修「进度像满了」）。
 		// 播放列表的总大小不可知（禁估算），expected_size 保持 NULL。
-		if !expectedWritten && p.ItemCount <= 1 && p.Total > 0 {
-			fields["expected_size"] = p.Total
-			expectedWritten = true
+		if p.ItemCount <= 1 {
+			if sum := sumStreamTotals(streamTotals); sum > 0 {
+				fields["expected_size"] = sum
+			}
 		}
 		_ = w.mgr.st.UpdateTaskFields(t.ID, fields, "")
 		w.mgr.hub.Broadcast("task.progress", map[string]any{
 			"task_id": t.ID, "progress": pct, "speed_bps": p.SpeedBps,
-			"eta_sec": p.ETASec, "downloaded_size": downloaded, "expected_size": p.Total,
+			"eta_sec": p.ETASec, "downloaded_size": downloaded,
+			"expected_size":  expectedSizeFor(streamTotals, p.ItemCount),
 			"progress_known": pct >= 0,
 			"item_index":     p.ItemIndex, "item_count": p.ItemCount,
 		})
@@ -237,6 +268,15 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 		"downloaded_size": total,
 		"progress":        100,
 	}, "post")
+	// 完成态用**真实文件大小**校正 expected_size：下载中按流累加的总体积
+	// 与实际文件总有容器封装开销的微小差异（如 DASH 合并的 mp4/webm 头部），
+	// 完成时以实际大小为准，任务详情显示「X / X」而不是差一点的数。
+	//
+	// 只对单条目任务做：合集（多条目 URL）的总大小不可知，禁估算（docs/05 §4），
+	// expected_size 保持 NULL。
+	if w.lastItemCount <= 1 {
+		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{"expected_size": total}, "post")
+	}
 	// 成功即清错误痕迹：失败过后来成功的任务不该在详情页还挂着旧错误
 	//（ClaimWaiting 领取不清、错误字段只能在这里收尾清掉）。
 	if err := w.transition(t.ID, "post", "done", map[string]any{
