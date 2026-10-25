@@ -1,6 +1,13 @@
 // Package task 定义任务模型与七态状态机（docs/05 §2）。state.go 为纯函数，禁止依赖 DB。
 package task
 
+import (
+	"context"
+	"errors"
+
+	"github.com/huluohu/raccoon/internal/engine"
+)
+
 // 任务七态（与 tasks.status CHECK 约束同源）。
 const (
 	StatusWaiting     = "waiting"
@@ -103,3 +110,27 @@ var RetryableErrorCodes = map[string]bool{
 }
 
 func IsRetryable(code string) bool { return RetryableErrorCodes[code] }
+
+// NetworkErrorCodes 网络类异常错误码集合（超时/重置/平台限流/人机拦截）。
+// 遇到此类错误时，系统支持自动切换代理或提示手工切换代理重试。
+var NetworkErrorCodes = map[string]bool{
+	"NET_TIMEOUT":            true,
+	"TIMEOUT":                true,
+	"RATE_LIMITED":           true,
+	"BOT_CHECK":              true,
+	"HTTP_5XX":               true,
+	"BLOCKED_BY_FINGERPRINT": true,
+	"ENGINE_ERROR":           true,
+}
+
+// IsNetworkError 判断是否为网络类异常（超时/重连/限流/人机拦截）。
+func IsNetworkError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ee *engine.EngineError
+	if errors.As(err, &ee) {
+		return NetworkErrorCodes[ee.Code]
+	}
+	return false
+}

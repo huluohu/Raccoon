@@ -194,4 +194,22 @@ describe('SettingItem 组件', () => {
     })
     expect(w.find('input[type="text"]').exists()).toBe(true)
   })
+
+  it('net.proxy 项渲染「测试代理连接」按钮', () => {
+    const w = mount(SettingItem, {
+      props: {
+        item: makeItem({
+          key: 'net.proxy',
+          desc: '网络代理',
+          type: 'string',
+          default: '',
+          value: 'http://127.0.0.1:7890',
+        }),
+        modelValue: 'http://127.0.0.1:7890',
+        dirty: false,
+      },
+    })
+    expect(w.find('.proxy-test-box').exists()).toBe(true)
+    expect(w.find('.proxy-test-box button').text()).toContain('测试代理连接')
+  })
 })

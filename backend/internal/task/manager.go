@@ -49,18 +49,27 @@ type Manager struct {
 	// Stop() 再等它们退出，最长 30s 兜底。
 	workerCtx    context.Context
 	workerCancel context.CancelFunc
+
+	engineFor func(url string) engine.Engine // 引擎选择器（默认 eng.EngineFor，支持测试注入）
 }
 
 // NewManager 构造（不启动循环；Start 由 main 调用）。
 func NewManager(st *store.Store, cfg *config.Config, eng *engine.Set, hub *sse.Hub, logger *logx.Logger) *Manager {
 	wctx, wcancel := context.WithCancel(context.Background())
-	return &Manager{
+	m := &Manager{
 		st: st, cfg: cfg, engines: eng, hub: hub, log: logger,
 		cancels: map[string]context.CancelFunc{}, running: map[string]bool{},
 		done: make(chan struct{}), startedAt: time.Now(),
 		workerCtx: wctx, workerCancel: wcancel,
 	}
+	if eng != nil {
+		m.engineFor = eng.EngineFor
+	}
+	return m
 }
+
+// SetEngineFor 注入自定义引擎选择器（测试桩用）。
+func (m *Manager) SetEngineFor(fn func(url string) engine.Engine) { m.engineFor = fn }
 
 // Start 启动调度循环（tick 500ms）+ 启动恢复扫描（docs/05 §3.1 仅首轮）。
 func (m *Manager) Start(ctx context.Context) {
@@ -255,7 +264,11 @@ func (m *Manager) startWorker(_ context.Context, t *store.Task) {
 	m.cancels[t.ID] = cancel
 	m.running[t.ID] = true
 	m.mu.Unlock()
-	w := &Worker{mgr: m, eng: m.engines.EngineFor(t.URL)}
+	eng := m.engines.EngineFor(t.URL)
+	if m.engineFor != nil {
+		eng = m.engineFor(t.URL)
+	}
+	w := &Worker{mgr: m, eng: eng}
 	go func() {
 		defer func() {
 			m.mu.Lock()
@@ -406,6 +419,46 @@ func (m *Manager) RetryVia(taskID, kind string) error {
 	return nil
 }
 
+// RetryWithProxy 手工切换代理重试（failed / auto_retry 等待期）。
+// proxy 允许传具体代理地址（http://... 或 socks5://...），
+// 传空串或 "default" 则使用系统配置的 net.proxy；若全局代理也未配置，返回明确错误。
+func (m *Manager) RetryWithProxy(taskID, proxy string) error {
+	t, err := m.st.GetTask(taskID)
+	if err != nil {
+		return err
+	}
+	if t.Status != StatusFailed && !(t.Status == StatusWaiting && t.WaitReason == "auto_retry") {
+		return &ErrRetryNotAllowed{Status: t.Status}
+	}
+	targetProxy := strings.TrimSpace(proxy)
+	if targetProxy == "" || targetProxy == "default" {
+		targetProxy = strings.TrimSpace(m.cfg.GetString("net.proxy"))
+	}
+	if targetProxy == "" {
+		return fmt.Errorf("系统未配置网络代理，请在「设置」页配置代理或输入具体代理地址")
+	}
+	updates := map[string]any{
+		"status":           StatusWaiting,
+		"wait_reason":      "",
+		"proxy":            targetProxy,
+		"error_code":       nil,
+		"error_message":    nil,
+		"fix_hint":         nil,
+		"cancel_requested": false,
+		"scheduled_at":     nil,
+		"route_path":       AppendRoutePath(t.RoutePath, "手动切换代理重试"),
+	}
+	if t.Status == StatusFailed {
+		updates["attempt"] = t.Attempt + 1
+	}
+	if err := m.st.UpdateTaskFields(taskID, updates, t.Status); err != nil {
+		return err
+	}
+	_ = m.st.AppendEvent(taskID, "info", "retry", fmt.Sprintf("手动切换代理重试（代理: %s）", targetProxy), "")
+	m.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "waiting", "wait_reason": ""})
+	return nil
+}
+
 // RunningCount 当前运行中 worker 数（让出重启等待用）。
 func (m *Manager) RunningCount() int {
 	m.mu.Lock()
@@ -419,6 +472,7 @@ type SubmitItem struct {
 	Quality   string         `json:"quality,omitempty"`
 	SavePath  string         `json:"save_path,omitempty"`
 	ConvertTo string         `json:"convert_to,omitempty"` // ""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
+	Proxy     string         `json:"proxy,omitempty"`      // 任务级独立代理（空=跟随系统策略）
 	Kind      string         `json:"kind,omitempty"`
 	Options   map[string]any `json:"options,omitempty"`
 }
@@ -480,6 +534,7 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 			Quality:       quality,
 			SavePath:      it.SavePath,
 			ConvertTo:     convertTo,
+			Proxy:         strings.TrimSpace(it.Proxy),
 			RoutePath:     InitialRoutePath(kind, m.cfg.GetString("storage.strategy")),
 			ConfigVersion: cfgVersion,
 			MaxAttempts:   maxAttempts,
@@ -532,15 +587,58 @@ func (m *Manager) External() *ExternalExecutor { return m.external }
 
 // Preview 解析预览（POST /parse 行动作，不落库）。
 // 引擎路由 / 网络代理 / 平台凭据三件事都与任务执行保持同一口径：
-// 预览走 yt-dlp 而任务走 gallery-dl、或预览直连而任务走代理，都会造成
-// 「预览成功、下载失败」（或反过来）的错位——预览的意义是让用户提前看清
-// 这单能不能成，口径不一致它就在撒谎。
-func (m *Manager) Preview(ctx context.Context, url string) (*store.ParsePreview, error) {
+// 预览走 yt-dlp 而任务走 gallery-dl。
+//
+// 代理支持（自动 + 手工）：
+//  1. 可通过 proxyOpt[0] 显式指定代理（手工切换代理尝试）；
+//  2. 若未显式指定，使用 net.proxy 或直连；
+//  3. 网络异常自动切换：当直连解析遇到网络类异常（超时/重置/人机验证），且配置了 net.proxy，
+//     自动切换代理重试一次；反之若代理连接失败，且未强制指定代理，回退直连尝试。
+func (m *Manager) Preview(ctx context.Context, url string, proxyOpt ...string) (*store.ParsePreview, error) {
 	eng := m.engines.EngineFor(url)
-	proxy := m.cfg.GetString("net.proxy")
+	if m.engineFor != nil {
+		eng = m.engineFor(url)
+	}
+	var activeProxy string
+	if len(proxyOpt) > 0 {
+		activeProxy = strings.TrimSpace(proxyOpt[0])
+	}
+	globalProxy := strings.TrimSpace(m.cfg.GetString("net.proxy"))
+	// 未显式指定代理时优先直连（保证国内源满速且不耗代理流量）；
+	// 直连发生网络异常时，再自动切换 globalProxy。
+	currentProxy := activeProxy
+
 	cookieFile := m.previewCookieFile(url)
 	defer m.cookieWriter().removeCookieFile(cookieFile)
-	res, err := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: proxy})
+
+	res, err := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: currentProxy})
+	routeNote := ""
+	usedProxy := currentProxy
+
+	// 自动切换代理：当直连解析遇到网络异常，且系统配置了全局代理时，自动切换代理重试一次
+	if err != nil && currentProxy == "" && globalProxy != "" && IsNetworkError(err) {
+		m.log.Info("直连解析网络异常，自动尝试代理重试", map[string]any{"url": url, "err": err.Error(), "proxy": globalProxy})
+		res2, err2 := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: globalProxy})
+		if err2 == nil {
+			res = res2
+			err = nil
+			usedProxy = globalProxy
+			routeNote = "直连解析网络异常，已自动切换代理成功"
+		}
+	}
+
+	// 反向自动切换：若配置的代理发生网络异常（如本地代理未启动/拒绝），而目标可能是可直连站点，尝试直连一次
+	if err != nil && currentProxy != "" && activeProxy == "" && IsNetworkError(err) {
+		m.log.Info("代理模式解析网络异常，尝试直连备用", map[string]any{"url": url, "err": err.Error()})
+		res2, err2 := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: ""})
+		if err2 == nil {
+			res = res2
+			err = nil
+			usedProxy = ""
+			routeNote = "代理连接异常，已自动回退直连解析成功"
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -553,6 +651,8 @@ func (m *Manager) Preview(ctx context.Context, url string) (*store.ParsePreview,
 		Duration:   nilIfZero(res.Duration),
 		IsPlaylist: res.IsPlaylist,
 		Formats:    make([]store.FormatOption, 0, len(res.Formats)),
+		ProxyUsed:  usedProxy,
+		RouteNote:  routeNote,
 	}
 	for _, f := range res.Formats {
 		pv.Formats = append(pv.Formats, store.FormatOption{Quality: f.Quality, Size: f.Size, Note: f.Note})

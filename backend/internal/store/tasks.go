@@ -65,11 +65,11 @@ func (s *Store) CreateTask(t *Task) error {
 	_, err := s.RW.Exec(`INSERT INTO tasks
 		(id, parent_id, kind, source, source_ref, platform, url, title, thumbnail, dedupe_key, status,
 		 quality, save_path, expected_size, engine, engine_version, config_version, attempt, max_attempts,
-		 route_path, scheduled_at, convert_to, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 route_path, scheduled_at, convert_to, proxy, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?, 'waiting', ?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		t.ID, t.ParentID, t.Kind, t.Source, t.SourceRef, t.Platform, t.URL, nullStr(t.Title), nullStr(t.Thumbnail),
 		t.DedupeKey, nullStr(t.Quality), nullStr(t.SavePath), t.ExpectedSize, nullStr(t.Engine), nullStr(t.EngineVersion),
-		t.ConfigVersion, t.Attempt, t.MaxAttempts, t.RoutePath, t.ScheduledAt, nullStr(t.ConvertTo), t.CreatedAt, t.UpdatedAt)
+		t.ConfigVersion, t.Attempt, t.MaxAttempts, t.RoutePath, t.ScheduledAt, nullStr(t.ConvertTo), t.Proxy, t.CreatedAt, t.UpdatedAt)
 	if err != nil {
 		if isUniqueErr(err) {
 			// 唯一索引冲突即 dedupe（含普通 dedupe_key 索引）。
@@ -105,20 +105,20 @@ const taskSelect = `SELECT t.id, t.parent_id, t.kind, t.source, t.source_ref, t.
 	t.status, t.wait_reason, t.quality, t.save_path, t.expected_size, t.downloaded_size, t.speed_bps, t.progress,
 	t.resume_supported, t.engine, t.engine_version, t.config_version, t.attempt, t.max_attempts,
 	t.error_code, t.error_message, t.fix_hint, t.cancel_requested, t.route_path, t.scheduled_at,
-	t.created_at, t.updated_at, t.started_at, t.finished_at, t.priority, t.convert_to FROM tasks t`
+	t.created_at, t.updated_at, t.started_at, t.finished_at, t.priority, t.convert_to, t.proxy FROM tasks t`
 
 func scanTask(row *sql.Row) (*Task, error) {
 	var t Task
 	var parentID, sourceRef, platform, title, thumb, waitReason, quality, savePath, engine, engineVer sql.NullString
 	var errCode, errMsg, fixHint sql.NullString
-	var routePath, convertTo sql.NullString
+	var routePath, convertTo, proxy sql.NullString
 	var expectedSize, scheduledAt, startedAt, finishedAt sql.NullInt64
 	var resumeFlag, cancelFlag int64 // INTEGER 列经 int64 中转（database/sql 不支持直扫 bool）
 	err := row.Scan(&t.ID, &parentID, &t.Kind, &t.Source, &sourceRef, &platform, &t.URL, &title, &thumb,
 		&t.Status, &waitReason, &quality, &savePath, &expectedSize, &t.DownloadedSize, &t.SpeedBps, &t.Progress,
 		&resumeFlag, &engine, &engineVer, &t.ConfigVersion, &t.Attempt, &t.MaxAttempts,
 		&errCode, &errMsg, &fixHint, &cancelFlag, &routePath, &scheduledAt,
-		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt, &t.Priority, &convertTo)
+		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt, &t.Priority, &convertTo, &proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -126,6 +126,7 @@ func scanTask(row *sql.Row) (*Task, error) {
 	t.CancelRequested = cancelFlag != 0
 	t.RoutePath = routePath.String
 	t.ConvertTo = convertTo.String
+	t.Proxy = proxy.String
 	t.ErrorCode = errCode.String
 	t.ErrorMessage = errMsg.String
 	t.FixHint = fixHint.String
@@ -235,14 +236,14 @@ func scanTaskRows(rows *sql.Rows) (*Task, error) {
 	var t Task
 	var parentID, sourceRef, platform, title, thumb, waitReason, quality, savePath, engine, engineVer sql.NullString
 	var errCode, errMsg, fixHint sql.NullString
-	var routePath, convertTo sql.NullString
+	var routePath, convertTo, proxy sql.NullString
 	var expectedSize, scheduledAt, startedAt, finishedAt sql.NullInt64
 	var resumeFlag, cancelFlag int64 // INTEGER 列经 int64 中转（database/sql 不支持直扫 bool）
 	err := rows.Scan(&t.ID, &parentID, &t.Kind, &t.Source, &sourceRef, &platform, &t.URL, &title, &thumb,
 		&t.Status, &waitReason, &quality, &savePath, &expectedSize, &t.DownloadedSize, &t.SpeedBps, &t.Progress,
 		&resumeFlag, &engine, &engineVer, &t.ConfigVersion, &t.Attempt, &t.MaxAttempts,
 		&errCode, &errMsg, &fixHint, &cancelFlag, &routePath, &scheduledAt,
-		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt, &t.Priority, &convertTo)
+		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt, &t.Priority, &convertTo, &proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -250,6 +251,7 @@ func scanTaskRows(rows *sql.Rows) (*Task, error) {
 	t.CancelRequested = cancelFlag != 0
 	t.RoutePath = routePath.String
 	t.ConvertTo = convertTo.String
+	t.Proxy = proxy.String
 	t.ErrorCode = errCode.String
 	t.ErrorMessage = errMsg.String
 	t.FixHint = fixHint.String
@@ -341,6 +343,7 @@ func (s *Store) UpdateTaskFields(id string, fields map[string]any, fromStatus st
 		"quality": true, "save_path": true, "started_at": true, "finished_at": true, "route_path": true,
 		"kind":     true, // 仅策略 failover（n115→qb）与手动换通道重试（RetryVia，download→n115）改写
 		"priority": true, // 优先级（置顶/取消置顶）
+		"proxy":    true, // 任务级代理地址（自动/手动切换代理重试）
 	}
 	keys := make([]string, 0, len(fields))
 	for k := range fields {

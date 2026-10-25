@@ -751,6 +751,7 @@ onBeforeUnmount(() => {
         @goto-settings="router.push('/settings')"
         @retry="(t) => runAction(t.id, tasks.retry)"
         @retry-via="(t, kind) => runAction(t.id, (id) => tasks.retry(id, kind))"
+        @retry-proxy="(t) => runAction(t.id, (id) => tasks.retry(id, undefined, { use_proxy: true }))"
         @cancel="(t) => runAction(t.id, tasks.cancel)"
         @remove="(t) => runAction(t.id, tasks.remove)"
         @delete-file="(f) => (pendingDetailFile = f)"

@@ -91,6 +91,8 @@ export interface Task {
    * 老数据 / 非磁力任务可能为空串——界面按「—」显示，不猜。
    */
   route_path?: string
+  /** 任务使用的代理（空=跟随系统策略/直连，有值=独立指定代理）。 */
+  proxy?: string
   /** 领取顺序权重：0=普通（默认），>0=置顶插队（waiting 队列 priority DESC, created_at ASC）。 */
   priority?: number
   created_at: number
@@ -148,6 +150,8 @@ export interface ParsePreview {
   is_playlist: boolean
   kind: string
   formats: FormatOption[]
+  proxy_used?: string
+  route_note?: string
 }
 
 export interface CreateTasksResponse {

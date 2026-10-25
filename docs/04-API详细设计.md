@@ -76,7 +76,7 @@
 | GET | /tasks/{id}/events | 事件流（结构化 + 引擎日志 warn/error），游标分页 |
 | POST | /tasks/{id}/cancel | 取消（幂等：终态任务返回当前状态 200） |
 | POST | /tasks/{id}/priority | 置顶/取消置顶（仅 waiting；`{"priority":0|1..100}`，调度按 priority DESC + created_at 领取） |
-| POST | /tasks/{id}/retry | 重试。body 可选：缺省 = 普通重试（failed/cancelled；waiting+auto_retry 为立即重试，跳过剩余退避）；`{"kind":"n115"}` = 手动换通道重试（本地下载失败转 115 离线，failed/auto_retry 可用；115 未配置 409 如实拒绝）。保留原配置版本；failed 起步 attempt+1 |
+| POST | /tasks/{id}/retry | 重试。body 可选：缺省 = 普通重试（failed/cancelled；waiting+auto_retry 为立即重试，跳过剩余退避）；`{"kind":"n115"}` = 手动换通道重试（本地下载失败转 115 离线，failed/auto_retry 可用；115 未配置 409 如实拒绝）；`{"proxy":"..."}` 或 `{"use_proxy":true}` = 手工切换代理重试。保留原配置版本；failed 起步 attempt+1 |
 | DELETE | /tasks/{id} | 删除任务记录（不删文件；二次确认在前端；`?delete_files=1` 走文件删除端点） |
 | POST | /tasks/batch | 批量：`{action: cancel/retry/delete, ids: []}` → `{succeeded:[], failed:[{id,reason}]}` |
 | GET | /tasks/{id}/files | 产物列表 |
@@ -86,7 +86,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | /parse | `{url}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null}]/kind/is_playlist/entries(preview)。不落库、不入队 |
+| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null}]/kind/is_playlist/proxy_used/route_note/entries(preview)。直连网络异常时自动切换 net.proxy 重试。不落库、不入队 |
 
 ### 2.4 配置中心 `config`
 
@@ -95,7 +95,7 @@
 | GET | /config | 全量设置注册表（每项含五要素 + 当前值 + 是否 env 锁定），敏感值打码 |
 | PUT | /config | 批量保存：`{settings:{key:value,...}}` → 逐项校验结果；含 `effective` 汇总（哪些即时/下个任务/需重启） |
 | PUT | /config/{key} | 单项保存 |
-| POST | /config/test-connection | `{target: qbittorrent/n115/telegram, ...params}` → `{ok, message, latency_ms}` |
+| POST | /config/test-connection | `{target: qbittorrent/n115/telegram/proxy, ...params}` → `{ok, message, latency_ms}` |
 | GET | /config/export | 导出配置 JSON（敏感项不含明文，单独勾选才含且预览明示） |
 | POST | /config/import | 导入（先校验，冲突项列出 diff 待确认） |
 | GET | /config/history | 配置历史（key/version/时间/操作人） |

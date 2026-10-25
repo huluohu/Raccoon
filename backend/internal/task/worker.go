@@ -55,10 +55,30 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	defer w.cleanupCookieFile(cookieFile)
 
 	// ---- parsing ----
-	// 代理：net.proxy 是「网络出口」配置，解析与下载必须走同一出口——
-	// 只给下载配代理会造成「解析成功（直连元数据页）、下载超时（媒体流不可达）」的错位。
-	proxy := w.mgr.cfg.GetString("net.proxy")
+	// 代理策略：任务级独立配置 (t.Proxy) 优先，其次系统配置 net.proxy。
+	proxy := t.Proxy
+	if proxy == "" {
+		proxy = w.mgr.cfg.GetString("net.proxy")
+	}
 	res, err := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile, Proxy: proxy})
+	if err != nil {
+		// 自动切换代理：当直连解析遇到网络异常，且系统配置了全局代理时，自动切换代理重试一次
+		globalProxy := strings.TrimSpace(w.mgr.cfg.GetString("net.proxy"))
+		if proxy == "" && globalProxy != "" && IsNetworkError(err) {
+			w.mgr.log.Info("直连解析网络异常，自动尝试代理重试", map[string]any{"task_id": t.ID, "err": err.Error(), "proxy": globalProxy})
+			res2, err2 := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile, Proxy: globalProxy})
+			if err2 == nil {
+				res = res2
+				err = nil
+				proxy = globalProxy
+				_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+					"proxy":      globalProxy,
+					"route_path": AppendRoutePath(t.RoutePath, "直连异常 → 自动切换代理"),
+				}, "parsing")
+				_ = w.mgr.st.AppendEvent(t.ID, "info", "proxy_switched", "直连解析网络异常，已自动切换代理解析成功", "")
+			}
+		}
+	}
 	if err != nil {
 		w.handleEngineErr(ctx, t, "parsing", err)
 		return
@@ -372,7 +392,7 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 	if IsRetryable(code) && t.Attempt+1 < t.MaxAttempts {
 		attempt := t.Attempt + 1
 		backoff := backoffFor(t.Attempt)
-		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+		fields := map[string]any{
 			"status":        "waiting",
 			"wait_reason":   "auto_retry",
 			"attempt":       attempt,
@@ -380,9 +400,18 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 			"error_code":    code,
 			"error_message": msg,
 			"speed_bps":     0,
-		}, from)
-		_ = w.mgr.st.AppendEvent(t.ID, "warn", "retry_scheduled",
-			fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts), "")
+		}
+		msgEvent := fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)
+		// 自动切换代理：若本次直连下载失败（网络类异常），且系统配置了 net.proxy，
+		// 下次重试自动切换至代理通道，并更新 route_path。
+		globalProxy := strings.TrimSpace(w.mgr.cfg.GetString("net.proxy"))
+		if t.Proxy == "" && globalProxy != "" && NetworkErrorCodes[code] {
+			fields["proxy"] = globalProxy
+			fields["route_path"] = AppendRoutePath(t.RoutePath, "直连异常 → 自动切换代理重试")
+			msgEvent = fmt.Sprintf("%s：%s；已自动切换代理，%s 后重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)
+		}
+		_ = w.mgr.st.UpdateTaskFields(t.ID, fields, from)
+		_ = w.mgr.st.AppendEvent(t.ID, "warn", "retry_scheduled", msgEvent, "")
 		// 广播带错误字段：前端在重试等待期就能显示「错误与建议」，
 		// 不必等 failed 终态才全量刷新。
 		w.mgr.hub.Broadcast("task.status", map[string]any{
@@ -566,7 +595,7 @@ func fixHintFor(code string) string {
 	case "NOT_FOUND":
 		return `{"action":"none","label":"链接不存在或已删除，请检查后重试"}`
 	case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED":
-		return fixHintRetry()
+		return `{"action":"retry_proxy","label":"网络连接失败，可点击「切换代理重试」或在「设置」页配置代理"}`
 	case "TIMEOUT":
 		return `{"action":"none","label":"解析超时，可稍后重试；若链接是大型合集/频道，可先缩小范围"}`
 	case "ENGINE_UNAVAILABLE":

@@ -13,7 +13,9 @@
 //
 // 组件只负责渲染与收集草稿值，不发请求（数据流走 api 层，§8 约定）：
 // 保存由父组件统一提交，这样「哪些项被改了」只有一处判断。
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { api } from '@/api/client'
+import RButton from '@/components/base/RButton.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import type { ConfigItem, Effective } from '@/api/types'
 
@@ -66,6 +68,26 @@ function onText(ev: Event) {
 
 function onBool(ev: Event) {
   emit('update:modelValue', (ev.target as HTMLInputElement).checked)
+}
+
+const testingProxy = ref(false)
+const proxyTestResult = ref<{ ok: boolean; message: string } | null>(null)
+
+async function testProxy() {
+  testingProxy.value = true
+  proxyTestResult.value = null
+  try {
+    const proxyVal = String(props.modelValue ?? props.item.value ?? '')
+    const res = await api.testConnection('proxy', { proxy: proxyVal })
+    proxyTestResult.value = res
+  } catch (e: unknown) {
+    proxyTestResult.value = {
+      ok: false,
+      message: e instanceof Error ? e.message : '测试失败',
+    }
+  } finally {
+    testingProxy.value = false
+  }
 }
 </script>
 
@@ -148,6 +170,18 @@ function onBool(ev: Event) {
         />
       </template>
       <span v-if="!item.sensitive" class="setting-default tnum">默认 {{ String(item.default) }}</span>
+      <div v-if="item.key === 'net.proxy'" class="proxy-test-box">
+        <RButton size="sm" variant="ghost" :disabled="testingProxy" @click="testProxy">
+          {{ testingProxy ? '测试中…' : '测试代理连接' }}
+        </RButton>
+        <span
+          v-if="proxyTestResult"
+          class="proxy-test-res"
+          :class="proxyTestResult.ok ? 'is-ok' : 'is-bad'"
+        >
+          {{ proxyTestResult.message }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
@@ -162,6 +196,24 @@ function onBool(ev: Event) {
 .setting-desc { font-size: var(--font-aux); color: var(--text-3); margin: 4px 0 10px; line-height: 1.6; }
 .setting-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .setting-default { font-size: var(--font-aux); color: var(--text-3); }
+.proxy-test-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.proxy-test-res {
+  font-size: var(--font-aux);
+  line-height: 1.4;
+}
+.proxy-test-res.is-ok {
+  color: var(--success);
+}
+.proxy-test-res.is-bad {
+  color: var(--danger);
+}
 .input {
   padding: 8px 12px;
   border: 1px solid var(--border);

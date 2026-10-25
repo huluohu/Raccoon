@@ -3,9 +3,12 @@ package server
 // util.go：server 包通用小工具（错误断言、时间戳、连接测试）。
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -104,6 +107,56 @@ func (s *Server) testConnection(target string, params map[string]any) connTestRe
 		_ = conn.Close()
 		res.OK = true
 		res.Message = "网络可达（鉴权需在真实下载任务中验证）"
+	case "proxy":
+		raw := str("proxy")
+		if raw == "" && s.cfg != nil {
+			raw = s.cfg.GetString("net.proxy")
+		}
+		if strings.TrimSpace(raw) == "" {
+			res.Message = "未配置代理地址（可在下方输入代理后点击测试）"
+			return res
+		}
+		u, err := url.Parse(strings.TrimSpace(raw))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5" && u.Scheme != "socks5h") {
+			res.Message = "代理地址格式非法，需以 http://、https:// 或 socks5:// 开头"
+			return res
+		}
+		start := time.Now()
+		client := &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyURL(u),
+			},
+			Timeout: 8 * time.Second,
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://cp.cloudflare.com/generate_204", nil)
+		if err != nil {
+			res.Message = "构造探测请求失败: " + err.Error()
+			return res
+		}
+		resp, err := client.Do(req)
+		res.LatencyMS = time.Since(start).Milliseconds()
+		if err != nil {
+			// 备用探测地址（防单个节点间歇性抖动）
+			ctx2, cancel2 := context.WithTimeout(context.Background(), 6*time.Second)
+			defer cancel2()
+			start2 := time.Now()
+			req2, _ := http.NewRequestWithContext(ctx2, http.MethodGet, "http://www.gstatic.com/generate_204", nil)
+			resp2, err2 := client.Do(req2)
+			if err2 != nil {
+				res.Message = "代理连接失败: " + err.Error()
+				return res
+			}
+			_ = resp2.Body.Close()
+			res.LatencyMS = time.Since(start2).Milliseconds()
+			res.OK = true
+			res.Message = fmt.Sprintf("代理可用（延迟 %dms）", res.LatencyMS)
+			return res
+		}
+		_ = resp.Body.Close()
+		res.OK = true
+		res.Message = fmt.Sprintf("代理可用（延迟 %dms）", res.LatencyMS)
 	default:
 		res.Message = "未知的连接目标: " + target
 	}

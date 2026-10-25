@@ -43,6 +43,8 @@ const emit = defineEmits<{
   (e: 'retry', task: Task): void
   /** 换通道重试（kind='n115'：本地下载失败转 115 离线，docs/05 §7）。 */
   (e: 'retry-via', task: Task, kind: 'n115'): void
+  /** 切换代理重试（直连超时或受限时手动尝试走代理）。 */
+  (e: 'retry-proxy', task: Task): void
   /** 取消任务。 */
   (e: 'cancel', task: Task): void
   /** 删除任务。 */
@@ -296,6 +298,10 @@ function fileName(f: TaskFile): string {
              只显示最终结果而不显示路径，用户永远搞不清为什么在 qB 里。 -->
         <dt>走了哪条路</dt>
         <dd>{{ task.route_path || '—' }}</dd>
+        <template v-if="task.proxy">
+          <dt>网络代理</dt>
+          <dd class="td-path">{{ task.proxy }}</dd>
+        </template>
         <dt>已下载</dt>
         <dd class="tnum">{{ formatBytes(task.downloaded_size) }}</dd>
         <dt>创建</dt>
@@ -412,6 +418,16 @@ function fileName(f: TaskFile): string {
           >
             转 115 通道重试
           </RButton>
+          <RButton
+            v-if="canRetry"
+            size="sm"
+            variant="ghost"
+            :disabled="busy"
+            title="切换使用网络代理重试（直连超时或受限时使用）"
+            @click="emit('retry-proxy', task)"
+          >
+            切换代理重试
+          </RButton>
         </div>
       </template>
       <p v-else class="td-noerr">本次没有错误记录。</p>
@@ -426,6 +442,16 @@ function fileName(f: TaskFile): string {
             取消
           </RButton>
           <RButton v-if="canRetry" size="sm" :disabled="busy" @click="emit('retry', task)">重试</RButton>
+          <RButton
+            v-if="canRetry"
+            size="sm"
+            variant="ghost"
+            :disabled="busy"
+            title="切换使用网络代理重试"
+            @click="emit('retry-proxy', task)"
+          >
+            切换代理重试
+          </RButton>
           <RButton
             size="sm"
             variant="ghost"

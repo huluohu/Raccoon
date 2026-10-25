@@ -18,6 +18,7 @@ type Task struct {
 	Quality         string  `json:"quality,omitempty"`
 	SavePath        string  `json:"save_path,omitempty"`
 	ConvertTo       string  `json:"convert_to,omitempty"` // 产物目标格式：""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
+	Proxy           string  `json:"proxy,omitempty"`      // 任务级代理配置（""=跟随系统，有值=独立走代理）
 	ExpectedSize    *int64  `json:"expected_size"`        // NULL=未知，禁估算
 	DownloadedSize  int64   `json:"downloaded_size"`
 	SpeedBps        int64   `json:"speed_bps"`
@@ -76,6 +77,8 @@ type ParsePreview struct {
 	Duration   *int64         `json:"duration,omitempty"` // 秒
 	IsPlaylist bool           `json:"is_playlist"`
 	Formats    []FormatOption `json:"formats"`
+	ProxyUsed  string         `json:"proxy_used,omitempty"`
+	RouteNote  string         `json:"route_note,omitempty"` // 如「直连异常，已自动切换代理」
 }
 
 // FormatOption 一个可选质量；Size 为 nil 时前端显示「未知」（禁估算）。

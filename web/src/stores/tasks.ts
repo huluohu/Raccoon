@@ -289,8 +289,8 @@ export const useTasksStore = defineStore('tasks', () => {
     }
   }
 
-  async function preview(url: string) {
-    return api.parseUrl(url)
+  async function preview(url: string, proxy?: string) {
+    return proxy ? api.parseUrl(url, proxy) : api.parseUrl(url)
   }
 
   async function cancel(id: string): Promise<void> {
@@ -298,10 +298,14 @@ export const useTasksStore = defineStore('tasks', () => {
     await refresh()
   }
 
-  async function retry(id: string, kind?: 'n115'): Promise<void> {
+  async function retry(
+    id: string,
+    kind?: 'n115',
+    proxyOpts?: { proxy?: string; use_proxy?: boolean },
+  ): Promise<void> {
     error.value = ''
     try {
-      await api.retryTask(id, kind)
+      await api.retryTask(id, kind, proxyOpts)
       await refresh()
     } catch (e) {
       error.value = e instanceof ApiError ? e.message : '重试失败'

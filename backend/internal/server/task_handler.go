@@ -110,7 +110,8 @@ type submitItemJSON struct {
 	URL       string `json:"url"`
 	Quality   string `json:"quality"`
 	SavePath  string `json:"save_path"`
-	ConvertTo string `json:"convert_to"` // ""=源格式 / mp4 / mp3
+	ConvertTo string `json:"convert_to"`      // ""=源格式 / mp4 / mp3
+	Proxy     string `json:"proxy,omitempty"` // 任务级指定代理
 }
 
 func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error {
@@ -132,7 +133,7 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 	}
 	if req.Preview {
 		// preview:true 只解析不入队（多 URL 取第一个预览）。
-		pv, err := s.tasks.Preview(r.Context(), req.Items[0].URL)
+		pv, err := s.tasks.Preview(r.Context(), req.Items[0].URL, strings.TrimSpace(req.Items[0].Proxy))
 		if err != nil {
 			return taskErrToHTTP(err)
 		}
@@ -148,7 +149,13 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 		if !task.ValidConvertTargets[strings.ToLower(strings.TrimSpace(it.ConvertTo))] && strings.TrimSpace(it.ConvertTo) != "" {
 			return httpx.Validation("convert_to 需为 mp4 / mp3")
 		}
-		items = append(items, task.SubmitItem{URL: it.URL, Quality: it.Quality, SavePath: it.SavePath, ConvertTo: it.ConvertTo})
+		items = append(items, task.SubmitItem{
+			URL:       it.URL,
+			Quality:   it.Quality,
+			SavePath:  it.SavePath,
+			ConvertTo: it.ConvertTo,
+			Proxy:     it.Proxy,
+		})
 	}
 	u := userFrom(r)
 	source := task.SourceWeb
@@ -208,8 +215,11 @@ func (s *Server) handleTaskRetry(w http.ResponseWriter, r *http.Request) error {
 	}
 	// body 可选（向后兼容：老客户端/扩展不带头即普通重试）；
 	// {"kind":"n115"} = 手动换通道重试（docs/05 §7）。
+	// {"proxy":"..."} 或 {"use_proxy":true} = 手工切换代理重试。
 	var body struct {
-		Kind string `json:"kind"`
+		Kind     string `json:"kind"`
+		Proxy    string `json:"proxy"`
+		UseProxy bool   `json:"use_proxy"`
 	}
 	if r.Body != nil {
 		if raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<10)); err == nil && len(raw) > 0 {
@@ -219,6 +229,8 @@ func (s *Server) handleTaskRetry(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	if body.Kind != "" {
 		err = s.tasks.RetryVia(id, body.Kind)
+	} else if body.UseProxy || strings.TrimSpace(body.Proxy) != "" {
+		err = s.tasks.RetryWithProxy(id, body.Proxy)
 	} else {
 		err = s.tasks.Retry(id)
 	}
@@ -288,7 +300,8 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) error 
 // ---- parse ----
 
 type parseReq struct {
-	URL string `json:"url"`
+	URL   string `json:"url"`
+	Proxy string `json:"proxy,omitempty"`
 }
 
 func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) error {
@@ -309,9 +322,9 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) error {
 	if err := eng.Available(); err != nil {
 		return &httpx.Error{HTTP: http.StatusServiceUnavailable, Code: httpx.CodeNoEngine, Message: err.Error()}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 	defer cancel()
-	pv, err := s.tasks.Preview(ctx, strings.TrimSpace(req.URL))
+	pv, err := s.tasks.Preview(ctx, strings.TrimSpace(req.URL), strings.TrimSpace(req.Proxy))
 	if err != nil {
 		return taskErrToHTTP(err)
 	}

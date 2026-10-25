@@ -286,6 +286,25 @@ describe('TaskDetail', () => {
     expect(w.findAll('button').some((b) => b.text().includes('转 115'))).toBe(true)
   })
 
+  it('可重试态点击「切换代理重试」发出 retry-proxy 事件', async () => {
+    const w = mount(TaskDetail, {
+      props: {
+        task: makeTask({
+          status: 'failed',
+          error_code: 'NET_TIMEOUT',
+          error_message: '网络超时',
+        }),
+      },
+      global: { stubs },
+    })
+    const retryProxyBtn = w.findAll('button').find((b) => b.text().includes('切换代理重试'))
+    expect(retryProxyBtn).toBeTruthy()
+    await retryProxyBtn!.trigger('click')
+    const emitted = w.emitted('retry-proxy')
+    expect(emitted).toBeTruthy()
+    expect((emitted![0] as unknown[])[0]).toMatchObject({ id: 't-1' })
+  })
+
   it('平台类错误（登录/404）不显示换通道按钮（换道无意义）', () => {
     for (const code of ['AUTH_REQUIRED', 'NOT_FOUND', 'FORMAT_UNAVAILABLE']) {
       const w = mount(TaskDetail, {

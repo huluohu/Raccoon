@@ -123,7 +123,7 @@ export const api = {
     return request<import('./types').TaskListResult>('/tasks' + (qs ? '?' + qs : ''))
   },
   createTasks: (
-    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string; proxy?: string }[],
     preview = false,
   ) =>
     request<import('./types').CreateTasksResponse>('/tasks', {
@@ -132,7 +132,7 @@ export const api = {
     }),
   /** 父子批量（docs/05 §5）：父任务 + 子任务树，父卡聚合子进度。 */
   createParentTasks: (
-    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string; proxy?: string }[],
     quality?: string,
   ) =>
     request<import('./types').CreateParentTasksResponse>('/tasks/parent', {
@@ -160,17 +160,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ priority }),
     }),
-  /** kind 缺省 = 普通重试；传 "n115" = 手动换通道重试（docs/05 §7，115 未配置时后端 409 如实拒绝）。 */
-  retryTask: (id: string, kind?: 'n115') =>
-    request<{ ok: boolean }>(`/tasks/${id}/retry`, {
+  /** kind 缺省 = 普通重试；传 "n115" = 手动换通道重试；proxyOpts 传参支持切换代理重试。 */
+  retryTask: (
+    id: string,
+    kind?: 'n115',
+    proxyOpts?: { proxy?: string; use_proxy?: boolean },
+  ) => {
+    const body: Record<string, unknown> = {}
+    if (kind) body.kind = kind
+    if (proxyOpts?.proxy) body.proxy = proxyOpts.proxy
+    if (proxyOpts?.use_proxy) body.use_proxy = true
+    return request<{ ok: boolean }>(`/tasks/${id}/retry`, {
       method: 'POST',
-      body: kind ? JSON.stringify({ kind }) : undefined,
-    }),
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+    })
+  },
   deleteTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
-  parseUrl: (url: string) =>
+  parseUrl: (url: string, proxy?: string) =>
     request<{ data: import('./types').ParsePreview }>('/parse', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, proxy: proxy || undefined }),
     }),
 
   // ---- 配置中心（docs/04 §2.4）----
