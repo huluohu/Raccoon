@@ -263,6 +263,47 @@ export const api = {
   },
   fileDownloadUrl: (id: string) => `${BASE}/files/${id}/download`,
   filePreviewUrl: (id: string) => `${BASE}/files/${id}/preview`,
+  /** 封面图片地址（视频/音频有封面时可用；无封面返回 404）。 */
+  fileCoverUrl: (id: string) => `${BASE}/files/${id}/cover`,
+  /** 抽取封面候选帧（从视频按时间点抽 N 帧）。 */
+  coverCandidates: (id: string) =>
+    request<{ items: { id: string; url: string; at_sec: number; label: string }[] }>(
+      `/files/${id}/cover/candidates`,
+      { method: 'POST' },
+    ),
+  /** 把选中的候选帧设为正式封面。 */
+  setCover: (id: string, file: string) =>
+    request<{ ok: boolean; cover_path: string }>(`/files/${id}/cover`, {
+      method: 'POST',
+      body: JSON.stringify({ file }),
+    }),
+  /** 编辑媒体元数据（只传要改的字段）。 */
+  updateMediaMeta: (
+    id: string,
+    fields: {
+      title?: string
+      uploader?: string
+      description?: string
+      tags?: string
+      duration?: number
+    },
+  ) =>
+    request<{ ok: boolean; file: import('./types').MediaFile }>(`/files/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(fields),
+    }),
+  /** AI 刮削元数据（从字幕/简介提取结构化信息）。 */
+  scrapeMedia: (id: string) =>
+    request<{
+      ok: boolean
+      result: {
+        title: string
+        uploader: string
+        description: string
+        tags: string[]
+        summary: string
+      }
+    }>(`/files/${id}/scrape`, { method: 'POST' }),
   /** 媒体文件按需提取音频或转码（POST /files/:id/convert）。 */
   convertFile: (id: string, target: 'mp3' | 'mp4') =>
     request<{ ok: boolean; mode: string; file: import('./types').MediaFile }>(`/files/${id}/convert`, {

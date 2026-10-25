@@ -121,27 +121,81 @@ describe('FileCard 组件', () => {
     expect(w.emitted('open')![0]).toEqual([file])
   })
 
-  it('视频卡片显示「提音频」动作并抛出 convert mp3 事件', async () => {
+  it('次要动作收进「更多」菜单：提音频在菜单里，主行只留三个', async () => {
     const file = makeFile({ kind: 'video', name: 'clip.webm' })
     const w = mount(FileCard, {
       props: { file, previewUrl: () => '/x' },
       global: { stubs },
     })
-    const audioBtn = w.findAll('.file-actions button').find((b) => b.text().includes('提音频'))!
-    expect(audioBtn).toBeTruthy()
-    await audioBtn.trigger('click')
+    // 主行只有 下载/详情/删除 + 「更多」触发器（5 个按钮横排会出界）
+    const mainLabels = w.findAll('.file-actions > button, .file-actions > .rmenu').map((b: any) => b.text())
+    expect(mainLabels.filter((l: string) => l.includes('提音频')).length).toBe(0)
+    expect(w.find('.rmenu').exists()).toBe(true)
+
+    // 打开菜单后能点到「提取 MP3 音频」
+    await w.find('.rmenu-trigger-badge').trigger('click')
+    const item = w.findAll('.rmenu-item').find((b: any) => b.text().includes('MP3'))
+    expect(item).toBeTruthy()
+    await item!.trigger('click')
     expect(w.emitted('convert')?.[0]).toEqual([file, 'mp3'])
   })
 
-  it('非 MP4 视频卡片显示「转MP4」动作并抛出 convert mp4 事件', async () => {
+  it('「更多」菜单含封面制作与元数据编辑入口', async () => {
     const file = makeFile({ kind: 'video', name: 'clip.webm' })
     const w = mount(FileCard, {
       props: { file, previewUrl: () => '/x' },
       global: { stubs },
     })
-    const mp4Btn = w.findAll('.file-actions button').find((b) => b.text().includes('转MP4'))!
-    expect(mp4Btn).toBeTruthy()
-    await mp4Btn.trigger('click')
+    await w.find('.rmenu-trigger-badge').trigger('click')
+    const labels = w.findAll('.rmenu-item').map((b: any) => b.text())
+    expect(labels.some((l: string) => l.includes('制作封面'))).toBe(true)
+    expect(labels.some((l: string) => l.includes('编辑元数据'))).toBe(true)
+    expect(labels.some((l: string) => l.includes('刮削'))).toBe(true)
+  })
+
+  it('非 MP4 视频的「更多」菜单含转 MP4 动作', async () => {
+    const file = makeFile({ kind: 'video', name: 'clip.webm' })
+    const w = mount(FileCard, {
+      props: { file, previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    await w.find('.rmenu-trigger-badge').trigger('click')
+    const mp4Item = w.findAll('.rmenu-item').find((b: any) => b.text().includes('MP4'))
+    expect(mp4Item).toBeTruthy()
+    await mp4Item!.trigger('click')
     expect(w.emitted('convert')?.[0]).toEqual([file, 'mp4'])
+  })
+
+  it('有封面时用封面当缩略图，无封面时回退类型占位', async () => {
+    const withCover = makeFile({ kind: 'video', name: 'clip.webm', cover_path: '/x.cover.jpg' })
+    const w1 = mount(FileCard, {
+      props: { file: withCover, previewUrl: () => '/p', coverUrl: (id) => `/cover/${id}` },
+      global: { stubs },
+    })
+    expect(w1.find('.file-thumb-img img').attributes('src')).toBe('/cover/f-1')
+
+    const noCover = makeFile({ kind: 'video', name: 'clip.webm' })
+    const w2 = mount(FileCard, {
+      props: { file: noCover, previewUrl: () => '/p' },
+      global: { stubs },
+    })
+    expect(w2.find('.file-thumb-img').exists()).toBe(false)
+    expect(w2.find('.file-kind').exists()).toBe(true)
+  })
+
+  it('展示标题优先用用户改过的 title，回退文件名', () => {
+    const withTitle = makeFile({ kind: 'video', name: 'raw-name.mp4', title: '我改过的标题' })
+    const w1 = mount(FileCard, {
+      props: { file: withTitle, previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    expect(w1.find('.file-name').text()).toBe('我改过的标题')
+
+    const noTitle = makeFile({ kind: 'video', name: 'raw-name.mp4' })
+    const w2 = mount(FileCard, {
+      props: { file: noTitle, previewUrl: () => '/x' },
+      global: { stubs },
+    })
+    expect(w2.find('.file-name').text()).toBe('raw-name.mp4')
   })
 })

@@ -27,7 +27,15 @@ type MediaFile struct {
 	Kind           string `json:"kind"`
 	Previewable    bool   `json:"previewable"`
 	Summary        string `json:"summary,omitempty"` // AI 结构化总结
-	CreatedAt      int64  `json:"created_at"`
+	// CoverPath 封面图路径（空=无封面，前端回退类型占位）。
+	CoverPath string `json:"cover_path,omitempty"`
+	// Title 展示标题（可编辑；空串时前端回退到 name）。
+	Title string `json:"title,omitempty"`
+	// Description 简介 / 描述（可编辑或 AI 刮削填充）。
+	Description string `json:"description,omitempty"`
+	// Tags 标签，逗号分隔。
+	Tags      string `json:"tags,omitempty"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 // ErrNoSuchFile 媒体文件不存在。
@@ -43,7 +51,7 @@ type FileFilter struct {
 	Offset   int
 }
 
-const mediaSelect = `SELECT id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at, summary FROM media_files`
+const mediaSelect = `SELECT id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at, summary, cover_path, title, description, tags FROM media_files`
 
 // ListMediaFiles 分页查询媒体库。
 func (s *Store) ListMediaFiles(f FileFilter) ([]*MediaFile, int, error) {
@@ -129,12 +137,76 @@ func (s *Store) UpsertMediaFile(m *MediaFile) error {
 	if m.Uploader != "" {
 		uploader = m.Uploader
 	}
-	_, err := s.RW.Exec(`INSERT INTO media_files (id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.RW.Exec(`INSERT INTO media_files (id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at, cover_path, title, description, tags)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(path) DO UPDATE SET size=excluded.size, mime=excluded.mime,
-		  duration=excluded.duration, platform=excluded.platform, uploader=excluded.uploader, kind=excluded.kind`,
-		m.ID, taskID, subID, m.Path, m.Name, m.Size, mime, m.Duration, platform, uploader, m.Kind, m.CreatedAt)
+		  duration=excluded.duration, platform=excluded.platform, uploader=excluded.uploader, kind=excluded.kind,
+		  cover_path=excluded.cover_path, title=excluded.title,
+		  description=excluded.description, tags=excluded.tags`,
+		m.ID, taskID, subID, m.Path, m.Name, m.Size, mime, m.Duration, platform, uploader, m.Kind, m.CreatedAt,
+		m.CoverPath, m.Title, m.Description, m.Tags)
 	return err
+}
+
+// MediaMetadataUpdate 媒体元数据可编辑字段（指针区分「没传」与「传空串清空」）。
+type MediaMetadataUpdate struct {
+	Title       *string
+	Uploader    *string
+	Description *string
+	Tags        *string
+	Duration    *int64
+}
+
+// UpdateMediaMetadata 更新媒体元数据（只更新传入的字段）。
+func (s *Store) UpdateMediaMetadata(id string, u MediaMetadataUpdate) error {
+	sets := make([]string, 0, 5)
+	args := make([]any, 0, 6)
+	if u.Title != nil {
+		sets = append(sets, "title=?")
+		args = append(args, *u.Title)
+	}
+	if u.Uploader != nil {
+		sets = append(sets, "uploader=?")
+		args = append(args, *u.Uploader)
+	}
+	if u.Description != nil {
+		sets = append(sets, "description=?")
+		args = append(args, *u.Description)
+	}
+	if u.Tags != nil {
+		sets = append(sets, "tags=?")
+		args = append(args, *u.Tags)
+	}
+	if u.Duration != nil {
+		sets = append(sets, "duration=?")
+		args = append(args, *u.Duration)
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	args = append(args, id)
+	res, err := s.RW.Exec(`UPDATE media_files SET `+strings.Join(sets, ", ")+` WHERE id=?`, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNoSuchFile
+	}
+	return nil
+}
+
+// UpdateMediaCover 更新媒体封面路径。
+func (s *Store) UpdateMediaCover(id, coverPath string) error {
+	res, err := s.RW.Exec(`UPDATE media_files SET cover_path=? WHERE id=?`, coverPath, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNoSuchFile
+	}
+	return nil
 }
 
 // DeleteMediaFile 移除媒体索引记录（不删磁盘文件）。
@@ -189,8 +261,9 @@ func scanMediaFile(sc rowScanner) (*MediaFile, error) {
 	var m MediaFile
 	var taskID, subID, mime, platform, uploader sql.NullString
 	var duration sql.NullInt64
-	var kind, summary sql.NullString
-	err := sc.Scan(&m.ID, &taskID, &subID, &m.Path, &m.Name, &m.Size, &mime, &duration, &platform, &uploader, &kind, &m.CreatedAt, &summary)
+	var kind, summary, coverPath, title, description, tags sql.NullString
+	err := sc.Scan(&m.ID, &taskID, &subID, &m.Path, &m.Name, &m.Size, &mime, &duration, &platform, &uploader, &kind, &m.CreatedAt, &summary,
+		&coverPath, &title, &description, &tags)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +274,10 @@ func scanMediaFile(sc rowScanner) (*MediaFile, error) {
 	m.Uploader = uploader.String
 	m.Kind = kind.String
 	m.Summary = summary.String
+	m.CoverPath = coverPath.String
+	m.Title = title.String
+	m.Description = description.String
+	m.Tags = tags.String
 	if duration.Valid {
 		m.Duration = &duration.Int64
 	}

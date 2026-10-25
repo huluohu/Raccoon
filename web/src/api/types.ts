@@ -291,6 +291,14 @@ export interface MediaFile {
   previewable: boolean
   /** AI 结构化总结文本。 */
   summary?: string
+  /** 封面图路径（空=无封面，前端回退类型占位）。 */
+  cover_path?: string
+  /** 展示标题（空=回退到 name）。 */
+  title?: string
+  /** 简介 / 描述。 */
+  description?: string
+  /** 标签，逗号分隔。 */
+  tags?: string
   created_at: number
 }
 

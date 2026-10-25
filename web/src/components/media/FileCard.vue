@@ -2,15 +2,19 @@
 // FileCard：媒体库文件卡片（方案 §3「/media → FileTable/FileCard」）。
 //
 // 为什么抽成组件：
-// 1) 卡片是媒体库的主要浏览单元，缩略图 + 文件名 + 平台/大小/时长 + 两个动作。
+// 1) 卡片是媒体库的主要浏览单元，缩略图 + 文件名 + 平台/大小/时长 + 动作区。
 //    留在视图里，Media.vue 会被这套结构撑成 300 行，而真正该在视图里的
 //    是「筛选条件怎么和后端对账」这类页面级逻辑。
-// 2) 图片缩略图用后端预览接口（api.filePreviewUrl），只有图片类才有图；
-//    视频/音频用「平台品牌色淡化渐变 + 类型 SVG 图标」占位——不给假图，
-//    也不假装能播，更不是一块灰底扔个英文 kind 原词。
+// 2) 缩略图：图片类用后端预览接口（api.filePreviewUrl）；视频/音频有封面时
+//    用封面（api.fileCoverUrl）；两者都没有才用「平台品牌色淡化渐变 + 类型
+//    SVG 图标」占位——不给假图，也不假装能播，更不是一块灰底扔个英文 kind 原词。
+// 3) 动作区：主行只留高频动作（下载/详情/删除），次要动作（提音频/转格式/
+//    制作封面/编辑元数据）收进「更多」菜单——横排 5 个按钮装不下，
+//    最后一个「删除」会被挤出卡片边框（实测截图）。
 import { computed } from 'vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import RButton from '@/components/base/RButton.vue'
+import RMenu from '@/components/base/RMenu.vue'
 import { formatBytes, formatDuration, platformTone } from '@/utils/format'
 import type { MediaFile } from '@/api/types'
 
@@ -19,6 +23,8 @@ const props = defineProps<{
   file: MediaFile
   /** 缩略图 URL 生成器（由父组件注入，组件不直接依赖 api 层）。 */
   previewUrl: (id: string) => string
+  /** 封面 URL 生成器（视频/音频有封面时用；无封面返回空串）。 */
+  coverUrl?: (id: string) => string
 }>()
 
 const emit = defineEmits<{
@@ -28,6 +34,12 @@ const emit = defineEmits<{
   download: [file: MediaFile]
   /** 二次格式转换 / 提取音频。 */
   convert: [file: MediaFile, target: 'mp3' | 'mp4']
+  /** 制作封面（抽帧候选让用户挑）。 */
+  makeCover: [file: MediaFile]
+  /** 编辑元数据。 */
+  editMeta: [file: MediaFile]
+  /** AI 刮削元数据。 */
+  scrape: [file: MediaFile]
   /** 删除文件（危险操作，二次确认由上层弹窗负责）。 */
   delete: [file: MediaFile]
 }>()
@@ -35,6 +47,33 @@ const emit = defineEmits<{
 /** 类型文案：占位区不渲染 kind 英文原词——那是给机器看的，屏幕上就是没做完的占位。 */
 const KIND_TEXT: Record<string, string> = { video: '视频', audio: '音频', image: '图片' }
 const kindText = computed(() => KIND_TEXT[props.file.kind] ?? '文件')
+
+/** 有封面就用封面（视频/音频）；图片走预览接口。 */
+const thumbUrl = computed(() => {
+  if (props.file.kind === 'image') return props.previewUrl(props.file.id)
+  if (props.file.cover_path && props.coverUrl) return props.coverUrl(props.file.id)
+  return ''
+})
+
+/** 展示标题：用户改过就用改的，否则回退文件名。 */
+const displayTitle = computed(() => props.file.title || props.file.name)
+
+/** 次要动作菜单项。 */
+const menuItems = computed(() => {
+  const items: { label: string; hint?: string; danger?: boolean; disabled?: boolean; onSelect: () => void }[] = []
+  if (props.file.kind === 'video' || props.file.kind === 'audio') {
+    items.push({ label: '制作封面', hint: '从视频抽帧，挑一张当封面', onSelect: () => emit('makeCover', props.file) })
+  }
+  if (props.file.kind === 'video') {
+    items.push({ label: '提取 MP3 音频', onSelect: () => emit('convert', props.file, 'mp3') })
+    if (!props.file.name.endsWith('.mp4')) {
+      items.push({ label: '转为 MP4 格式', onSelect: () => emit('convert', props.file, 'mp4') })
+    }
+  }
+  items.push({ label: '编辑元数据', hint: '标题 / 作者 / 简介 / 标签', onSelect: () => emit('editMeta', props.file) })
+  items.push({ label: 'AI 刮削元数据', hint: '从字幕自动提取标题与标签', onSelect: () => emit('scrape', props.file) })
+  return items
+})
 
 /**
  * 占位区底色：平台品牌色淡化 20% 铺渐变。
@@ -56,10 +95,10 @@ const thumbTint = computed(() => {
   <li class="file-card">
     <button class="file-open" type="button" @click="emit('open', file)">
       <div class="file-thumb" :class="`file-thumb--${file.kind}`" :style="thumbTint">
-        <span v-if="file.kind === 'image'" class="file-thumb-img">
-          <img :src="previewUrl(file.id)" :alt="file.name" loading="lazy" />
+        <span v-if="thumbUrl" class="file-thumb-img">
+          <img :src="thumbUrl" :alt="displayTitle" loading="lazy" />
         </span>
-        <!-- 非图片：SVG 线稿类型图标（§4 禁 emoji 冒充）+ 中文类型名，
+        <!-- 无封面：SVG 线稿类型图标（§4 禁 emoji 冒充）+ 中文类型名，
              衬在平台品牌色淡化渐变上。 -->
         <span v-else class="file-kind">
           <svg
@@ -103,7 +142,7 @@ const thumbTint = computed(() => {
         </span>
       </div>
       <div class="file-body">
-        <p class="file-name" :title="file.name">{{ file.name }}</p>
+        <p class="file-name" :title="displayTitle">{{ displayTitle }}</p>
         <div class="file-meta">
           <PlatformBadge :platform="file.platform" />
           <span class="tnum">{{ formatBytes(file.size) }}</span>
@@ -111,16 +150,13 @@ const thumbTint = computed(() => {
         </div>
       </div>
     </button>
+    <!-- 动作区：主行只留高频三个，次要动作收进「更多」——
+         五个按钮横排会把最后一个挤出卡片边框（实测截图）。 -->
     <div class="file-actions">
-      <RButton v-if="file.kind === 'video'" size="sm" variant="ghost" title="提取 MP3 音轨" @click="emit('convert', file, 'mp3')">
-        提音频
-      </RButton>
-      <RButton v-if="file.kind === 'video' && !file.name.endsWith('.mp4')" size="sm" variant="ghost" title="转为 MP4 格式" @click="emit('convert', file, 'mp4')">
-        转MP4
-      </RButton>
       <RButton size="sm" variant="ghost" @click="emit('download', file)">下载</RButton>
       <RButton size="sm" variant="ghost" @click="emit('open', file)">详情</RButton>
       <RButton size="sm" variant="ghost" tone="danger" @click="emit('delete', file)">删除</RButton>
+      <RMenu :items="menuItems" label="更多操作" />
     </div>
   </li>
 </template>
@@ -183,5 +219,16 @@ const thumbTint = computed(() => {
   margin-bottom: 8px;
 }
 .file-meta { display: flex; align-items: center; gap: 10px; font-size: var(--font-aux); color: var(--text-3); }
-.file-actions { display: flex; gap: 6px; padding: 0 10px 10px; }
+/* 动作区：允许换行 + 每个按钮不被压缩。
+   原来 5 个按钮横排且容器不换行，最后一个「删除」被挤出卡片边框（实测截图）——
+   现在主行只留 3 个高频动作 + 「更多」菜单，且仍保留换行兜底。 */
+.file-actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 10px 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.file-actions :deep(.rbtn) { flex-shrink: 0; }
+
 </style>

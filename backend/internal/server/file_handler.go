@@ -6,6 +6,8 @@ package server
 // 不信前端传的任何路径（防路径穿越）。
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/huluohu/raccoon/internal/ai"
 	"github.com/huluohu/raccoon/internal/engine"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/storage"
@@ -25,6 +28,12 @@ func (s *Server) setupFiles() {
 	s.router.GET("/api/v1/files", s.requireAuth(s.handleFilesList))
 	s.router.GET("/api/v1/files/:id/download", s.requireAuth(s.handleFileDownload))
 	s.router.GET("/api/v1/files/:id/preview", s.requireAuth(s.handleFilePreview))
+	s.router.GET("/api/v1/files/:id/cover", s.requireAuth(s.handleFileCoverImage))
+	s.router.GET("/api/v1/files/:id/cover-candidate", s.requireAuth(s.handleFileCoverCandidateImage))
+	s.router.POST("/api/v1/files/:id/cover/candidates", s.requireAuth(s.csrfForSession(s.handleFileCoverCandidates)))
+	s.router.POST("/api/v1/files/:id/cover", s.requireAuth(s.csrfForSession(s.handleFileCoverSet)))
+	s.router.PATCH("/api/v1/files/:id", s.requireAuth(s.csrfForSession(s.handleFileMetadataEdit)))
+	s.router.POST("/api/v1/files/:id/scrape", s.requireAuth(s.csrfForSession(s.handleFileScrape)))
 	s.router.GET("/api/v1/files/:id/summary", s.requireAuth(s.handleFileSummaryGet))
 	s.router.POST("/api/v1/files/:id/summary", s.requireAuth(s.csrfForSession(s.handleFileSummary)))
 	s.router.POST("/api/v1/files/:id/convert", s.requireAuth(s.csrfForSession(s.handleFileConvert)))
@@ -133,6 +142,248 @@ func (s *Server) handleFileConvert(w http.ResponseWriter, r *http.Request) error
 		"file": newMedia,
 	})
 	return nil
+}
+
+// handleFileCoverCandidates 抽取 N 帧候选封面（POST /api/v1/files/:id/cover/candidates）。
+//
+// 用户从候选里挑一张当封面——比「用平台固定封面」更符合「一键制作封面」。
+// 候选落在数据根的 tmp 目录（不进媒体库），用户选中后才转正为正式封面。
+func (s *Server) handleFileCoverCandidates(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	if f.Kind != "video" && f.Kind != "audio" {
+		return httpx.Validation("只有视频/音频可以抽帧做封面")
+	}
+	abs, err := s.resolveMediaPath(f.Path)
+	if err != nil {
+		return err
+	}
+	duration := int64(0)
+	if f.Duration != nil {
+		duration = *f.Duration
+	}
+	if duration <= 0 {
+		// 时长未知：ffprobe 探一次（媒体库入库时可能没拿到时长）。
+		if d, perr := probeDuration(s.tasks.Engines().FFprobeBin, abs); perr == nil && d > 0 {
+			duration = int64(d)
+		}
+	}
+	if duration <= 0 {
+		return httpx.Conflict("无法获取媒体时长，无法定位抽帧时间点")
+	}
+
+	ffmpeg := s.tasks.Engines().FFmpegBin
+	if ffmpeg == "" {
+		return httpx.Conflict("ffmpeg 未配置，无法抽取封面")
+	}
+	outDir := filepath.Join(s.cfg.GetString("storage.data_dir"), "tmp", "covers")
+	cands, err := engine.ExtractCoverCandidates(r.Context(), ffmpeg, abs, outDir, float64(duration), 6)
+	if err != nil {
+		return httpx.Conflict("抽取封面失败: " + err.Error())
+	}
+	items := make([]map[string]any, 0, len(cands))
+	for _, c := range cands {
+		items = append(items, map[string]any{
+			"id":     filepath.Base(c.Path),
+			"url":    "/api/v1/files/" + f.ID + "/cover-candidate?file=" + filepath.Base(c.Path),
+			"at_sec": c.AtSec,
+			"label":  c.Label,
+		})
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+	return nil
+}
+
+// handleFileCoverCandidateImage 送候选封面图片（GET /api/v1/files/:id/cover-candidate）。
+func (s *Server) handleFileCoverCandidateImage(w http.ResponseWriter, r *http.Request) error {
+	name := filepath.Base(r.URL.Query().Get("file"))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return httpx.Validation("缺少候选文件参数")
+	}
+	// 候选只可能落在数据根 tmp/covers 下（服务端自己生成的路径），这里做一次白名单校验。
+	dir := filepath.Join(s.cfg.GetString("storage.data_dir"), "tmp", "covers")
+	path := filepath.Join(dir, name)
+	if !strings.HasPrefix(filepath.Clean(path), filepath.Clean(dir)+string(filepath.Separator)) {
+		return httpx.Forbidden("候选文件路径非法")
+	}
+	f, err := os.Stat(path)
+	if err != nil || f.Size() == 0 {
+		return httpx.NotFound("候选封面不存在或已过期，请重新抽取")
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, path)
+	return nil
+}
+
+// handleFileCoverSet 保存用户选中的候选帧为正式封面（POST /api/v1/files/:id/cover）。
+func (s *Server) handleFileCoverSet(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		File string `json:"file"`
+	}
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	name := filepath.Base(req.File)
+	if name == "" || name == "." {
+		return httpx.Validation("缺少候选封面文件参数")
+	}
+	candDir := filepath.Join(s.cfg.GetString("storage.data_dir"), "tmp", "covers")
+	candPath := filepath.Join(candDir, name)
+	if !strings.HasPrefix(filepath.Clean(candPath), filepath.Clean(candDir)+string(filepath.Separator)) {
+		return httpx.Forbidden("候选文件路径非法")
+	}
+	if st, err := os.Stat(candPath); err != nil || st.Size() == 0 {
+		return httpx.NotFound("候选封面不存在或已过期，请重新抽取")
+	}
+	// 正式封面放在媒体文件同目录（.cover.jpg），跟随文件一起走。
+	abs, err := s.resolveMediaPath(f.Path)
+	if err != nil {
+		return err
+	}
+	coverPath := strings.TrimSuffix(abs, filepath.Ext(abs)) + ".cover.jpg"
+	data, err := os.ReadFile(candPath)
+	if err != nil {
+		return httpx.Internal("读取候选封面失败")
+	}
+	if err := os.WriteFile(coverPath, data, 0o644); err != nil {
+		return httpx.Internal("保存封面失败：磁盘拒绝写入，请查看服务日志")
+	}
+	// 旧的正式封面删掉（避免同目录堆积多张 .cover.jpg）。
+	oldCover := strings.TrimSuffix(f.Path, filepath.Ext(f.Path)) + ".cover.jpg"
+	if !filepath.IsAbs(oldCover) {
+		oldCover = filepath.Join(s.cfg.GetString("storage.data_dir"), oldCover)
+	}
+	if oldCover != coverPath {
+		_ = os.Remove(oldCover)
+	}
+	if err := s.store.UpdateMediaCover(f.ID, coverPath); err != nil {
+		return httpx.Internal("封面索引更新失败")
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "cover_path": coverPath})
+	return nil
+}
+
+// handleFileCoverImage 送媒体封面图片（GET /api/v1/files/:id/cover）。
+func (s *Server) handleFileCoverImage(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	if f.CoverPath == "" {
+		return httpx.NotFound("该文件没有封面")
+	}
+	abs, err := s.resolveMediaPath(f.CoverPath)
+	if err != nil {
+		return err
+	}
+	st, statErr := os.Stat(abs)
+	if statErr != nil || st.Size() == 0 {
+		return httpx.NotFound("封面文件已不存在")
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeFile(w, r, abs)
+	return nil
+}
+
+// handleFileMetadataEdit 编辑媒体元数据（PATCH /api/v1/files/:id）。
+func (s *Server) handleFileMetadataEdit(w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		Title       *string `json:"title"`
+		Uploader    *string `json:"uploader"`
+		Description *string `json:"description"`
+		Tags        *string `json:"tags"`
+		Duration    *int64  `json:"duration"`
+	}
+	if err := httpx.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	id := param(r, "id")
+	if _, err := s.store.GetMediaFile(id); err != nil {
+		return fileErrToHTTP(err)
+	}
+	if req.Title != nil && len([]rune(*req.Title)) > 300 {
+		return httpx.Validation("标题过长（上限 300 字）")
+	}
+	if req.Description != nil && len([]rune(*req.Description)) > 5000 {
+		return httpx.Validation("简介过长（上限 5000 字）")
+	}
+	if req.Tags != nil && len([]rune(*req.Tags)) > 500 {
+		return httpx.Validation("标签过长（上限 500 字）")
+	}
+	if req.Duration != nil && *req.Duration < 0 {
+		return httpx.Validation("时长不能为负")
+	}
+	if err := s.store.UpdateMediaMetadata(id, store.MediaMetadataUpdate{
+		Title:       req.Title,
+		Uploader:    req.Uploader,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Duration:    req.Duration,
+	}); err != nil {
+		return httpx.Internal("元数据保存失败")
+	}
+	updated, err := s.store.GetMediaFile(id)
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "file": updated})
+	return nil
+}
+
+// handleFileScrape AI 刮削媒体元数据（POST /api/v1/files/:id/scrape）。
+//
+// 从同目录的字幕/简介读素材，交给 AI 提取标题/作者/简介/标签/总结，
+// 结果写回媒体索引（不覆盖用户已手动改过的字段时由前端决定是否应用）。
+func (s *Server) handleFileScrape(w http.ResponseWriter, r *http.Request) error {
+	f, err := s.store.GetMediaFile(param(r, "id"))
+	if err != nil {
+		return fileErrToHTTP(err)
+	}
+	abs, err := s.resolveMediaPath(f.Path)
+	if err != nil {
+		return err
+	}
+	title := f.Title
+	if title == "" {
+		title = f.Name
+	}
+	result, err := ai.ScrapeMedia(r.Context(), s.cfg, abs, title)
+	if err != nil {
+		return httpx.Conflict("刮削失败: " + err.Error())
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "result": result})
+	return nil
+}
+
+// probeDuration ffprobe 探时长（秒）。
+func probeDuration(ffprobeBin, path string) (float64, error) {
+	if strings.TrimSpace(ffprobeBin) == "" {
+		return 0, fmt.Errorf("ffprobe 不可用")
+	}
+	var raw string
+	err := engine.RunCmd(context.Background(), ffprobeBin,
+		[]string{"-v", "quiet", "-print_format", "json", "-show_format", path},
+		func(l string) { raw += l + "\n" }, "")
+	if err != nil {
+		return 0, err
+	}
+	var out struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return 0, err
+	}
+	return strconv.ParseFloat(out.Format.Duration, 64)
 }
 
 // handleFileSummary 生成或重新生成媒体文件的 AI 总结（POST /api/v1/files/:id/summary）。

@@ -16,6 +16,8 @@ import FileCard from '@/components/media/FileCard.vue'
 import PreviewDrawer from '@/components/media/PreviewDrawer.vue'
 import DownloadBtn from '@/components/media/DownloadBtn.vue'
 import DeleteFileDialog from '@/components/media/DeleteFileDialog.vue'
+import CoverPickerDialog from '@/components/media/CoverPickerDialog.vue'
+import MediaMetaDialog from '@/components/media/MediaMetaDialog.vue'
 import type { MediaFile } from '@/api/types'
 
 const toast = useToastStore()
@@ -76,6 +78,8 @@ const COLUMNS = [
 /** 预览 / 下载 URL 生成器（注入给子组件，组件不直接依赖 api 层）。 */
 const previewUrl = (id: string) => api.filePreviewUrl(id)
 const downloadUrl = (id: string) => api.fileDownloadUrl(id)
+/** 封面地址：视频/音频有封面时用；无封面时后端返回 404，前端会回退到类型占位。 */
+const coverUrl = (id: string) => api.fileCoverUrl(id)
 
 async function load() {
   loading.value = true
@@ -102,6 +106,43 @@ function openDetail(f: MediaFile) {
 
 function download(f: MediaFile) {
   toast.success('开始下载：' + f.name)
+}
+
+// ---- 封面制作 / 元数据编辑 / AI 刮削 ----
+/** 封面制作对话框的目标文件。 */
+const coverTarget = ref<MediaFile | null>(null)
+/** 元数据编辑对话框的目标文件。 */
+const metaTarget = ref<MediaFile | null>(null)
+
+function openCover(f: MediaFile) {
+  coverTarget.value = f
+}
+
+function openMeta(f: MediaFile) {
+  metaTarget.value = f
+}
+
+/** 刮削结果先回填表单由用户确认，不直接覆盖。 */
+async function scrape(f: MediaFile) {
+  try {
+    const res = await api.scrapeMedia(f.id)
+    const r = res.result
+    metaTarget.value = {
+      ...f,
+      title: r.title || f.title,
+      uploader: r.uploader || f.uploader,
+      description: r.description || f.description,
+      tags: (r.tags ?? []).join(', ') || f.tags,
+    }
+    toast.success('已刮削出元数据，确认后保存')
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'AI 刮削失败')
+  }
+}
+
+/** 封面/元数据保存后重拉列表（封面路径、标题都会变）。 */
+async function reloadAfterEdit() {
+  await load()
 }
 
 // ---- 删文件（docs/07 §4：破坏性决策走 RDialog；与「删任务记录」分离）----
@@ -231,7 +272,6 @@ onMounted(load)
       </template>
       <template #actions="{ row }">
         <RButton
-          v-if="(row as MediaFile).kind === 'video'"
           size="sm"
           variant="ghost"
           :disabled="converting"
@@ -253,9 +293,13 @@ onMounted(load)
         :key="f.id"
         :file="f"
         :preview-url="previewUrl"
+        :cover-url="coverUrl"
         @open="openDetail"
         @download="download"
         @convert="convert"
+        @make-cover="openCover"
+        @edit-meta="openMeta"
+        @scrape="scrape"
         @delete="pendingDelete = $event"
       />
     </ul>
@@ -280,6 +324,22 @@ onMounted(load)
       @close="selected = null"
       @download="download"
       @convert="convert"
+    />
+
+    <!-- 封面制作（抽帧让用户挑） -->
+    <CoverPickerDialog
+      :open="coverTarget !== null"
+      :file="coverTarget"
+      @update:open="(v: boolean) => !v && (coverTarget = null)"
+      @done="reloadAfterEdit"
+    />
+
+    <!-- 元数据编辑（含 AI 刮削入口） -->
+    <MediaMetaDialog
+      :open="metaTarget !== null"
+      :file="metaTarget"
+      @update:open="(v: boolean) => !v && (metaTarget = null)"
+      @done="reloadAfterEdit"
     />
   </section>
 </template>

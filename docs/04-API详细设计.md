@@ -142,12 +142,18 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | /files | 文件视角列表：platform/uploader/kind/q 过滤；`previewable` 标记 |
+| GET | /files | 文件视角列表：platform/uploader/kind/q 过滤；`previewable` 标记；含 `cover_path`/`title`/`description`/`tags` |
 | GET | /files/{id}/download | 直链下载（Content-Disposition；路径必须在 data 根内） |
 | GET | /files/{id}/preview | 浏览器可播编码返回 Range 播放，否则 415 + 提示 |
 | POST | /files/{id}/convert | **二次格式转换 / 音频提取**：`{target: "mp3"|"mp4"}`，按需提取 MP3 或转码 MP4 并入库 |
 | GET | /files/{id}/summary | 读取已缓存的 AI 结构化总结 |
 | POST | /files/{id}/summary | 调用 AI 服务生成媒体文件结构化总结并持久化 |
+| GET | /files/{id}/cover | 送封面图（无封面 404；前端回退类型占位） |
+| POST | /files/{id}/cover/candidates | **抽帧封面候选**：ffmpeg 按时长抽 N 帧 → `{items:[{id,url,at_sec,label}]}` |
+| GET | /files/{id}/cover-candidate | 送候选帧图片（`?file=` 只能是服务端生成的文件名） |
+| POST | /files/{id}/cover | **设为正式封面**：`{file}`（候选文件名）；封面落到媒体同目录 `.cover.jpg` |
+| PATCH | /files/{id} | **编辑元数据**：`{title?,uploader?,description?,tags?,duration?}`，只更新传入字段（传空串=清空） |
+| POST | /files/{id}/scrape | **AI 刮削元数据**：从字幕/简介提取 `{title,uploader,description,tags[],summary}` |
 | DELETE | /files/{id} | **删文件**（磁盘 + 索引；路径从 DB 取并二次校验在 data 根内）。与「删任务记录」是两个动作 |
 
 ### 2.9 通知 `notifications` ｜ 事件流 `events` ｜ 系统 `system`

@@ -53,6 +53,7 @@ func (rt *Router) Handle(method, pattern string, h HandlerFunc) {
 func (rt *Router) GET(pattern string, h HandlerFunc)    { rt.Handle(http.MethodGet, pattern, h) }
 func (rt *Router) POST(pattern string, h HandlerFunc)   { rt.Handle(http.MethodPost, pattern, h) }
 func (rt *Router) PUT(pattern string, h HandlerFunc)    { rt.Handle(http.MethodPut, pattern, h) }
+func (rt *Router) PATCH(pattern string, h HandlerFunc)  { rt.Handle(http.MethodPatch, pattern, h) }
 func (rt *Router) DELETE(pattern string, h HandlerFunc) { rt.Handle(http.MethodDelete, pattern, h) }
 
 // Fallback 注册未匹配路径的处理（SPA 静态托管）。
