@@ -107,9 +107,19 @@ onBeforeUnmount(() => {
   font-weight: var(--weight-caption);
   transition: background 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
   white-space: nowrap;
+  box-sizing: border-box;
+  line-height: 1.2;
 }
-.rbtn--md { padding: 8px 16px; font-size: var(--font-aux); }
-.rbtn--sm { padding: 4px 10px; font-size: var(--font-caption); }
+.rbtn--md {
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: var(--font-aux);
+}
+.rbtn--sm {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: var(--font-caption);
+}
 .rbtn--accent { background: var(--accent); color: var(--on-accent); }
 .rbtn--accent:hover:not(.rbtn--disabled) { background: var(--accent-strong); }
 .rbtn--outline { background: var(--surface); color: var(--text-1); border-color: var(--border); }

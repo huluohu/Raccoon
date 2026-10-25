@@ -483,17 +483,23 @@ onBeforeUnmount(() => {
               给 CLI、扩展、快捷指令用。明文只显示一次；撤销后立即失效。
             </p>
             <div class="token-form">
-              <input v-model="newTokenName" class="input" placeholder="令牌名称，如 my-laptop" />
+              <RInput
+                v-model="newTokenName"
+                label="令牌名称"
+                placeholder="如 my-laptop"
+                class="token-field"
+              />
               <RSelect
                 v-model="newTokenScope"
                 label="权限范围"
+                class="token-field-scope"
                 :options="[
                   { value: 1, label: '只读' },
                   { value: 3, label: '读写' },
                   { value: 7, label: '管理（含配置与凭据）' },
                 ]"
               />
-              <RButton variant="accent" size="sm" @click="createToken">签发</RButton>
+              <RButton variant="accent" class="token-btn" @click="createToken">签发</RButton>
             </div>
             <div v-if="newTokenPlain" class="token-plain">
               <code>{{ newTokenPlain }}</code>
@@ -563,6 +569,12 @@ onBeforeUnmount(() => {
 .acct-cur { font-size: var(--font-aux); color: var(--text-3); }
 .acct-form { flex: 1; min-width: 260px; display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .acct-field { flex: 1 1 180px; min-width: 0; }
+.acct-form :deep(.rbtn) {
+  height: 42px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
 .group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px 24px; margin-bottom: 18px; box-shadow: var(--shadow-1); }
 .group-title { font-size: var(--font-title-2); font-weight: var(--weight-strong); margin-bottom: 6px; }
 /* 分组说明是正文档：它解释这组配置管什么，用户不看就改不了。 */
@@ -582,7 +594,27 @@ onBeforeUnmount(() => {
 .conn-result { margin-top: 10px; font-size: var(--font-aux); }
 .conn-result.ok { color: var(--success); }
 .conn-result.bad { color: var(--danger); }
-.token-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.token-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.token-field {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.token-field-scope {
+  flex: 0 0 200px;
+  min-width: 160px;
+}
+.token-btn {
+  height: 42px;
+  padding: 0 20px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
 .token-plain { display: flex; align-items: center; gap: 8px; background: var(--gold-soft); padding: 8px 10px; border-radius: var(--radius-ctrl); margin-bottom: 12px; }
 .token-plain code { flex: 1; font-size: var(--font-aux); word-break: break-all; color: var(--text-1); }
 .token-list, .history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -590,7 +622,24 @@ onBeforeUnmount(() => {
 .token-main, .history-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: var(--font-aux); }
 .token-name, .history-key { color: var(--text-1); font-weight: var(--weight-caption); }
 .token-scope, .history-val, .history-time, .history-by { font-size: var(--font-caption); color: var(--text-3); }
-.history-filter { display: flex; gap: 8px; margin-bottom: 12px; }
+.history-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  max-width: 500px;
+}
+.history-filter .input {
+  flex: 1;
+  height: 42px;
+  box-sizing: border-box;
+}
+.history-btn {
+  height: 42px;
+  padding: 0 16px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
 .muted { font-size: var(--font-aux); color: var(--text-3); }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
 .skeleton-rows { display: flex; flex-direction: column; gap: 10px; }

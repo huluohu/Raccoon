@@ -337,13 +337,14 @@ onMounted(() => {
 }
 .remote-input {
   width: 100%;
-  padding: 12px;
+  padding: 10px 14px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-ctrl);
   color: var(--text-1);
   font-size: var(--font-body);
   box-sizing: border-box;
+  min-height: 42px;
 }
 .remote-input:focus {
   outline: none;
@@ -351,14 +352,18 @@ onMounted(() => {
 }
 .remote-submit-opts {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 .remote-quality-select {
   flex: 1;
 }
 .remote-submit-btn {
+  height: 42px;
   padding: 0 20px;
   white-space: nowrap;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .remote-empty {
