@@ -32,6 +32,7 @@ const (
 const (
 	SourceWeb          = "web"
 	SourceTelegram     = "telegram"
+	SourceWeChat       = "wechat"
 	SourceAPI          = "api"
 	SourceCLI          = "cli"
 	SourceExtension    = "extension"

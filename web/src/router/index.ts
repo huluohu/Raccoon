@@ -23,6 +23,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/monitor', name: 'monitor', component: () => import('@/views/Monitor.vue'), meta: { title: '监控' } },
   { path: '/connections', name: 'connections', component: () => import('@/views/Connections.vue'), meta: { title: '连接' } },
   { path: '/settings', name: 'settings', component: () => import('@/views/Settings.vue'), meta: { title: '设置' } },
+  { path: '/remote', name: 'remote', component: () => import('@/views/Remote.vue'), meta: { title: '设备遥控器' } },
 ]
 
 export const router = createRouter({

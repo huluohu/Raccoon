@@ -13,6 +13,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,9 +25,10 @@ import (
 	"github.com/huluohu/raccoon/internal/store"
 	"github.com/huluohu/raccoon/internal/task"
 	"github.com/huluohu/raccoon/internal/tgbot"
+	"github.com/huluohu/raccoon/internal/wechat"
 )
 
-// setupIntegrations 装配外部通道（qB / 115 / Telegram）。
+// setupIntegrations 装配外部通道（qB / 115 / Telegram / WeChat）。
 func (s *Server) setupIntegrations() {
 	// ---- qBittorrent ----
 	qbClient := s.buildQBClient()
@@ -46,6 +48,11 @@ func (s *Server) setupIntegrations() {
 	s.router.POST("/api/v1/integrations/qb/test", s.requireAuth(s.csrfForSession(s.handleQBTest)))
 	s.router.POST("/api/v1/integrations/n115/test", s.requireAuth(s.csrfForSession(s.handleN115Test)))
 	s.router.GET("/api/v1/integrations/telegram/status", s.requireAuth(s.handleTGStatus))
+
+	// ---- 微信公众平台 / 远程下载 Webhook ----
+	s.router.GET("/api/v1/integrations/wechat/webhook", s.handleWeChatVerify)
+	s.router.POST("/api/v1/integrations/wechat/webhook", s.handleWeChatMessage)
+	s.router.GET("/api/v1/integrations/wechat/status", s.requireAuth(s.handleWeChatStatus))
 }
 
 // buildQBClient 按配置构造 qB 客户端；未配置返回 nil（相关任务失败，其他功能不受影响）。
@@ -325,6 +332,7 @@ func (s *Server) handleIntegrationStatus(w http.ResponseWriter, r *http.Request)
 		"qb":       map[string]any{"configured": s.cfg.GetString("qb.url") != ""},
 		"n115":     map[string]any{"configured": s.cfg.GetString("n115.access_token") != ""},
 		"telegram": map[string]any{"configured": s.tgEnabled()},
+		"wechat":   map[string]any{"configured": strings.TrimSpace(s.cfg.GetString("wechat.token")) != ""},
 	}
 	// qB 实时探测（超时 5s，失败不影响其他通道）。
 	if c := s.buildQBClient(); c != nil {
@@ -389,5 +397,114 @@ func (s *Server) handleTGStatus(w http.ResponseWriter, r *http.Request) error {
 		"allowlist": len(s.cfg.GetStringList("telegram.allowed_users")),
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"data": out})
+	return nil
+}
+
+// handleWeChatVerify 微信服务器接入校验（GET /api/v1/integrations/wechat/webhook）。
+func (s *Server) handleWeChatVerify(w http.ResponseWriter, r *http.Request) error {
+	token := strings.TrimSpace(s.cfg.GetString("wechat.token"))
+	q := r.URL.Query()
+	signature := q.Get("signature")
+	timestamp := q.Get("timestamp")
+	nonce := q.Get("nonce")
+	echostr := q.Get("echostr")
+
+	if token == "" || !wechat.VerifySignature(token, timestamp, nonce, signature) {
+		http.Error(w, "Forbidden: signature verification failed", http.StatusForbidden)
+		return nil
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(echostr))
+	return nil
+}
+
+// handleWeChatMessage 接收并处理微信推送的文本消息（POST /api/v1/integrations/wechat/webhook）。
+func (s *Server) handleWeChatMessage(w http.ResponseWriter, r *http.Request) error {
+	token := strings.TrimSpace(s.cfg.GetString("wechat.token"))
+	q := r.URL.Query()
+	signature := q.Get("signature")
+	timestamp := q.Get("timestamp")
+	nonce := q.Get("nonce")
+
+	if token != "" && !wechat.VerifySignature(token, timestamp, nonce, signature) {
+		http.Error(w, "Forbidden: signature verification failed", http.StatusForbidden)
+		return nil
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 256<<10))
+	if err != nil {
+		return httpx.Validation("读取请求包失败")
+	}
+
+	msg, err := wechat.ParseMessage(body)
+	if err != nil {
+		s.log.Warn("微信消息解析异常", map[string]any{"err": err.Error()})
+		// 微信规定必须返回 success 或空串，避免重试轰炸
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("success"))
+		return nil
+	}
+
+	if msg.MsgType != "text" {
+		reply, _ := wechat.FormatReplyXML(msg.FromUserName, msg.ToUserName,
+			"🦝 浣熊自托管下载助手：\n请向我直接发送视频分享链接，我会自动为您排队下载保存。")
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(reply)
+		return nil
+	}
+
+	urls := wechat.ExtractURLs(msg.Content)
+	if len(urls) == 0 {
+		reply, _ := wechat.FormatReplyXML(msg.FromUserName, msg.ToUserName,
+			"🦝 浣熊自托管下载助手：\n未检测到有效的视频链接。请直接粘贴包含 http(s):// 的链接。")
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(reply)
+		return nil
+	}
+
+	var items []task.SubmitItem
+	for _, u := range urls {
+		items = append(items, task.SubmitItem{URL: u})
+	}
+	results, err := s.tasks.Submit(items, task.SourceAPI, "wechat:"+msg.FromUserName)
+	if err != nil {
+		s.log.Error("微信链接入队失败", map[string]any{"user": msg.FromUserName, "err": err.Error()})
+		reply, _ := wechat.FormatReplyXML(msg.FromUserName, msg.ToUserName,
+			"抱歉，下载任务创建失败："+err.Error())
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(reply)
+		return nil
+	}
+
+	var titles []string
+	for _, res := range results {
+		if res.Task != nil {
+			titles = append(titles, res.Task.URL)
+		} else if res.ExistingID != "" {
+			titles = append(titles, "(任务已在队列中，未重复添加)")
+		}
+	}
+
+	replyContent := fmt.Sprintf("🦝 浣熊已收到下载任务（共 %d 个）！\n%s\n任务已入队，下载完成后可至媒体库查看。",
+		len(items), strings.Join(titles, "\n"))
+	reply, _ := wechat.FormatReplyXML(msg.FromUserName, msg.ToUserName, replyContent)
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(reply)
+	return nil
+}
+
+// handleWeChatStatus 查询微信集成状态（GET /api/v1/integrations/wechat/status）。
+func (s *Server) handleWeChatStatus(w http.ResponseWriter, r *http.Request) error {
+	token := strings.TrimSpace(s.cfg.GetString("wechat.token"))
+	appid := strings.TrimSpace(s.cfg.GetString("wechat.appid"))
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"enabled":     token != "",
+		"appid":       appid,
+		"webhook_url": "/api/v1/integrations/wechat/webhook",
+	})
 	return nil
 }

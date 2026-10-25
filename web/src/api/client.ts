@@ -389,6 +389,8 @@ export const api = {
   testQB: () => request<import('./types').IntegrationTestResult>('/integrations/qb/test', { method: 'POST' }),
   testN115: () => request<import('./types').IntegrationTestResult>('/integrations/n115/test', { method: 'POST' }),
   telegramStatus: () => request<{ data: import('./types').TelegramStatus }>('/integrations/telegram/status'),
+  wechatStatus: () =>
+    request<{ enabled: boolean; appid?: string; webhook_url?: string }>('/integrations/wechat/status'),
 
   // ---- 系统（docs/04 §2.9）----
   queueStats: () => request<import('./types').QueueStats>('/system/queue'),

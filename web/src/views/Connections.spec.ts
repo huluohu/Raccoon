@@ -158,17 +158,18 @@ describe('Connections 视图', () => {
     expect(alert.text()).toContain('失效后高清晰度与会员内容会下载失败')
   })
 
-  it('外部集成三通道未配置时如实显示「未配置」', async () => {
+  it('外部集成各通道未配置时如实显示「未配置」', async () => {
     const w = mountConn()
     await flushPromises()
 
     const cards = w.findAll('.int-card')
-    expect(cards.length).toBe(3)
+    expect(cards.length).toBe(4)
     expect(cards[0].attributes('data-state')).toBe('unconfigured')
     expect(cards[0].text()).toContain('未配置')
     expect(cards[0].text()).toContain('点「填写参数」就地配置后启用')
-    // Telegram 没有测试端点：按钮是「刷新状态」而不是「测试连接」
+    // Telegram 与 WeChat 没有测试端点：按钮是「刷新状态」而不是「测试连接」
     expect(cards[2].text()).toContain('刷新状态')
+    expect(cards[3].text()).toContain('刷新状态')
   })
 
   it('已配置但后端没给实探结果时显示「状态不明」，不假装可用', async () => {

@@ -20,6 +20,7 @@ import DetailDrawer from '@/components/base/DetailDrawer.vue'
 import CredentialList from '@/components/conn/CredentialList.vue'
 import QbTestPanel from '@/components/conn/QbTestPanel.vue'
 import TelegramPanel from '@/components/conn/TelegramPanel.vue'
+import WeChatPanel from '@/components/conn/WeChatPanel.vue'
 
 const toast = useToastStore()
 
@@ -84,6 +85,8 @@ const integrationsLoading = ref(true)
 const integrationsErr = ref('')
 /** GET /integrations/telegram/status：真实可用性靠它（enabled + 白名单人数）。 */
 const tgStatus = ref<TelegramStatus | null>(null)
+/** GET /integrations/wechat/status：微信公众号 Webhook 状态。 */
+const wechatStatus = ref<{ enabled: boolean; appid?: string; webhook_url?: string } | null>(null)
 /** 正在测试的通道 key。 */
 const testingChannel = ref('')
 /** 测试结果：key → { ok, text }。 */
@@ -143,6 +146,12 @@ async function loadIntegrations() {
   } catch {
     tgStatus.value = null
   }
+  try {
+    const res = await api.wechatStatus()
+    wechatStatus.value = res
+  } catch {
+    wechatStatus.value = null
+  }
 }
 
 // ---- 通道参数表单（参数在「连接」页就地填写；设置页不再放通道组）----
@@ -167,15 +176,21 @@ const CHANNEL_FIELDS: Record<string, { key: string; label: string; sensitive?: b
     { key: 'telegram.allowed_users', label: '允许的用户 ID', placeholder: '逗号分隔，如 123,456；留空不限制' },
     { key: 'telegram.allowed_chats', label: '允许的会话 ID', placeholder: '逗号分隔；留空不限制' },
   ],
+  wechat: [
+    { key: 'wechat.token', label: '校验 Token', sensitive: true, placeholder: '公众号后台填写的服务器 Token' },
+    { key: 'wechat.appid', label: 'AppID（可选）', placeholder: '公众号 AppID' },
+    { key: 'wechat.appsecret', label: 'AppSecret（可选）', sensitive: true, placeholder: '公众号 AppSecret' },
+  ],
 }
 
 const CHANNEL_TITLES: Record<string, string> = {
   qb: 'qBittorrent 参数',
   n115: '115 网盘参数',
   telegram: 'Telegram 参数',
+  wechat: '微信远程下载参数',
 }
 
-const paramsChannel = ref<'qb' | 'n115' | 'telegram' | null>(null)
+const paramsChannel = ref<'qb' | 'n115' | 'telegram' | 'wechat' | null>(null)
 const paramsLoading = ref(false)
 const paramsSaving = ref(false)
 /** 表单值：key → 字符串。敏感项加载时置空（占位提示当前是否已设置）。 */
@@ -185,7 +200,7 @@ const sensitiveSet = ref<Record<string, boolean>>({})
 
 const paramsFields = computed(() => (paramsChannel.value ? CHANNEL_FIELDS[paramsChannel.value] : []))
 
-async function openParams(key: 'qb' | 'n115' | 'telegram') {
+async function openParams(key: 'qb' | 'n115' | 'telegram' | 'wechat') {
   paramsChannel.value = key
   paramsLoading.value = true
   paramsForm.value = {}
@@ -414,6 +429,14 @@ onMounted(() => {
           :loading="integrationsLoading"
           @refresh="loadIntegrations"
           @params="openParams('telegram')"
+        />
+        <!-- 微信公众号通道：Webhook 状态与参数配置 -->
+        <WeChatPanel
+          :enabled="wechatStatus?.enabled ?? false"
+          :webhook-url="wechatStatus?.webhook_url ?? '/api/v1/integrations/wechat/webhook'"
+          :loading="integrationsLoading"
+          @refresh="loadIntegrations"
+          @params="openParams('wechat')"
         />
       </ul>
     </section>

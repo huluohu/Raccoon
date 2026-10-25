@@ -25,6 +25,8 @@ import Setup from '@/views/Setup.vue'
 import NotifCenter from '@/components/shell/NotifCenter.vue'
 import QuickSubmit from '@/components/shell/QuickSubmit.vue'
 import AboutDialog from '@/components/shell/AboutDialog.vue'
+import RemotePairModal from '@/components/shell/RemotePairModal.vue'
+import DesktopPet from '@/components/raccoon/DesktopPet.vue'
 import RToast from '@/components/base/RToast.vue'
 import RaccoonLogo from '@/components/brand/RaccoonLogo.vue'
 import { useNowTick } from '@/utils/now'
@@ -51,6 +53,8 @@ const aboutRef = ref<InstanceType<typeof AboutDialog> | null>(null)
 const moreOpen = ref(false)
 /** 主题切换弹层的开合（侧栏底部）。 */
 const themeOpen = ref(false)
+/** 设备遥控器配对弹窗。 */
+const pairOpen = ref(false)
 
 /**
  * 一级导航（docs/15 §1.2 裁决 5）：10 项 = 9 个复刻页 + Raccoon 自有「连接」。
@@ -338,6 +342,20 @@ onUnmounted(() => {
                 <span class="foot-swatch" :style="{ background: currentTheme.swatch }" aria-hidden="true" />
                 <span class="theme-topbar-label">{{ currentTheme.label }}</span>
               </button>
+              <!-- 掌上遥控配对按钮 -->
+              <button
+                class="remote-topbar-btn"
+                type="button"
+                title="设备配对与掌上遥控"
+                aria-label="设备配对与掌上遥控"
+                @click="pairOpen = true"
+              >
+                <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3">
+                  <rect x="4" y="1.5" width="8" height="13" rx="2" />
+                  <path d="M8 11.5h.01M6.5 4h3" stroke-linecap="round" />
+                </svg>
+                <span class="remote-topbar-label">遥控</span>
+              </button>
               <NotifCenter />
               <div v-if="themeOpen" class="pop-mask" @click="themeOpen = false" />
               <div v-if="themeOpen" class="theme-pop theme-pop--topbar" role="listbox" aria-label="选择主题">
@@ -433,6 +451,8 @@ onUnmounted(() => {
     </template>
     <RToast />
     <AboutDialog ref="aboutRef" />
+    <RemotePairModal v-model:open="pairOpen" />
+    <DesktopPet v-if="auth.phase === 'ready'" />
   </div>
 </template>
 
@@ -619,6 +639,19 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .theme-topbar-btn:hover { color: var(--text-1); border-color: var(--text-3); }
+.remote-topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctrl);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--font-aux);
+  cursor: pointer;
+}
+.remote-topbar-btn:hover { color: var(--text-1); border-color: var(--text-3); }
 /* 顶栏弹层：right:0 对齐按钮右缘、自按钮下方展开（覆盖侧栏版的 bottom 定位）。 */
 .theme-pop--topbar {
   bottom: auto;

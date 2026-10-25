@@ -104,6 +104,10 @@ var Registry = []Setting{
 	// 完成后把产物文件回传到提交会话：小文件（≤50MB，TG bot 上限）直接发文档；
 	// 大文件只发文本通知（路径在服务器上，回传不动它）。
 	{Key: "telegram.send_files", Desc: "任务完成后回传产物文件到 Telegram（≤50MB）", Default: false, Effective: Immediate},
+	// ---- 微信公众号 / 远程下载集成 ----
+	{Key: "wechat.token", Desc: "微信公众号 Webhook 校验令牌（Token）", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "wechat.appid", Desc: "微信公众号 AppID（可选）", Default: "", Effective: Immediate},
+	{Key: "wechat.appsecret", Desc: "微信公众号 AppSecret（可选）", Default: "", Effective: Immediate, Sensitive: true},
 }
 
 // Config 是运行期配置快照。锁定项只来自环境变量（docs/06 §4）。

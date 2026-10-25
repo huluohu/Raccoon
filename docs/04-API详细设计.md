@@ -191,10 +191,13 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | /integrations/status | qB / 115 / Telegram 配置态与连通性汇总 |
+| GET | /integrations/status | qB / 115 / Telegram / WeChat 配置态与连通性汇总 |
 | POST | /integrations/qb/test | qB 连通性测试 |
 | POST | /integrations/n115/test | 115 连通性测试 |
 | GET | /integrations/telegram/status | Telegram bot 状态 |
+| GET | /integrations/wechat/webhook | 微信公众号接入签名校验（返回 echostr） |
+| POST | /integrations/wechat/webhook | 微信公众号消息接收（XML），自动提取视频链接创建任务并被动回复 |
+| GET | /integrations/wechat/status | 微信公众号接入状态与 Webhook 接收地址 |
 
 ### 2.13 用户偏好 `user/preferences`
 
