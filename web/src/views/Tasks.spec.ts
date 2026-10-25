@@ -202,16 +202,35 @@ afterEach(() => {
 })
 
 describe('Tasks 视图', () => {
-  it('挂载后拉全量任务并接上 SSE（实时连接徽章文案随之变化）', async () => {
+  it('挂载后拉全量任务；SSE 归 App 外壳管，本页不建连接', async () => {
     const w = mountTasks()
     await flushPromises()
     expect(mocks.listTasks).toHaveBeenCalled()
     // limit=100：父子任务树要求子项行也在列表里（store 内注释）
     expect(mocks.listTasks.mock.calls[0]?.[0]).toMatchObject({ limit: '100' })
-    expect(FakeEventSource.instances.length).toBe(1)
-    expect(FakeEventSource.instances[0].url).toBe('/api/v1/events')
+    // SSE 是全局单连接，生命周期归 App.vue（会话就绪时建、失效时断）。
+    // 页面级视图若自己建连接、离开时再断，就没有人重连——
+    // 侧栏徽章会永远停在「重连中」。这条断言锁死该责任边界。
+    expect(FakeEventSource.instances.length).toBe(0)
     expect(w.text()).toContain('实时未连接')
     w.unmount()
+  })
+
+  it('离开本页不关闭全局 SSE 连接（避免侧栏永远停在「重连中」）', async () => {
+    const w = mountTasks()
+    await flushPromises()
+    const store = useTasksStore()
+    // 模拟 App 外壳已建好连接：手动连一次让 store 进入 connected 态
+    store.connect()
+    const es = FakeEventSource.instances[FakeEventSource.instances.length - 1]
+    es.onopen?.()
+    expect(store.connected).toBe(true)
+
+    w.unmount()
+    await flushPromises()
+    // 卸载后不得把全局连接关掉（否则没人重连，徽章永远停在「重连中」）
+    expect(es.closed).toBe(false)
+    expect(store.connected).toBe(true)
   })
 
   it('空列表显示引导空态，不甩白页', async () => {

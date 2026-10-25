@@ -66,7 +66,7 @@ defineSlots<{
 const inputEl = ref<HTMLInputElement | null>(null)
 
 /** 站点提示占位（与后端 platformOf 白名单同源的平台族）：给「能下什么」一个锚。 */
-const DEFAULT_PLACEHOLDER = '粘贴链接下载，多个链接换行分隔也行（YouTube · B站 · 抖音 · X · 小红书）'
+const DEFAULT_PLACEHOLDER = '粘贴链接下载，多个链接换行分隔也行（YouTube · 哔哩哔哩 · 抖音 · X · 小红书）'
 const dynamicPlaceholder = computed(() =>
   linkCount.value >= 2 ? `检测到 ${linkCount.value} 个链接，回车批量下载` : DEFAULT_PLACEHOLDER,
 )

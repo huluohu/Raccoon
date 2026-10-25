@@ -97,7 +97,16 @@ export const useTasksStore = defineStore('tasks', () => {
   }
 
   function connect(): void {
-    if (source) return
+    // 自愈：已存在的连接若已 CLOSED（被误断开 / 网络断过），重建一条。
+    // 否则 source 非空就直接 return，连接死了也没人管——侧栏会永远停在「重连中」。
+    //
+    // CLOSED = 2（EventSource.readyState 的标准值）。这里写字面量而不是
+    // EventSource.CLOSED：部分运行环境（如测试桩）没有这个静态常量。
+    if (source) {
+      if (source.readyState !== 2) return
+      source.close()
+      source = null
+    }
     // EventSource 无法带自定义头，会话 cookie 同源自动携带（后端 /events 允许 cookie 会话）。
     source = new EventSource('/api/v1/events', { withCredentials: true })
 

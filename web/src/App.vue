@@ -224,6 +224,16 @@ onMounted(async () => {
   }
 })
 
+// SSE 是全局单连接，生命周期归本组件管（会话就绪时建、会话失效时断）。
+// 路由切换后兜底确认一次：任何页面误断开 SSE 都能在这里被拉回来，
+// 不至于让侧栏徽章永远停在「重连中」。
+watch(
+  () => route.path,
+  () => {
+    if (auth.phase === 'ready') tasks.connect()
+  },
+)
+
 onUnmounted(() => {
   document.removeEventListener('keydown', onNavKey)
   // 主题属性是本组件写在 <html> 上的，卸载时一并摘掉，别把状态留给别人。

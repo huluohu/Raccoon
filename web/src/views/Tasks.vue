@@ -505,13 +505,15 @@ function baseName(path: string): string {
 
 onMounted(async () => {
   await tasks.refresh()
-  tasks.connect()
 })
 
 onBeforeUnmount(() => {
   flashTimers.forEach((t) => window.clearTimeout(t))
   flashTimers = []
-  tasks.disconnect()
+  // 注意：这里**不能**调 tasks.disconnect()。
+  // SSE 是全局单连接，生命周期归 App.vue 管（会话就绪时建、会话失效时断）。
+  // 页面级视图擅自断开，离开本页后就没有任何人重连——
+  // 侧栏的连接徽章会永远停在「重连中」，而服务端那条连接其实早断了。
 })
 </script>
 

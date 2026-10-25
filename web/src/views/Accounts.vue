@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// 平台账号页：内容平台（下载源）的登录态管理——B站扫码 / 其它平台粘贴 Cookie。
+// 平台账号页：内容平台（下载源）的登录态管理——哔哩哔哩扫码 / 其它平台粘贴 Cookie。
 //
 // 与「连接」页的职责边界（2026-10-24 用户裁决）：连接页管「与系统集成」（qB /
-// 115 / Telegram），本页管「内容源账号」（B站 / YouTube / 优酷…的登录态）。
+// 115 / Telegram），本页管「内容源账号」（哔哩哔哩 / YouTube / 优酷…的登录态）。
 // 凭据同表存储（credentials，AES-256-GCM），按 platform 归属拆分展示；
 // 引擎注入逻辑不区分页面：任务执行时按平台取最近有效的凭据。
 //
@@ -69,7 +69,7 @@ const checkResult = ref<Record<string, { ok: boolean; status: string; message: s
 const PLATFORM_OPTIONS = CONTENT_PLATFORMS.map((p) => ({ value: p, label: PLATFORM_LABELS[p] }))
 
 const KINDS = [
-  { value: 'cookie_file', label: 'Cookie 内容', hint: '浏览器 Cookie 原文，等号分号分隔的一整串；B站可直接用上方扫码登录' },
+  { value: 'cookie_file', label: 'Cookie 内容', hint: '浏览器 Cookie 原文，等号分号分隔的一整串；哔哩哔哩可直接用上方扫码登录' },
   { value: 'session', label: '会话串', hint: '服务端下发的会话标识' },
   { value: 'token', label: '令牌', hint: '平台 API Key / 访问令牌' },
   { value: 'account', label: '账号密码', hint: '用于需要登录的平台' },
@@ -212,7 +212,7 @@ onMounted(load)
       v-else-if="!loading && contentCreds.length === 0"
       face="waiting"
       title="还没有配置任何平台账号"
-      hint="公开内容无需登录；1080P 以上、会员专享内容需要对应平台的登录态。B站可用扫码登录，其它平台粘贴 Cookie。"
+      hint="公开内容无需登录；1080P 以上、会员专享内容需要对应平台的登录态。哔哩哔哩可用扫码登录，其它平台粘贴 Cookie。"
       action-label="添加平台凭证"
       @action="resetForm"
     />
@@ -269,7 +269,7 @@ onMounted(load)
 
         <label class="field">
           <span class="field-label">标签</span>
-          <input v-model="form.label" type="text" placeholder="如：B站主号" maxlength="64" />
+          <input v-model="form.label" type="text" placeholder="如：哔哩哔哩主号" maxlength="64" />
           <span class="field-hint">留空自动用「平台 + 类型」命名</span>
         </label>
 

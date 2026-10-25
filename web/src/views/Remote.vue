@@ -79,7 +79,8 @@ function playMedia(f: MediaFile) {
 }
 
 onMounted(() => {
-  tasks.connect()
+  // SSE 生命周期归 App.vue 管（全局单连接），本页不建也不断——
+  // 否则离开本页时连接被关掉且无人重连，侧栏徽章会永远停在「重连中」。
   loadRecentMedia()
 })
 </script>
@@ -107,7 +108,7 @@ onMounted(() => {
           v-model="remoteUrl"
           class="remote-input"
           type="url"
-          placeholder="长按粘贴视频链接 (B站/YouTube/视频号/抖音/X…)"
+          placeholder="长按粘贴视频链接 (哔哩哔哩/YouTube/视频号/抖音/X…)"
           @keydown.enter="submitRemoteTask"
         />
         <div class="remote-submit-opts">

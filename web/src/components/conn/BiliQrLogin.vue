@@ -114,7 +114,7 @@ function close() {
 
 const phaseText: Record<typeof phase.value, string> = {
   idle: '正在获取二维码…',
-  waiting_scan: '打开 B 站 App 扫码（扫一扫 → 右下角相册旁的扫图标）',
+  waiting_scan: '打开哔哩哔哩 App 扫码（扫一扫 → 右下角相册旁的扫图标）',
   scanned: '已扫码，请在手机上点「确认登录」',
   success: '登录成功',
   expired: '二维码已过期',
@@ -123,22 +123,22 @@ const phaseText: Record<typeof phase.value, string> = {
 
 <template>
   <RButton variant="ghost" :disabled="starting" @click="start">
-    {{ starting ? '取码中…' : 'B站扫码登录' }}
+    {{ starting ? '取码中…' : '哔哩哔哩扫码登录' }}
   </RButton>
 
   <teleport to="body">
     <div v-if="open" class="qr-mask" @click.self="close">
-      <div class="qr-card" role="dialog" aria-label="B 站扫码登录">
+      <div class="qr-card" role="dialog" aria-label="哔哩哔哩扫码登录">
         <header class="qr-head">
-          <h3 class="qr-title">B 站扫码登录</h3>
+          <h3 class="qr-title">哔哩哔哩扫码登录</h3>
           <button class="qr-close" type="button" aria-label="关闭" @click="close">×</button>
         </header>
         <p class="qr-sub">
-          用手机 B 站 App 扫码确认后，登录态直接加密进凭据中心——
+          用手机哔哩哔哩 App 扫码确认后，登录态直接加密进凭据中心——
           不用再去浏览器里抄 Cookie。会员视频需要账号本身有会员权限。
         </p>
         <div class="qr-stage">
-          <img v-if="qrDataUrl" class="qr-img" :src="qrDataUrl" alt="B 站登录二维码" />
+          <img v-if="qrDataUrl" class="qr-img" :src="qrDataUrl" alt="哔哩哔哩登录二维码" />
           <div v-else class="qr-placeholder">生成中…</div>
           <div v-if="phase === 'scanned'" class="qr-badge qr-badge--scanned">已扫码</div>
           <div v-else-if="phase === 'success'" class="qr-badge qr-badge--success">✓ 已登录</div>

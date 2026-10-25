@@ -74,7 +74,7 @@ describe('平台账号页', () => {
   it('空态文案指明内容平台归属与去向', async () => {
     const w = await mountWithCreds([])
     expect(w.text()).toContain('还没有配置任何平台账号')
-    expect(w.text()).toContain('B站可用扫码登录')
+    expect(w.text()).toContain('哔哩哔哩可用扫码登录')
   })
 })
 
