@@ -94,7 +94,10 @@ async function testProxy() {
 <template>
   <div class="setting">
     <div class="setting-head">
-      <span class="setting-key">{{ item.key }}</span>
+      <!-- 主标题用中文显示名（label）；键名降为次要信息——
+           排障时需要知道确切键名，但它不该是用户第一眼看到的东西。 -->
+      <span class="setting-label">{{ item.label || item.key }}</span>
+      <span class="setting-key-hint">{{ item.key }}</span>
       <span class="eff-badge" :class="`eff-badge--${item.effective}`">{{ effectiveText }}</span>
       <span v-if="item.locked" class="lock-badge" :title="`由环境变量 ${item.env_var} 锁定`">
         <!-- SVG 线稿锁：docs/07 §4/§5 禁 emoji 冒充图标 -->
@@ -190,8 +193,14 @@ async function testProxy() {
 .setting { padding: 14px 0; border-bottom: 1px solid var(--border); }
 .setting:last-child { border-bottom: none; }
 .setting-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-/* 配置项名（等宽键名）：正文档 16px，它是这一行的主角。 */
-.setting-key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--font-body); color: var(--text-1); }
+/* 配置项中文名：正文档 16px，它是这一行的主角。 */
+.setting-label { font-size: var(--font-body); font-weight: var(--weight-semibold); color: var(--text-1); }
+/* 键名（等宽）：次要信息，只为排障时能对上后端注册表。 */
+.setting-key-hint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-caption);
+  color: var(--text-3);
+}
 /* 配置项说明：辅助档 13.5px。 */
 .setting-desc { font-size: var(--font-aux); color: var(--text-3); margin: 4px 0 10px; line-height: 1.6; }
 .setting-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

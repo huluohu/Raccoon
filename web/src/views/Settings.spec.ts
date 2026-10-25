@@ -36,6 +36,7 @@ vi.mock('@/api/client', () => ({ api: mocks }))
 function makeItem(over: Record<string, unknown> = {}) {
   return {
     key: 'download.max_concurrent',
+    label: '全局并发上限',
     desc: '同时下载的任务数上限',
     default: 3,
     value: 3,
@@ -52,6 +53,7 @@ const configItems = [
   makeItem(),
   makeItem({
     key: 'storage.save_path',
+    label: '下载目录',
     desc: '下载文件保存目录',
     default: '/media/downloads',
     value: '/media/downloads',
@@ -61,6 +63,7 @@ const configItems = [
   }),
   makeItem({
     key: 'download.format',
+    label: '默认画质',
     desc: '下载格式优先级',
     default: 'mp4',
     value: 'mp4',
@@ -71,6 +74,7 @@ const configItems = [
   }),
   makeItem({
     key: 'server.debug',
+    label: '调试模式',
     desc: '调试模式',
     default: false,
     value: false,
@@ -80,6 +84,7 @@ const configItems = [
   }),
   makeItem({
     key: 'qb.password',
+    label: 'qBittorrent 密码',
     desc: 'qBittorrent 密码',
     default: '',
     value: '******',
@@ -90,6 +95,7 @@ const configItems = [
   }),
   makeItem({
     key: 'server.port',
+    label: '服务端口',
     desc: '服务端口',
     default: 8080,
     value: 8080,
@@ -148,9 +154,13 @@ describe('Settings 视图', () => {
     const w = mountSettings()
     await flushPromises()
 
-    const keys = w.findAll('.setting-key').map((n: any) => n.text())
+    const keys = w.findAll('.setting-key-hint').map((n: any) => n.text())
     expect(keys).toContain('download.max_concurrent')
     expect(keys).toContain('storage.save_path')
+    // 主标题用中文名，不是键名——用户不该对着 storage.data_dir 猜含义
+    const labels = w.findAll('.setting-label').map((n: any) => n.text())
+    expect(labels).toContain('全局并发上限')
+    expect(labels).toContain('下载目录')
 
     const group = w.find('#download')
     expect(group.exists()).toBe(true)

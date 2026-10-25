@@ -184,6 +184,8 @@ export type Effective = 'immediate' | 'next_task' | 'restart'
 
 export interface ConfigItem {
   key: string
+  /** 中文显示名（设置页主标题）。 */
+  label?: string
   desc: string
   default: unknown
   value: unknown

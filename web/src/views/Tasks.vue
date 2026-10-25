@@ -575,6 +575,13 @@ onBeforeUnmount(() => {
           <span class="tnum">时长 {{ formatDuration(preview.duration) }}</span>
           <span v-if="preview.is_playlist" class="pill pill--warn">合集</span>
         </p>
+        <!-- 出口说明：解析实际走了哪条路（代理/直连）、中途是否切换过——
+             界面如实告知，用户才知道「为什么这次能下、下次会不会又超时」。 -->
+        <p v-if="preview.route_note || preview.proxy_used" class="pv-route-hint">
+          <span v-if="preview.proxy_used" class="pill pill--muted">走代理</span>
+          <span v-else class="pill pill--muted">直连</span>
+          <span v-if="preview.route_note">{{ preview.route_note }}</span>
+        </p>
         <div class="qualities">
           <button
             v-for="f in preview.formats"
@@ -827,6 +834,17 @@ onBeforeUnmount(() => {
 .pv-actions { display: flex; flex-direction: column; gap: 8px; justify-content: center; }
 .pill { padding: 1px 8px; border-radius: var(--radius-pill); font-size: var(--font-caption); }
 .pill--warn { background: var(--gold-soft); color: var(--gold-strong); }
+.pill--muted { background: var(--surface-2); color: var(--text-3); }
+/* 出口说明行：解析实际走的链路（代理/直连 + 是否切换过）。 */
+.pv-route-hint {
+  margin: 0 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-caption);
+  color: var(--text-3);
+}
 
 /* 批量导入 */
 .batch { display: flex; flex-direction: column; gap: 10px; }

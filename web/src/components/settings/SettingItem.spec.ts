@@ -16,6 +16,7 @@ import { mount } from '@/test/mount'
 function makeItem(over: Partial<ConfigItem> = {}): ConfigItem {
   return {
     key: 'download.max_concurrent',
+    label: '全局并发上限',
     desc: '同时下载的任务数上限',
     default: 3,
     value: 3,
@@ -29,13 +30,22 @@ function makeItem(over: Partial<ConfigItem> = {}): ConfigItem {
 }
 
 describe('SettingItem 组件', () => {
-  it('渲染配置键名、说明与默认值', () => {
+  it('渲染配置中文名、键名、说明与默认值', () => {
     const w = mount(SettingItem, {
       props: { item: makeItem(), modelValue: 3, dirty: false },
     })
-    expect(w.find('.setting-key').text()).toBe('download.max_concurrent')
+    // 主标题是中文名——键名只是次要信息（用户不该对着 storage.data_dir 猜含义）
+    expect(w.find('.setting-label').text()).toBe('全局并发上限')
+    expect(w.find('.setting-key-hint').text()).toBe('download.max_concurrent')
     expect(w.find('.setting-desc').text()).toBe('同时下载的任务数上限')
     expect(w.find('.setting-default').text()).toContain('默认 3')
+  })
+
+  it('没有中文名时回退用键名（不显示空白标题）', () => {
+    const w = mount(SettingItem, {
+      props: { item: makeItem({ label: '' }), modelValue: 3, dirty: false },
+    })
+    expect(w.find('.setting-label').text()).toBe('download.max_concurrent')
   })
 
   it('生效时机徽章按后端 effective 显示（前端不猜）', () => {

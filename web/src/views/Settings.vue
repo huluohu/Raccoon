@@ -355,7 +355,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page">
-    <PageHeader eyebrow="SETTINGS" title="设置">
+    <PageHeader eyebrow="SETTINGS" title="设置" sticky>
       <template #actions>
         <span v-if="isDirty" class="dirty-dot" title="有未保存的改动">● 未保存</span>
         <RButton variant="accent" :disabled="!isDirty || saving" @click="save">

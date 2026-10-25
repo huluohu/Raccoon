@@ -6,6 +6,12 @@
 // 顶栏只承载全局动作（提交框 / 时钟 / 通知）——两层职责不再混。
 //
 // 副行支持默认文本或 #sub 插槽（要放实时状态点、计数等富内容时用插槽）。
+//
+// sticky：页头吸顶（设置页用）。
+// 为什么需要：设置页有几十个配置项，改完要滚很久才找得到「保存改动」，
+// 按钮跟着页头一起滚走等于让用户改一屏就找一次保存。
+// 实现上整块页头吸顶（而不是只让动作区吸顶）——动作区是页头的子元素，
+// 单独 sticky 会被页头自身的高度框住，滚不出几像素就跟着走了。
 withDefaults(
   defineProps<{
     /** 等宽眉题：大写英文短词（如 TASKS / LIVE OPERATIONS），前置短横线由组件给。 */
@@ -14,13 +20,15 @@ withDefaults(
     title: string
     /** 副行文本（简单场景）；富内容用 #sub 插槽。 */
     sub?: string
+    /** 页头吸顶（长页面 + 需要常驻动作区时启用）。 */
+    sticky?: boolean
   }>(),
-  { sub: '' },
+  { sub: '', sticky: false },
 )
 </script>
 
 <template>
-  <header class="phead">
+  <header class="phead" :class="{ 'phead--sticky': sticky }">
     <div class="phead-main">
       <p class="phead-eyebrow eyebrow">
         <span class="phead-dash" aria-hidden="true" />{{ eyebrow }}
@@ -75,9 +83,22 @@ withDefaults(
 }
 .phead-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
+/* 吸顶页头：整块吸住，动作区（「保存改动」）因此常驻可见。
+   间距用 padding-bottom 而不是 margin-bottom——margin 在框外，
+   内容会从缝里透出来；padding 在框内，背景能盖住。 */
+.phead--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  margin-bottom: 0;
+  padding-bottom: 20px;
+}
+
 @media (max-width: 767px) {
   .phead { margin: 0 0 16px; }
   .phead-actions { width: 100%; }
   .phead { flex-wrap: wrap; }
+  .phead--sticky { margin-bottom: 0; padding-bottom: 16px; }
 }
 </style>

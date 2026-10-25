@@ -4,17 +4,22 @@ package server
 //
 // 契约要点：
 //   - 入参 level（逗号多选）/ module / q（≤256，超长截断不报错）/ from / to（Unix 秒）/ limit / cursor；
-//   - cursor 是**行号游标**（1 起），空=从文件头；next_cursor 为下一段起始行号，
-//     无更多时回传当前 cursor（前端据此停「加载更多」，不靠「比 limit 少」猜）；
+//   - cursor 是**倒扫游标**（已消费的末尾行数，0=从最新一行开始）；
 //   - 出口统一走 redactLine（与诊断包同一套脱敏），**不造第二套**。
 //
 // 读文件：日志按行追加，整文件读入后按行号切片；当前单机日志量级（几 MB）可接受，
 // 后续如加轮转再改流式扫描（契约不变）。
+//
+// 为什么倒序：日志页是「看最新」的界面，正序（最旧在上）等于让用户翻到最底部
+// 才能看到刚发生的事。且文件行序 ≠ 严格时间序——容器重建时新旧实例可能同时
+// 写同一个文件，交错的行时间戳会乱（实测见过 23:46 夹在 23:51 之间）。
+// 倒序扫描 + 按 ts 排序才能给出真正的时间倒序。
 
 import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -62,6 +67,8 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	limit := parseBoundedInt(q.Get("limit"), 100, 1, 500)
+	// cursor：倒扫游标 = 已从文件尾部消费的**行数**（0=从最新一行开始扫）。
+	// 正扫时是「起始行号」，倒扫时天然是「已消费行数」——同一个数字，前端不感知方向。
 	cursor := 0
 	if raw := strings.TrimSpace(q.Get("cursor")); raw != "" {
 		v, err := strconv.Atoi(raw)
@@ -82,10 +89,14 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) error {
 	lines := s.readLogLines()
 	items := make([]logItem, 0, limit)
 	next := cursor
-	scanned := cursor // 已扫描到的行号（1 起）
+	// 从文件尾往前扫：i 是「距文件尾的行数」（0=最后一行）。
+	// cursor 之前的行已消费过，从 cursor 处继续。
 	for i := cursor; i < len(lines); i++ {
-		scanned = i + 1
-		line := strings.TrimSpace(lines[i])
+		lineIdx := len(lines) - 1 - i
+		if lineIdx < 0 {
+			break
+		}
+		line := strings.TrimSpace(lines[lineIdx])
 		if line == "" {
 			continue
 		}
@@ -129,7 +140,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) error {
 			Msg:    redactLine(rec.Msg), // 出口唯一脱敏点
 		})
 		if len(items) >= limit {
-			next = scanned
+			next = i + 1
 			break
 		}
 	}
@@ -137,6 +148,9 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) error {
 	if len(items) < limit {
 		next = cursor
 	}
+	// 时间倒序：文件行序不等于时间序（多实例交错写入时会出现 ts 乱序）。
+	// 稳定排序，ts 相同则保持倒扫顺序（越新越靠前）。
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Ts > items[j].Ts })
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"items":       items,
 		"next_cursor": strconv.Itoa(next),

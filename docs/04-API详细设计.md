@@ -87,7 +87,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null}]/kind/is_playlist/proxy_used/route_note/entries(preview)。直连网络异常时自动切换 net.proxy 重试。不落库、不入队 |
+| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null}]/kind/is_playlist/proxy_used/route_note/entries(preview)。出口口径与任务执行**完全一致**（显式 proxy > 全局 net.proxy > 直连）；主出口遇网络异常自动换备用出口重试（每次尝试独立 ctx，不会被前一次的超时拖死）。不落库、不入队 |
 
 ### 2.4 配置中心 `config`
 
@@ -171,7 +171,7 @@
 | GET | /system/stats/trend?days=7\|30 | 按日趋势 + 失败拆分：`{days,points:[{date,count,bytes}],failures:{by_platform,by_reason}}`；`points` 长度恒等于 days，末元素为本地今日；其它 days 值 400 |
 | GET | /system/monitor | 实时资源：`{ok,sampled_at,cpu,memory,disk,net,series}`（2s×60 点；`null` = 该时刻采集失败，前端断线不插值）；非 Linux 返回 `{ok:false,message}` |
 | GET | /system/monitor/history?range=1h\|24h | 历史聚合：`{range,granularity_sec,points:[{ts,cpu,memory,disk,net_rx,net_tx}]}`；1h=60s 粒度、24h=1440s 均值；空窗返回 `[]` |
-| GET | /logs | 运行日志：`level`（逗号多选）/`module`/`q`（≤256 截断）/`from`/`to`/`limit`（≤500）/`cursor`（行号）→ `{items:[{ts,level,module,msg}],next_cursor}`；`msg` 出口统一脱敏（cookie/token/password → `***`） |
+| GET | /logs | 运行日志：`level`（逗号多选）/`module`/`q`（≤256 截断）/`from`/`to`/`limit`（≤500）/`cursor`（倒扫游标：已消费的末尾行数）→ `{items:[{ts,level,module,msg}],next_cursor}`；**按时间倒序返回**（最新在前，文件行序乱时按 ts 排）；`msg` 出口统一脱敏（cookie/token/password → `***`） |
 
 口径（与实现同源）：
 

@@ -29,7 +29,9 @@ func (s *Server) setupConfig() {
 
 // configItemJSON 界面渲染用的一项（五要素 + 当前值 + 锁定状态）。
 type configItemJSON struct {
-	Key       string   `json:"key"`
+	Key string `json:"key"`
+	// Label 中文显示名（设置页主标题）。
+	Label     string   `json:"label"`
 	Desc      string   `json:"desc"`
 	Default   any      `json:"default"`
 	Value     any      `json:"value"`
@@ -54,6 +56,7 @@ func (s *Server) handleConfigGet(w http.ResponseWriter, r *http.Request) error {
 		val := s.cfg.Get(meta.Key)
 		item := configItemJSON{
 			Key:       meta.Key,
+			Label:     meta.Label,
 			Desc:      meta.Desc,
 			Default:   meta.Default,
 			Value:     val,

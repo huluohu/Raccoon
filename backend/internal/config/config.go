@@ -19,7 +19,13 @@ const (
 
 // Setting 是五要素注册表的一行（docs/06 §1）。
 type Setting struct {
-	Key       string    `json:"key"`
+	Key string `json:"key"`
+	// Label 中文显示名（设置页展示用）。
+	//
+	// 为什么与 Key 分开：Key 是程序里的稳定标识（storage.data_dir），
+	// 直接摆到界面上等于让用户对着内部命名猜含义。Label 给人看「数据根目录」，
+	// Key 只作为次要信息附在旁边（排障时需要知道确切键名）。
+	Label     string    `json:"label"`
 	Desc      string    `json:"desc"`
 	Default   any       `json:"default"`
 	Effective Effective `json:"effective"`
@@ -29,85 +35,85 @@ type Setting struct {
 
 // Registry 全部设置的定义；新增设置必须五要素齐全（评审门禁）。
 var Registry = []Setting{
-	{Key: "server.addr", Desc: "HTTP 监听地址", Default: ":8530", Effective: Restart, EnvVar: "RACCOON_SERVER_ADDR"},
-	{Key: "storage.data_dir", Desc: "数据根目录（数据库/配置/凭据/日志；下载文件在 storage.download_dir）", Default: "/data", Effective: Restart, EnvVar: "RACCOON_DATA_DIR"},
-	{Key: "storage.download_dir", Desc: "默认下载目录（绝对路径如 /downloads，或相对数据根；Docker 镜像内由 RACCOON_DOWNLOAD_DIR 锁定为 /downloads）", Default: "downloads", Effective: NextTask, EnvVar: "RACCOON_DOWNLOAD_DIR"},
-	{Key: "storage.naming_rule", Desc: "文件命名规则（预留：当前文件名由引擎模板固定为「标题 [ID].扩展名」，修改暂不生效）", Default: "{platform}/{uploader}/{title}.{ext}", Effective: NextTask},
-	{Key: "storage.disk_warn_pct", Desc: "磁盘余量预警百分比", Default: 5, Effective: Immediate},
+	{Key: "server.addr", Label: "监听地址", Desc: "HTTP 监听地址", Default: ":8530", Effective: Restart, EnvVar: "RACCOON_SERVER_ADDR"},
+	{Key: "storage.data_dir", Label: "数据根目录", Desc: "数据根目录（数据库/配置/凭据/日志；下载文件在 storage.download_dir）", Default: "/data", Effective: Restart, EnvVar: "RACCOON_DATA_DIR"},
+	{Key: "storage.download_dir", Label: "下载目录", Desc: "默认下载目录（绝对路径如 /downloads，或相对数据根；Docker 镜像内由 RACCOON_DOWNLOAD_DIR 锁定为 /downloads）", Default: "downloads", Effective: NextTask, EnvVar: "RACCOON_DOWNLOAD_DIR"},
+	{Key: "storage.naming_rule", Label: "文件命名规则", Desc: "文件命名规则（预留：当前文件名由引擎模板固定为「标题 [ID].扩展名」，修改暂不生效）", Default: "{platform}/{uploader}/{title}.{ext}", Effective: NextTask},
+	{Key: "storage.disk_warn_pct", Label: "磁盘余量预警线", Desc: "磁盘余量预警百分比", Default: 5, Effective: Immediate},
 	// ---- 存储策略路由（docs/01 §3.4 / docs/15 §3.7）----
 	// local：磁力/种子直接走 qB、其余走本地引擎（存量行为，升级零变化）；
 	// n115_first：115 优先，确定失败自动转 qB，结果不确定先查询不转移；
 	// qb_fallback：磁力/种子直接走 qB（跳过 115，无运行期转移）——以 task/strategy.go 为准。
-	{Key: "storage.strategy", Desc: "存储策略（local/n115_first/qb_fallback）", Default: "local", Effective: NextTask},
+	{Key: "storage.strategy", Label: "存储策略", Desc: "存储策略（local/n115_first/qb_fallback）", Default: "local", Effective: NextTask},
 	// ---- 网络出口（net.*）----
 	// 元数据页可达 ≠ 媒体流可达：不少站点的媒体 CDN 走另一条网络路径，
 	// 直连超时（NET_TIMEOUT）时给引擎配代理是用户手里唯一的自救工具。
 	// 空串 = 直连（默认行为零变化）；生效时机 NextTask：引擎参数在任务启动时拼装。
-	{Key: "net.proxy", Desc: "网络代理（如 http://127.0.0.1:7890 或 socks5://…，留空直连）", Default: "", Effective: NextTask},
+	{Key: "net.proxy", Label: "网络代理", Desc: "网络代理（如 http://127.0.0.1:7890 或 socks5://…，留空直连）", Default: "", Effective: NextTask},
 	// ---- 成功率预警（docs/14 E2）----
-	{Key: "alert.success_rate_threshold", Desc: "成功率预警阈值（百分比，低于则总览浮预警）", Default: 80, Effective: Immediate},
-	{Key: "download.max_concurrent", Desc: "全局下载并发上限", Default: 3, Effective: NextTask},
-	{Key: "download.platform_cap", Desc: "单平台并发上限", Default: 2, Effective: NextTask},
-	{Key: "download.default_quality", Desc: "默认下载质量", Default: "best", Effective: NextTask},
-	{Key: "download.rate_limit_bps", Desc: "下载限速（字节/秒，0=不限）", Default: 0, Effective: NextTask},
-	{Key: "download.skip_preview", Desc: "添加任务跳过预览直接入队", Default: false, Effective: NextTask},
-	{Key: "download.max_attempts", Desc: "失败自动重试次数", Default: 3, Effective: NextTask},
+	{Key: "alert.success_rate_threshold", Label: "成功率预警阈值", Desc: "成功率预警阈值（百分比，低于则总览浮预警）", Default: 80, Effective: Immediate},
+	{Key: "download.max_concurrent", Label: "全局并发上限", Desc: "全局下载并发上限", Default: 3, Effective: NextTask},
+	{Key: "download.platform_cap", Label: "单平台并发上限", Desc: "单平台并发上限", Default: 2, Effective: NextTask},
+	{Key: "download.default_quality", Label: "默认画质", Desc: "默认下载质量", Default: "best", Effective: NextTask},
+	{Key: "download.rate_limit_bps", Label: "下载限速", Desc: "下载限速（字节/秒，0=不限）", Default: 0, Effective: NextTask},
+	{Key: "download.skip_preview", Label: "跳过预览", Desc: "添加任务跳过预览直接入队", Default: false, Effective: NextTask},
+	{Key: "download.max_attempts", Label: "自动重试次数", Desc: "失败自动重试次数", Default: 3, Effective: NextTask},
 	// 产物增强（docs/04 §2.2 items 说明）：封面落盘是纯下载动作无额外依赖；
 	// 元数据内嵌走 yt-dlp 后处理器，mp4/m4a 需要 mutagen（镜像已内置）、
 	// mkv/webm 走 ffmpeg。默认关：目录里多出 .jpg/.info 文件不是所有人都想要。
-	{Key: "download.save_thumbnail", Desc: "封面图落盘（jpg，与视频同目录）", Default: false, Effective: NextTask},
-	{Key: "download.embed_metadata", Desc: "标题/作者等元数据写入媒体文件（需 ffmpeg/mutagen）", Default: false, Effective: NextTask},
-	{Key: "subscription.interval_min", Desc: "订阅检查间隔（分钟）", Default: 30, Effective: NextTask},
-	{Key: "live.check_interval_sec", Desc: "直播开播检测间隔（秒）", Default: 60, Effective: NextTask},
-	{Key: "live.segment_min", Desc: "直播录制分段（分钟）", Default: 60, Effective: NextTask},
-	{Key: "notify.task_done", Desc: "任务完成通知", Default: true, Effective: Immediate},
-	{Key: "notify.task_failed", Desc: "任务失败通知", Default: true, Effective: Immediate},
-	{Key: "notify.disk_warn", Desc: "磁盘预警通知", Default: true, Effective: Immediate},
+	{Key: "download.save_thumbnail", Label: "保存封面图", Desc: "封面图落盘（jpg，与视频同目录）", Default: false, Effective: NextTask},
+	{Key: "download.embed_metadata", Label: "写入元数据", Desc: "标题/作者等元数据写入媒体文件（需 ffmpeg/mutagen）", Default: false, Effective: NextTask},
+	{Key: "subscription.interval_min", Label: "订阅检查间隔", Desc: "订阅检查间隔（分钟）", Default: 30, Effective: NextTask},
+	{Key: "live.check_interval_sec", Label: "开播检测间隔", Desc: "直播开播检测间隔（秒）", Default: 60, Effective: NextTask},
+	{Key: "live.segment_min", Label: "录制分段时长", Desc: "直播录制分段（分钟）", Default: 60, Effective: NextTask},
+	{Key: "notify.task_done", Label: "完成通知", Desc: "任务完成通知", Default: true, Effective: Immediate},
+	{Key: "notify.task_failed", Label: "失败通知", Desc: "任务失败通知", Default: true, Effective: Immediate},
+	{Key: "notify.disk_warn", Label: "磁盘预警通知", Desc: "磁盘预警通知", Default: true, Effective: Immediate},
 	// Webhook：任务完成/失败时 POST JSON 到指定 URL（自建通知聚合的通用出口）。
 	// 空串 = 不启用；重试 1 次；失败只记日志不影响任务。
-	{Key: "notify.webhook_url", Desc: "Webhook 通知地址（POST JSON，留空不启用）", Default: "", Effective: Immediate},
+	{Key: "notify.webhook_url", Label: "Webhook 通知地址", Desc: "Webhook 通知地址（POST JSON，留空不启用）", Default: "", Effective: Immediate},
 	// Server酱（sct.ftqq.com）：个人微信推送通道。任务完成/失败/磁盘预警时
 	// 推到微信「Server酱」服务号。免费额度 5 条/天，超出静默丢弃（失败只记日志）。
 	// 这是「微信侧只收通知」的正路：个人微信没有可用的收消息机器人接口，
 	// 远程提交下载仍走 Telegram / CLI / 快捷指令（docs/16）。
-	{Key: "notify.serverchan_sendkey", Desc: "Server酱 SendKey（微信推送任务通知，留空不启用；免费额度 5 条/天）", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "notify.serverchan_sendkey", Label: "Server酱 SendKey", Desc: "Server酱 SendKey（微信推送任务通知，留空不启用；免费额度 5 条/天）", Default: "", Effective: Immediate, Sensitive: true},
 	// ---- 凭据健康探测 ----
 	// 定期用平台 API 验证 Cookie 是否还有效，把「Cookie 过期」从事后
 	// （下载失败才知道）变成事前（平台账号页直接标「已失效」）。
 	// 0 = 关闭探测（不主动发任何平台请求）。
-	{Key: "credential.probe_interval_minutes", Desc: "凭据健康探测间隔（分钟，0=关闭）", Default: 60, Effective: Immediate},
-	{Key: "log.level", Desc: "日志级别（debug/info/warn/error）", Default: "info", Effective: Immediate, EnvVar: "RACCOON_LOG_LEVEL"},
+	{Key: "credential.probe_interval_minutes", Label: "凭据健康探测间隔", Desc: "凭据健康探测间隔（分钟，0=关闭）", Default: 60, Effective: Immediate},
+	{Key: "log.level", Label: "日志级别", Desc: "日志级别（debug/info/warn/error）", Default: "info", Effective: Immediate, EnvVar: "RACCOON_LOG_LEVEL"},
 	// 免登录模式（homelab 内网可信场景）：开启后所有 API 匿名放行（伪用户 local），
 	// 前端跳过登录页/初始化向导，打开即用。只应部署在隔离网络里——任何能访问
 	// 8530 的人都拥有全部权限（提交/删除/凭据/配置）。默认关闭。
-	{Key: "security.auth_disabled", Desc: "免登录模式（内网可信环境；开启后任何人可全权访问）", Default: false, Effective: Restart, EnvVar: "RACCOON_AUTH_DISABLED"},
+	{Key: "security.auth_disabled", Label: "免登录模式", Desc: "免登录模式（内网可信环境；开启后任何人可全权访问）", Default: false, Effective: Restart, EnvVar: "RACCOON_AUTH_DISABLED"},
 	// ---- AI 智能总结与分析 ----
-	{Key: "ai.endpoint", Desc: "AI 服务 API 端点（OpenAI 兼容格式，如 https://api.deepseek.com/v1 或 http://host.docker.internal:11434/v1）", Default: "", Effective: Immediate},
-	{Key: "ai.api_key", Desc: "AI 服务 API 密钥 / Token（如 sk-…）", Default: "", Effective: Immediate, Sensitive: true},
-	{Key: "ai.model", Desc: "AI 总结模型名称（如 deepseek-chat, gpt-4o-mini 等）", Default: "deepseek-chat", Effective: Immediate},
-	{Key: "ai.prompt", Desc: "AI 总结系统提示词模板", Default: "请用中文对以下视频/媒体内容进行精炼的结构化总结，包含核心内容概述与关键看点要点。", Effective: Immediate},
+	{Key: "ai.endpoint", Label: "AI 服务端点", Desc: "AI 服务 API 端点（OpenAI 兼容格式，如 https://api.deepseek.com/v1 或 http://host.docker.internal:11434/v1）", Default: "", Effective: Immediate},
+	{Key: "ai.api_key", Label: "AI 服务密钥", Desc: "AI 服务 API 密钥 / Token（如 sk-…）", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "ai.model", Label: "AI 总结模型", Desc: "AI 总结模型名称（如 deepseek-chat, gpt-4o-mini 等）", Default: "deepseek-chat", Effective: Immediate},
+	{Key: "ai.prompt", Label: "AI 总结提示词", Desc: "AI 总结系统提示词模板", Default: "请用中文对以下视频/媒体内容进行精炼的结构化总结，包含核心内容概述与关键看点要点。", Effective: Immediate},
 	// ---- 外部集成通道（docs/08 W4.6–W4.8）----
 	// 这几项是「服务连接参数」，与凭据中心的「平台账号凭据」是两类东西：
 	// 前者指本服务要连到哪里（qB 地址、Bot Token），后者指用谁的账号去下载。
-	{Key: "qb.url", Desc: "qBittorrent WebUI 地址（如 http://127.0.0.1:8080）", Default: "", Effective: Immediate},
-	{Key: "qb.username", Desc: "qBittorrent 用户名", Default: "", Effective: Immediate},
-	{Key: "qb.password", Desc: "qBittorrent 密码", Default: "", Effective: Immediate, Sensitive: true},
-	{Key: "n115.access_token", Desc: "115 开放平台 access token", Default: "", Effective: Immediate, Sensitive: true},
-	{Key: "n115.refresh_token", Desc: "115 开放平台 refresh token", Default: "", Effective: Immediate, Sensitive: true},
-	{Key: "n115.client_id", Desc: "115 开放平台应用 ID", Default: "", Effective: Immediate},
-	{Key: "n115.base_url", Desc: "115 业务 API 地址", Default: "https://proapi.115.com", Effective: Immediate},
-	{Key: "n115.auth_base_url", Desc: "115 授权 API 地址", Default: "https://passportapi.115.com", Effective: Immediate},
-	{Key: "n115.qrcode_base_url", Desc: "115 扫码 API 地址", Default: "https://qrcodeapi.115.com", Effective: Immediate},
-	{Key: "telegram.bot_token", Desc: "Telegram Bot Token", Default: "", Effective: Immediate, Sensitive: true},
-	{Key: "telegram.allowed_users", Desc: "Telegram 允许的用户 ID（逗号分隔）", Default: "", Effective: Immediate},
-	{Key: "telegram.allowed_chats", Desc: "Telegram 允许的会话 ID（逗号分隔，留空不限制）", Default: "", Effective: Immediate},
+	{Key: "qb.url", Label: "qBittorrent 地址", Desc: "qBittorrent WebUI 地址（如 http://127.0.0.1:8080）", Default: "", Effective: Immediate},
+	{Key: "qb.username", Label: "qBittorrent 用户名", Desc: "qBittorrent 用户名", Default: "", Effective: Immediate},
+	{Key: "qb.password", Label: "qBittorrent 密码", Desc: "qBittorrent 密码", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "n115.access_token", Label: "115 Access Token", Desc: "115 开放平台 access token", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "n115.refresh_token", Label: "115 Refresh Token", Desc: "115 开放平台 refresh token", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "n115.client_id", Label: "115 应用 ID", Desc: "115 开放平台应用 ID", Default: "", Effective: Immediate},
+	{Key: "n115.base_url", Label: "115 业务接口地址", Desc: "115 业务 API 地址", Default: "https://proapi.115.com", Effective: Immediate},
+	{Key: "n115.auth_base_url", Label: "115 授权接口地址", Desc: "115 授权 API 地址", Default: "https://passportapi.115.com", Effective: Immediate},
+	{Key: "n115.qrcode_base_url", Label: "115 扫码接口地址", Desc: "115 扫码 API 地址", Default: "https://qrcodeapi.115.com", Effective: Immediate},
+	{Key: "telegram.bot_token", Label: "Telegram Bot Token", Desc: "Telegram Bot Token", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "telegram.allowed_users", Label: "Telegram 允许的用户", Desc: "Telegram 允许的用户 ID（逗号分隔）", Default: "", Effective: Immediate},
+	{Key: "telegram.allowed_chats", Label: "Telegram 允许的会话", Desc: "Telegram 允许的会话 ID（逗号分隔，留空不限制）", Default: "", Effective: Immediate},
 	// 完成后把产物文件回传到提交会话：小文件（≤50MB，TG bot 上限）直接发文档；
 	// 大文件只发文本通知（路径在服务器上，回传不动它）。
-	{Key: "telegram.send_files", Desc: "任务完成后回传产物文件到 Telegram（≤50MB）", Default: false, Effective: Immediate},
+	{Key: "telegram.send_files", Label: "回传产物到 Telegram", Desc: "任务完成后回传产物文件到 Telegram（≤50MB）", Default: false, Effective: Immediate},
 	// ---- 微信公众号 / 远程下载集成 ----
-	{Key: "wechat.token", Desc: "微信公众号 Webhook 校验令牌（Token）", Default: "", Effective: Immediate, Sensitive: true},
-	{Key: "wechat.appid", Desc: "微信公众号 AppID（可选）", Default: "", Effective: Immediate},
-	{Key: "wechat.appsecret", Desc: "微信公众号 AppSecret（可选）", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "wechat.token", Label: "微信 Webhook Token", Desc: "微信公众号 Webhook 校验令牌（Token）", Default: "", Effective: Immediate, Sensitive: true},
+	{Key: "wechat.appid", Label: "微信 AppID", Desc: "微信公众号 AppID（可选）", Default: "", Effective: Immediate},
+	{Key: "wechat.appsecret", Label: "微信 AppSecret", Desc: "微信公众号 AppSecret（可选）", Default: "", Effective: Immediate, Sensitive: true},
 }
 
 // Config 是运行期配置快照。锁定项只来自环境变量（docs/06 §4）。

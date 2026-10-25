@@ -33,12 +33,43 @@ func (e *proxyRecordEngine) Download(ctx context.Context, url string, opts engin
 	return []engine.DownloadedFile{{Path: "/tmp/fake.mp4", Size: 1024}}, nil
 }
 
-// TestPreview_直连超时自动切换代理 验证 Preview 在未指定代理且直连遇到网络超时时，若配置了全局代理则自动切换至代理重试
-func TestPreview_直连超时自动切换代理(t *testing.T) {
+// TestPreview_配了代理就用代理 预览与下载必须同一口径：
+// 配了全局代理就**直接走代理**，不从直连开始试——
+// 从直连开始会让「明明能下载」的任务卡在预览超时上（直连把 deadline 耗尽，
+// 后面那次代理重试必然跟着一起死）。
+func TestPreview_配了代理就用代理(t *testing.T) {
 	m := newExtTestManager(t)
 	_ = m.cfg.Set("net.proxy", "http://127.0.0.1:7890")
 
-	// 第 1 次（直连 ""）返回 NET_TIMEOUT，第 2 次（代理 "http://127.0.0.1:7890"）成功
+	eng := &proxyRecordEngine{}
+	m.SetEngineFor(func(url string) engine.Engine { return eng })
+
+	pv, err := m.Preview(context.Background(), "https://example.com/video")
+	if err != nil {
+		t.Fatalf("Preview 不应报错：%v", err)
+	}
+	if len(eng.resolveCalls) != 1 {
+		t.Fatalf("配了代理应只尝试一次（直接走代理），实际 %d 次：%v",
+			len(eng.resolveCalls), eng.resolveCalls)
+	}
+	if eng.resolveCalls[0] != "http://127.0.0.1:7890" {
+		t.Fatalf("第 1 次就该用全局代理，得到 %q", eng.resolveCalls[0])
+	}
+	if pv.ProxyUsed != "http://127.0.0.1:7890" {
+		t.Fatalf("Preview 结果应记录使用的代理，实际 %q", pv.ProxyUsed)
+	}
+	if pv.RouteNote != "" {
+		t.Fatalf("未切换出口时不应有切换说明，实际 %q", pv.RouteNote)
+	}
+}
+
+// TestPreview_代理异常回退直连 代理挂了（本地代理没启动是常见情况）要能退回直连，
+// 且必须用**全新 ctx**——复用已耗尽的 ctx 会让备用尝试瞬间失败。
+func TestPreview_代理异常回退直连(t *testing.T) {
+	m := newExtTestManager(t)
+	_ = m.cfg.Set("net.proxy", "http://127.0.0.1:7890")
+
+	// 第 1 次（代理）返回 NET_TIMEOUT，第 2 次（直连）成功
 	eng := &proxyRecordEngine{
 		resolveErrs: []error{
 			&engine.EngineError{Code: "NET_TIMEOUT", Message: "连接超时"},
@@ -46,26 +77,25 @@ func TestPreview_直连超时自动切换代理(t *testing.T) {
 	}
 	m.SetEngineFor(func(url string) engine.Engine { return eng })
 
-	// 执行 Preview（传参代理为空）
 	pv, err := m.Preview(context.Background(), "https://example.com/video")
 	if err != nil {
-		t.Fatalf("Preview 遇到网络超时应自动切换代理成功，实际报错：%v", err)
+		t.Fatalf("代理异常时应回退直连成功，实际报错：%v", err)
 	}
 	if len(eng.resolveCalls) != 2 {
-		t.Fatalf("期望发生 2 次 Resolve 调用（第 1 次直连，第 2 次代理），实际调用 %d 次：%v",
+		t.Fatalf("期望 2 次 Resolve 调用（代理 → 直连），实际 %d 次：%v",
 			len(eng.resolveCalls), eng.resolveCalls)
 	}
-	if eng.resolveCalls[0] != "" {
-		t.Fatalf("第 1 次应为全局或直连，得到 %q", eng.resolveCalls[0])
+	if eng.resolveCalls[0] != "http://127.0.0.1:7890" {
+		t.Fatalf("第 1 次应走全局代理，得到 %q", eng.resolveCalls[0])
 	}
-	if eng.resolveCalls[1] != "http://127.0.0.1:7890" {
-		t.Fatalf("第 2 次应切换为全局代理，得到 %q", eng.resolveCalls[1])
+	if eng.resolveCalls[1] != "" {
+		t.Fatalf("第 2 次应回退直连，得到 %q", eng.resolveCalls[1])
 	}
-	if pv.ProxyUsed != "http://127.0.0.1:7890" {
-		t.Fatalf("Preview 结果应记录使用的代理，实际 %q", pv.ProxyUsed)
+	if pv.ProxyUsed != "" {
+		t.Fatalf("回退直连后应记录直连出口，实际 %q", pv.ProxyUsed)
 	}
-	if !strings.Contains(pv.RouteNote, "自动切换代理") {
-		t.Fatalf("Preview 结果应附带自动切换代理提示，实际 %q", pv.RouteNote)
+	if !strings.Contains(pv.RouteNote, "切换") {
+		t.Fatalf("Preview 结果应附带切换出口提示，实际 %q", pv.RouteNote)
 	}
 }
 
@@ -172,6 +202,48 @@ func TestManager_RetryWithProxy(t *testing.T) {
 	cur = mustTask(t, m, task.ID)
 	if cur.Proxy != "http://global-proxy:7890" {
 		t.Fatalf("Proxy 字段应回退为全局代理，实际 %q", cur.Proxy)
+	}
+}
+
+// TestPreview与Worker_出口一致 核心不变式：预览走的出口必须与下载走的出口相同。
+//
+// 这条不变式破了就是用户报的「明明可以下载，却解析失败」：
+// 预览走 A、下载走 B，用户看到预览失败就以为下不了，实际任务能成；
+// 反过来则更糟——预览成功、下载超时，用户以为能下结果下不来。
+func TestPreview与Worker_出口一致(t *testing.T) {
+	m := newExtTestManager(t)
+	_ = m.cfg.Set("net.proxy", "http://shared-proxy:7890")
+
+	eng := &proxyRecordEngine{
+		fakeWorkerEngine: fakeWorkerEngine{
+			files: []engine.DownloadedFile{{Path: "/tmp/fake.mp4", Size: 1024}},
+		},
+	}
+	m.SetEngineFor(func(url string) engine.Engine { return eng })
+
+	// 预览
+	pv, err := m.Preview(context.Background(), "https://example.com/video")
+	if err != nil {
+		t.Fatalf("Preview 失败: %v", err)
+	}
+	previewProxy := eng.resolveCalls[len(eng.resolveCalls)-1]
+
+	// 任务
+	w := &Worker{mgr: m, eng: eng}
+	task := newDownloadTask(t, m)
+	w.Run(context.Background(), task)
+
+	if len(eng.downloadCalls) == 0 {
+		t.Fatal("任务应发起过下载")
+	}
+	downloadProxy := eng.downloadCalls[len(eng.downloadCalls)-1]
+
+	if previewProxy != downloadProxy {
+		t.Fatalf("预览出口 %q 与下载出口 %q 不一致——这会让用户看到「预览失败但能下载」或反过来的错位",
+			previewProxy, downloadProxy)
+	}
+	if pv.ProxyUsed != downloadProxy {
+		t.Fatalf("Preview 记录的出口 %q 与实际下载出口 %q 不一致", pv.ProxyUsed, downloadProxy)
 	}
 }
 

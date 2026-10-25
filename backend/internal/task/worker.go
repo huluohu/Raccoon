@@ -55,34 +55,24 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	defer w.cleanupCookieFile(cookieFile)
 
 	// ---- parsing ----
-	// 代理策略：任务级独立配置 (t.Proxy) 优先，其次系统配置 net.proxy。
-	proxy := t.Proxy
-	if proxy == "" {
-		proxy = w.mgr.cfg.GetString("net.proxy")
-	}
-	res, err := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile, Proxy: proxy})
-	if err != nil {
-		// 自动切换代理：当直连解析遇到网络异常，且系统配置了全局代理时，自动切换代理重试一次
-		globalProxy := strings.TrimSpace(w.mgr.cfg.GetString("net.proxy"))
-		if proxy == "" && globalProxy != "" && IsNetworkError(err) {
-			w.mgr.log.Info("直连解析网络异常，自动尝试代理重试", map[string]any{"task_id": t.ID, "err": err.Error(), "proxy": globalProxy})
-			res2, err2 := w.eng.Resolve(ctx, t.URL, engine.ResolveOpts{Cookies: cookieFile, Proxy: globalProxy})
-			if err2 == nil {
-				res = res2
-				err = nil
-				proxy = globalProxy
-				_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
-					"proxy":      globalProxy,
-					"route_path": AppendRoutePath(t.RoutePath, "直连异常 → 自动切换代理"),
-				}, "parsing")
-				_ = w.mgr.st.AppendEvent(t.ID, "info", "proxy_switched", "直连解析网络异常，已自动切换代理解析成功", "")
-			}
-		}
+	// 出口决策与预览共用同一套（task/resolve.go）：任务级 proxy 优先，其次全局
+	// net.proxy。解析与下载必须走同一个出口——解析走代理成功、下载走直连超时，
+	// 是比「解析失败」更隐蔽的错位。
+	primary, fallback := resolveAttempts("", t.Proxy, w.mgr.cfg.GetString("net.proxy"))
+	res, usedProxy, switchNote, err := w.mgr.resolveWithProxy(ctx, w.eng, t.URL, cookieFile, primary, fallback, 0)
+	if switchNote != "" {
+		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+			"proxy":      usedProxy,
+			"route_path": AppendRoutePath(t.RoutePath, switchNote),
+		}, "parsing")
+		_ = w.mgr.st.AppendEvent(t.ID, "info", "proxy_switched", switchNote, "")
 	}
 	if err != nil {
 		w.handleEngineErr(ctx, t, "parsing", err)
 		return
 	}
+	// 下载用解析实际成功的那条出口。
+	proxy := usedProxy
 	plat := res.Platform
 	if plat == "" {
 		plat = t.Platform
@@ -402,10 +392,12 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 			"speed_bps":     0,
 		}
 		msgEvent := fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)
-		// 自动切换代理：若本次直连下载失败（网络类异常），且系统配置了 net.proxy，
-		// 下次重试自动切换至代理通道，并更新 route_path。
+		// 自动切换代理：若本次下载走的出口失败（网络类异常），而系统配置了
+		// net.proxy 且本次**没在用**代理，下次重试自动切到代理通道。
+		// 已经在用代理时不再切（切了还是同一个出口，等于白重试一次）。
 		globalProxy := strings.TrimSpace(w.mgr.cfg.GetString("net.proxy"))
-		if t.Proxy == "" && globalProxy != "" && NetworkErrorCodes[code] {
+		usingProxy := strings.TrimSpace(t.Proxy) != ""
+		if !usingProxy && globalProxy != "" && NetworkErrorCodes[code] {
 			fields["proxy"] = globalProxy
 			fields["route_path"] = AppendRoutePath(t.RoutePath, "直连异常 → 自动切换代理重试")
 			msgEvent = fmt.Sprintf("%s：%s；已自动切换代理，%s 后重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)

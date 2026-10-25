@@ -107,7 +107,7 @@ describe('Logs 视图', () => {
     expect(lastParams()).toMatchObject({ q: 'COOKIE' })
   })
 
-  it('分页：next_cursor 前进时出现「加载更多」，点击带 cursor 且结果追加不覆盖', async () => {
+  it('分页：next_cursor 前进时出现「加载更早的日志」，点击带 cursor 且结果前插不覆盖', async () => {
     mocks.logs
       .mockResolvedValueOnce(page([item({ msg: '第一条' })], '2'))
       .mockResolvedValueOnce(page([item({ msg: '第二条' })], '3'))
@@ -116,14 +116,18 @@ describe('Logs 视图', () => {
     await flushPromises()
     expect(w.findAll('.log-row').length).toBe(1)
 
-    const more = btnByText(w, '加载更多')
+    const more = btnByText(w, '加载更早的日志')
     expect(more).toBeTruthy()
     await more!.trigger('click')
     await flushPromises()
 
     expect(lastParams()).toMatchObject({ cursor: '2', limit: '200' })
     expect(w.findAll('.log-row').length).toBe(2)
-    // 追加语义：旧条目必须还在（整体替换会让用户「加载更多后前一条消失」）
+    // 前插语义：更早的一批排在**上面**，已有条目必须还在
+    // （整体替换会让用户「加载更多后前一条消失」）。
+    const rows = w.findAll('.log-row')
+    expect(rows[0].text()).toContain('第二条')
+    expect(rows[1].text()).toContain('第一条')
     expect(w.text()).toContain('第一条')
     expect(w.text()).toContain('第二条')
   })
@@ -136,10 +140,10 @@ describe('Logs 视图', () => {
 
     const w = mountView(Logs, [], { global: { stubs: { RButton: RButtonStub, REmpty: REmptyStub } } })
     await flushPromises()
-    await btnByText(w, '加载更多')!.trigger('click')
+    await btnByText(w, '加载更早的日志')!.trigger('click')
     await flushPromises()
 
-    expect(btnByText(w, '加载更多')).toBeUndefined()
+    expect(btnByText(w, '加载更早的日志')).toBeUndefined()
     expect(w.text()).toContain('没有更多日志')
     expect(w.findAll('.log-row').length).toBe(2)
   })

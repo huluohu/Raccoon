@@ -594,51 +594,41 @@ func (m *Manager) External() *ExternalExecutor { return m.external }
 //  2. 若未显式指定，使用 net.proxy 或直连；
 //  3. 网络异常自动切换：当直连解析遇到网络类异常（超时/重置/人机验证），且配置了 net.proxy，
 //     自动切换代理重试一次；反之若代理连接失败，且未强制指定代理，回退直连尝试。
+//
+// PreviewResolveTimeout 单次解析尝试的时限。
+//
+// 为什么单独给：预览一次最多试两个出口（主 + 备用），每个都要有独立时限；
+// 而每次尝试都用**全新 ctx**（见 resolveWithProxy）——直连那次把 deadline
+// 耗尽时，代理那次仍有完整的时限可用。之前复用同一个 ctx，直连超时后
+// 代理重试必然秒失败，用户看到的就是「明明能下载却解析失败」。
+const PreviewResolveTimeout = 45 * time.Second
+
+// Preview 解析预览（POST /parse 行动作，不落库）。
+//
+// 引擎路由 / 网络出口 / 平台凭据三件事都与任务执行保持同一口径：
+// 预览走 yt-dlp 而任务走 gallery-dl、或预览直连而任务走代理，都会造成
+// 「预览成功、下载失败」（或反过来）的错位——预览的意义是让用户提前看清
+// 这单能不能成，口径不一致它就在撒谎。
+//
+// 代理支持（与任务共用 task/resolve.go 的出口决策）：
+//  1. 显式 proxy 参数 > 全局 net.proxy > 直连；
+//  2. 主出口遇网络类异常 → 换备用出口（直连）重试一次；
+//  3. 每次尝试用全新 ctx，避免第一次超时把第二次一起拖死。
 func (m *Manager) Preview(ctx context.Context, url string, proxyOpt ...string) (*store.ParsePreview, error) {
 	eng := m.engines.EngineFor(url)
 	if m.engineFor != nil {
 		eng = m.engineFor(url)
 	}
-	var activeProxy string
+	var explicit string
 	if len(proxyOpt) > 0 {
-		activeProxy = strings.TrimSpace(proxyOpt[0])
+		explicit = strings.TrimSpace(proxyOpt[0])
 	}
-	globalProxy := strings.TrimSpace(m.cfg.GetString("net.proxy"))
-	// 未显式指定代理时优先直连（保证国内源满速且不耗代理流量）；
-	// 直连发生网络异常时，再自动切换 globalProxy。
-	currentProxy := activeProxy
+	primary, fallback := resolveAttempts(explicit, "", m.cfg.GetString("net.proxy"))
 
 	cookieFile := m.previewCookieFile(url)
 	defer m.cookieWriter().removeCookieFile(cookieFile)
 
-	res, err := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: currentProxy})
-	routeNote := ""
-	usedProxy := currentProxy
-
-	// 自动切换代理：当直连解析遇到网络异常，且系统配置了全局代理时，自动切换代理重试一次
-	if err != nil && currentProxy == "" && globalProxy != "" && IsNetworkError(err) {
-		m.log.Info("直连解析网络异常，自动尝试代理重试", map[string]any{"url": url, "err": err.Error(), "proxy": globalProxy})
-		res2, err2 := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: globalProxy})
-		if err2 == nil {
-			res = res2
-			err = nil
-			usedProxy = globalProxy
-			routeNote = "直连解析网络异常，已自动切换代理成功"
-		}
-	}
-
-	// 反向自动切换：若配置的代理发生网络异常（如本地代理未启动/拒绝），而目标可能是可直连站点，尝试直连一次
-	if err != nil && currentProxy != "" && activeProxy == "" && IsNetworkError(err) {
-		m.log.Info("代理模式解析网络异常，尝试直连备用", map[string]any{"url": url, "err": err.Error()})
-		res2, err2 := eng.Resolve(ctx, url, engine.ResolveOpts{Cookies: cookieFile, Proxy: ""})
-		if err2 == nil {
-			res = res2
-			err = nil
-			usedProxy = ""
-			routeNote = "代理连接异常，已自动回退直连解析成功"
-		}
-	}
-
+	res, usedProxy, routeNote, err := m.resolveWithProxy(ctx, eng, url, cookieFile, primary, fallback, PreviewResolveTimeout)
 	if err != nil {
 		return nil, err
 	}

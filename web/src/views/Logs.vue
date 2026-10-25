@@ -5,11 +5,13 @@
 // 设计取舍（为什么这么做）：
 // - msg 已在服务端统一脱敏（docs/15 §6.3：出口只有 server.redactLine 一套），
 //   前端原样等宽展示，**不做任何还原/二次加工**——前端「补全」脱敏串等于把密钥写回页面。
-// - 筛选一变就回到第一页（cursor 归零）：cursor 是行号游标，拿着旧游标配新条件，
-//   取到的是「另一批结果里第 N 行之后」，行号对不上就会漏行。
+// - 筛选一变就回到第一页（cursor 归零）：cursor 是倒扫游标（已消费行数），
+//   拿着旧游标配新条件，取到的是「另一批结果里的同一段」，行号对不上就会漏行。
 // - 实时跟随整体替换而不是追加：每 3 秒拉最新一页，追加会与服务端窗口重叠出重复行。
-// - 上翻超过一屏即自动停跟：用户正在读历史时被新日志顶走是最恼人的体验；
-//   停跟后浮出「回到最新」，由用户决定什么时候回到尾部。
+// - **最新在顶**（倒序）：日志页是「看刚发生的事」的界面，正序等于逼用户翻到底部。
+//   代价是「加载更多」要往**上面**插（更旧的一批），且跟随要贴顶部而不是贴底部。
+// - 往下滑离顶超过一屏即自动停跟：用户正在读历史时被新日志顶走是最恼人的体验；
+//   停跟后浮出「回到最新」，由用户决定什么时候回到最新。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api } from '@/api/client'
 import type { LogItem } from '@/api/types'
@@ -24,8 +26,8 @@ const PAGE_SIZE = '200'
 const DEBOUNCE_MS = 300
 /** E4 跟随间隔（docs/15 §6.5：logs 跟随 3s）。 */
 const FOLLOW_MS = 3000
-/** 「离开底部」判定容差：40px 吸收惯性滚动与半行高度，避免一碰滚轮就误判上翻。 */
-const BOTTOM_SLACK = 40
+/** 「离开顶部」判定容差：40px 吸收惯性滚动与半行高度，避免一碰滚轮就误判。 */
+const TOP_SLACK = 40
 
 const LEVELS = [
   { value: 'debug', label: 'debug' },
@@ -106,10 +108,16 @@ function rememberModules(list: LogItem[]) {
   modules.value = [...merged].sort((a, b) => a.localeCompare(b))
 }
 
-async function scrollToBottom() {
+/**
+ * 贴回顶部（最新一条）。
+ *
+ * 倒序布局下「最新」在第一行，跟随时要贴顶而不是贴底——
+ * 贴底会停在最旧的一行上，等于把实时页变成历史页。
+ */
+async function scrollToTop() {
   await nextTick()
   const el = bodyEl.value
-  if (el) el.scrollTop = el.scrollHeight
+  if (el) el.scrollTop = 0
 }
 
 /**
@@ -125,7 +133,7 @@ async function loadFirst(quiet = false) {
     cursor.value = ''
     nextCursor.value = res.next_cursor ?? ''
     errorMsg.value = ''
-    if (follow.value) await scrollToBottom()
+    if (follow.value) await scrollToTop()
   } catch (e) {
     errorMsg.value = errorText(e, '日志拉取失败')
   } finally {
@@ -133,17 +141,29 @@ async function loadFirst(quiet = false) {
   }
 }
 
-/** 加载更多：带上一页的 next_cursor，结果**追加**到末尾。 */
+/**
+ * 加载更早的日志：结果**前插**到顶部。
+ *
+ * 倒序布局下服务端返回的是「更旧的一批」，它们必须排在已有内容上面。
+ * 前插会改变滚动位置，插入前先记下 scrollHeight 与 scrollTop，
+ * 插入后按差值补偿——否则用户的视口会被内容顶走（正在看的那行跑出屏幕）。
+ */
 async function loadMore() {
   const reqCursor = nextCursor.value
   loadingMore.value = true
+  const el = bodyEl.value
+  const prevHeight = el?.scrollHeight ?? 0
+  const prevTop = el?.scrollTop ?? 0
   try {
     const res = await api.logs({ ...baseParams(), cursor: reqCursor })
-    items.value = [...items.value, ...(res.items ?? [])]
+    items.value = [...(res.items ?? []), ...items.value]
     rememberModules(res.items ?? [])
     cursor.value = reqCursor
     nextCursor.value = res.next_cursor ?? ''
     errorMsg.value = ''
+    // 补偿滚动位置：前插的内容高度差 = 新的 scrollHeight - 旧 scrollHeight
+    await nextTick()
+    if (el) el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
   } catch (e) {
     errorMsg.value = errorText(e, '加载更多失败')
   } finally {
@@ -175,22 +195,22 @@ function startFollow() {
   }, FOLLOW_MS)
 }
 
-/** 容器滚动：离底超过一屏判定为「上翻」，此时自动停跟。 */
+/** 容器滚动：向下离顶超过一屏判定为「在读历史」，此时自动停跟。 */
 function onScroll() {
   const el = bodyEl.value
   if (!el) return
-  const awayFromBottom = el.scrollTop < el.scrollHeight - el.clientHeight - BOTTOM_SLACK
-  if (awayFromBottom && follow.value) {
+  const awayFromTop = el.scrollTop > TOP_SLACK
+  if (awayFromTop && follow.value) {
     stopFollow()
     stoppedByScroll.value = true
   }
 }
 
-/** 「回到最新」：恢复跟随并滚到底部。 */
+/** 「回到最新」：恢复跟随并贴回顶部（最新一条）。 */
 async function backToLatest() {
   stoppedByScroll.value = false
   follow.value = true
-  await scrollToBottom()
+  await scrollToTop()
 }
 
 watch(follow, (on) => {
@@ -287,6 +307,13 @@ onBeforeUnmount(() => {
 
     <div class="log-wrap">
       <div ref="bodyEl" class="log-body" @scroll="onScroll">
+        <!-- 「加载更多」在顶部：倒序布局下更旧的日志插在上面，按钮跟着走 -->
+        <div v-if="hasMore" class="more">
+          <RButton size="sm" variant="outline" :disabled="loadingMore" @click="loadMore">
+            {{ loadingMore ? '加载中…' : '加载更早的日志' }}
+          </RButton>
+        </div>
+
         <ol v-if="items.length" class="log-list">
           <li v-for="(it, i) in items" :key="`${it.ts}-${i}`" class="log-row">
             <time class="ts tnum">{{ formatTime(it.ts * 1000) }}</time>
@@ -307,12 +334,6 @@ onBeforeUnmount(() => {
         <p v-else-if="loading" class="hint">加载中…</p>
 
         <p v-if="!hasMore && items.length" class="hint">没有更多日志</p>
-
-        <div v-if="hasMore" class="more">
-          <RButton size="sm" variant="outline" :disabled="loadingMore" @click="loadMore">
-            {{ loadingMore ? '加载中…' : '加载更多' }}
-          </RButton>
-        </div>
       </div>
 
       <button v-if="stoppedByScroll" type="button" class="jump" @click="backToLatest">回到最新</button>

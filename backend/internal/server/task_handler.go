@@ -361,7 +361,9 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) error {
 	if err := eng.Available(); err != nil {
 		return &httpx.Error{HTTP: http.StatusServiceUnavailable, Code: httpx.CodeNoEngine, Message: err.Error()}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
+	// 总时限要装得下两次解析尝试（每次 45s，见 task.PreviewResolveTimeout）：
+	// 主出口超时后还有备用出口的完整时限可用。
+	ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)
 	defer cancel()
 	pv, err := s.tasks.Preview(ctx, strings.TrimSpace(req.URL), strings.TrimSpace(req.Proxy))
 	if err != nil {
