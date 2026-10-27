@@ -11,6 +11,7 @@ import PageHeader from '@/components/base/PageHeader.vue'
 import REmpty from '@/components/base/REmpty.vue'
 import RSelect from '@/components/base/RSelect.vue'
 import RTable from '@/components/base/RTable.vue'
+import RMenu from '@/components/base/RMenu.vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import FileCard from '@/components/media/FileCard.vue'
 import PreviewDrawer from '@/components/media/PreviewDrawer.vue'
@@ -18,15 +19,24 @@ import DownloadBtn from '@/components/media/DownloadBtn.vue'
 import DeleteFileDialog from '@/components/media/DeleteFileDialog.vue'
 import CoverPickerDialog from '@/components/media/CoverPickerDialog.vue'
 import MediaMetaDialog from '@/components/media/MediaMetaDialog.vue'
+import { fileActions, type FileActionKey } from '@/components/media/fileActions'
 import type { MediaFile } from '@/api/types'
 
 const toast = useToastStore()
+
+/** 单页条数：与后端 limit 语义一致，一页 100 个文件。 */
+const PAGE_SIZE = 100
 
 const items = ref<MediaFile[]>([])
 const total = ref(0)
 const platforms = ref<string[]>([])
 const loading = ref(true)
+/** 「加载更多」在途标记：与主加载分开，主列表不清空。 */
+const loadingMore = ref(false)
+/** 主加载失败（整页错误态）。 */
 const errorMsg = ref('')
+/** 加载更多失败：只提示，不清空已经拿到的列表。 */
+const moreErrorMsg = ref('')
 const query = ref('')
 const kindFilter = ref('')
 const platformFilter = ref('')
@@ -81,22 +91,64 @@ const downloadUrl = (id: string) => api.fileDownloadUrl(id)
 /** 封面地址：视频/音频有封面时用；无封面时后端返回 404，前端会回退到类型占位。 */
 const coverUrl = (id: string) => api.fileCoverUrl(id)
 
+/**
+ * 请求序号：只有**最后一次**请求的结果可以落到界面上。
+ *
+ * 媒体库会同时存在「重新加载」（筛选变化、删除后重拉）与「加载更多」两类请求，
+ * 后到的旧响应不能覆盖新结果——否则用户刚改完筛选、列表却被上一批数据盖回去
+ * （筛选条件与列表对不上，看着像筛选没生效）。
+ */
+let requestSeq = 0
+
+/** 组装查询参数：空值一律不下发，避免后端把空串当有效过滤条件。 */
+function baseParams(offset: number): Record<string, string> {
+  const params: Record<string, string> = { limit: String(PAGE_SIZE), offset: String(offset) }
+  if (query.value.trim()) params.q = query.value.trim()
+  if (kindFilter.value) params.kind = kindFilter.value
+  if (platformFilter.value) params.platform = platformFilter.value
+  return params
+}
+
+/** 还有更多吗？已加载条数 < 服务端总数 → 还有下一页。 */
+const hasMore = computed(() => items.value.length < total.value)
+
+/** 重新加载（第一页）。筛选变化、删除/转换后都走这里。 */
 async function load() {
+  const seq = ++requestSeq
   loading.value = true
+  loadingMore.value = false
   errorMsg.value = ''
+  moreErrorMsg.value = ''
   try {
-    const params: Record<string, string> = { limit: '100' }
-    if (query.value.trim()) params.q = query.value.trim()
-    if (kindFilter.value) params.kind = kindFilter.value
-    if (platformFilter.value) params.platform = platformFilter.value
-    const res = await api.listFiles(params)
+    const res = await api.listFiles(baseParams(0))
+    if (seq !== requestSeq) return
     items.value = res.items ?? []
     total.value = res.total
     platforms.value = res.platforms ?? []
   } catch (e) {
+    if (seq !== requestSeq) return
     errorMsg.value = e instanceof Error ? e.message : '媒体库加载失败'
   } finally {
-    loading.value = false
+    if (seq === requestSeq) loading.value = false
+  }
+}
+
+/** 加载更多（下一页）：结果追加在已有列表之后。 */
+async function loadMore() {
+  if (loadingMore.value || !hasMore.value) return
+  const seq = ++requestSeq
+  const offset = items.value.length
+  loadingMore.value = true
+  moreErrorMsg.value = ''
+  try {
+    const res = await api.listFiles(baseParams(offset))
+    if (seq !== requestSeq) return
+    items.value = [...items.value, ...(res.items ?? [])]
+  } catch (e) {
+    if (seq !== requestSeq) return
+    moreErrorMsg.value = e instanceof Error ? e.message : '加载更多失败'
+  } finally {
+    if (seq === requestSeq) loadingMore.value = false
   }
 }
 
@@ -168,10 +220,23 @@ async function confirmDeleteFile() {
   }
 }
 
-const converting = ref(false)
+/**
+ * 正在转换的文件 id 集合。
+ *
+ * 原来是一个全局布尔量：任一文件在转，就把整页按钮都禁用（连别的文件也不能转），
+ * 而且重复点击会连发两次转换请求。用 id 集合后：同一个文件不重复提交，
+ * 别的文件照常能转。
+ */
+const convertingIds = ref<string[]>([])
+
+/** 该文件是否正在转换。 */
+function isConverting(id: string) {
+  return convertingIds.value.includes(id)
+}
 
 async function convert(f: MediaFile, target: 'mp3' | 'mp4') {
-  converting.value = true
+  if (isConverting(f.id)) return
+  convertingIds.value = [...convertingIds.value, f.id]
   try {
     const res = await api.convertFile(f.id, target)
     toast.success(target === 'mp3' ? `已提取音频：${res.file.name}` : `已转换为 MP4：${res.file.name}`)
@@ -179,14 +244,58 @@ async function convert(f: MediaFile, target: 'mp3' | 'mp4') {
   } catch (e) {
     toast.error(e instanceof Error ? e.message : '格式转换失败')
   } finally {
-    converting.value = false
+    convertingIds.value = convertingIds.value.filter((id) => id !== f.id)
   }
+}
+
+/** 表格视图的行内「更多」菜单项（与卡片共用同一份动作清单）。 */
+function tableMenuItems(f: MediaFile) {
+  return fileActions(f).map((a) => ({
+    label: a.label,
+    hint: a.hint,
+    // 正在转换的文件不再重复给出转换类动作。
+    disabled: (a.key === 'mp3' || a.key === 'mp4') && isConverting(f.id),
+    onSelect: () => handleAction(a.key, f),
+  }))
+}
+
+/** 次要动作分发（表格视图）。 */
+function handleAction(key: FileActionKey, f: MediaFile) {
+  switch (key) {
+    case 'cover':
+      openCover(f)
+      break
+    case 'mp3':
+      void convert(f, 'mp3')
+      break
+    case 'mp4':
+      void convert(f, 'mp4')
+      break
+    case 'meta':
+      openMeta(f)
+      break
+    case 'scrape':
+      void scrape(f)
+      break
+  }
+}
+
+/** AI 总结生成后同步列表里的那份副本（不改后端数据，只更新本地状态）。 */
+function applySummary(f: MediaFile, summary: string) {
+  items.value = items.value.map((it) => (it.id === f.id ? { ...it, summary } : it))
+  if (selected.value?.id === f.id) selected.value = { ...selected.value, summary }
 }
 
 let timer: number | undefined
 watch([query, kindFilter, platformFilter], () => {
   if (timer) window.clearTimeout(timer)
   timer = window.setTimeout(load, 250)
+})
+
+// 防抖定时器必须清掉：页面切走后回调仍会发一次请求（并改已卸载组件的 ref）。
+onUnmounted(() => {
+  if (timer) window.clearTimeout(timer)
+  timer = undefined
 })
 
 onMounted(load)
@@ -271,15 +380,8 @@ onMounted(load)
         <span class="tnum">{{ formatRelative((row as MediaFile).created_at) }}</span>
       </template>
       <template #actions="{ row }">
-        <RButton
-          size="sm"
-          variant="ghost"
-          :disabled="converting"
-          title="提取 MP3 音频"
-          @click="convert(row as MediaFile, 'mp3')"
-        >
-          提音频
-        </RButton>
+        <!-- 次要动作收进「更多」：表格行宽有限，横排 5 个按钮会撑破列宽 -->
+        <RMenu :items="tableMenuItems(row as MediaFile)" label="更多操作" />
         <DownloadBtn :href="downloadUrl((row as MediaFile).id)" @click="download(row as MediaFile)" />
         <RButton size="sm" variant="ghost" tone="danger" @click="pendingDelete = row as MediaFile">
           删除
@@ -304,6 +406,17 @@ onMounted(load)
       />
     </ul>
 
+    <!-- 分页：媒体库文件可能远超过一页（原来写死 limit=100，
+         第 101 个文件之后的东西根本没法访问）。后端支持 offset，这里接上。 -->
+    <div v-if="items.length && !errorMsg" class="pager">
+      <span class="pager-count tnum">已加载 {{ items.length }} / 共 {{ total }} 个</span>
+      <RButton v-if="hasMore" size="sm" variant="outline" :disabled="loadingMore" @click="loadMore">
+        {{ loadingMore ? '加载中…' : '加载更多' }}
+      </RButton>
+      <span v-else class="pager-hint">已经到底了</span>
+    </div>
+    <p v-if="moreErrorMsg" class="more-err" role="alert">{{ moreErrorMsg }}</p>
+
     <!-- 删文件确认（不可撤销：磁盘文件真的会被删掉；任务记录保留） -->
     <DeleteFileDialog
       :open="pendingDelete !== null"
@@ -314,7 +427,9 @@ onMounted(load)
       @confirm="confirmDeleteFile"
     />
     <p v-if="deleting" class="deleting-hint" role="status">正在删除…</p>
-    <p v-if="converting" class="deleting-hint" role="status">正在执行格式转换/提取音频…</p>
+    <p v-if="convertingIds.length" class="deleting-hint" role="status">
+      正在执行格式转换/提取音频（{{ convertingIds.length }} 个文件）…
+    </p>
 
     <!-- 文件预览抽屉（方案 §3 视图级组件 PreviewDrawer） -->
     <PreviewDrawer
@@ -324,6 +439,7 @@ onMounted(load)
       @close="selected = null"
       @download="download"
       @convert="convert"
+      @summary="applySummary"
     />
 
     <!-- 封面制作（抽帧让用户挑） -->
@@ -373,4 +489,21 @@ onMounted(load)
    「1 个视频排满全宽」比右侧留白更丑（用户实测截图裁决）。 */
 .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
-.deleting-hint { margin: 8px 0 0; font-size: var(--font-aux); color: var(--text-3); }</style>
+.deleting-hint { margin: 8px 0 0; font-size: var(--font-aux); color: var(--text-3); }
+/* 分页条：计数在左、按钮在右，一眼看到「还剩多少」。 */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.pager-count { font-size: var(--font-aux); color: var(--text-3); }
+.pager-hint { font-size: var(--font-aux); color: var(--text-3); }
+.more-err {
+  margin: 8px 0 0;
+  font-size: var(--font-aux);
+  color: var(--danger);
+}</style>

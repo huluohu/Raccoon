@@ -66,4 +66,42 @@ describe('RMenu 组件', () => {
     await w.find('.rmenu-trigger-badge').trigger('click')
     expect(w.find('.rmenu-item').classes()).toContain('is-danger')
   })
+
+  it('键盘高亮落在可用项上（有禁用项时不错位到禁用项）', async () => {
+    const onSelect = vi.fn()
+    const w = mount(RMenu, {
+      props: {
+        items: [
+          { label: '禁用项', onSelect, disabled: true },
+          { label: '可用项', onSelect },
+        ],
+      },
+    })
+    await w.find('.rmenu-trigger-badge').trigger('click')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await w.vm.$nextTick()
+
+    const active = w.findAll('.rmenu-item').filter((i) => i.classes().includes('is-active'))
+    expect(active.length).toBe(1)
+    expect(active[0].text()).toContain('可用项')
+  })
+
+  it('Enter 触发的是高亮的那一项', async () => {
+    const onSelect = vi.fn()
+    const w = mount(RMenu, {
+      props: {
+        items: [
+          { label: '禁用项', onSelect, disabled: true },
+          { label: '可用项', onSelect },
+        ],
+      },
+    })
+    await w.find('.rmenu-trigger-badge').trigger('click')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await w.vm.$nextTick()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+    await w.vm.$nextTick()
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
 })

@@ -27,6 +27,11 @@ const selectedQuality = ref('best')
 const submitting = ref(false)
 const recentFiles = ref<MediaFile[]>([])
 const activePlayingFile = ref<MediaFile | null>(null)
+/** 媒体列表加载失败：必须让用户看见。
+ *  原来这里 `catch {}` 吞掉异常，接口挂了页面就显示「没有文件」——
+ *  用户以为是自己没下载过，而不是服务器连不上。 */
+const mediaError = ref('')
+const mediaLoading = ref(false)
 
 const activeTasks = computed(() =>
   tasks.items.filter((t) => t.status === 'downloading' || t.status === 'parsing' || t.status === 'waiting'),
@@ -64,18 +69,35 @@ async function submitRemoteTask() {
 }
 
 async function loadRecentMedia() {
+  mediaLoading.value = true
+  mediaError.value = ''
   try {
     const res = await api.listFiles({ limit: '6' })
     recentFiles.value = res.items || []
-  } catch {}
+  } catch (e: unknown) {
+    mediaError.value = e instanceof Error ? e.message : '媒体库加载失败'
+  } finally {
+    mediaLoading.value = false
+  }
 }
 
+/**
+ * 点开一个文件播放。
+ *
+ * 只给**浏览器能直接播**的文件开播放器：previewable=false 的文件
+ * （如部分音轨封装）塞进 <video> 只会得到一个坏掉的播放器，
+ * 用户看到的是「点了没反应」而不是「这个文件播不了，请下载」。
+ */
 function playMedia(f: MediaFile) {
   if (activePlayingFile.value?.id === f.id) {
     activePlayingFile.value = null
-  } else {
-    activePlayingFile.value = f
+    return
   }
+  if (!f.previewable) {
+    toast.error('该文件浏览器无法直接播放，请下载后用本地播放器打开')
+    return
+  }
+  activePlayingFile.value = f
 }
 
 onMounted(() => {
@@ -159,6 +181,14 @@ onMounted(() => {
     <!-- 手机端直接串流播放已下载内容 -->
     <section class="remote-card">
       <h2 class="remote-section-title">已完成媒体 (点击在手机播放)</h2>
+
+      <!-- 加载失败要说出来，不能假装成「没有文件」 -->
+      <p v-if="mediaError" class="remote-media-error" role="alert">
+        媒体库加载失败：{{ mediaError }}
+        <button type="button" class="remote-retry-hint" @click="loadRecentMedia">重试</button>
+      </p>
+      <p v-else-if="mediaLoading" class="remote-media-loading">正在加载媒体库…</p>
+
       <div v-if="activePlayingFile" class="remote-player-box">
         <video
           v-if="activePlayingFile.kind === 'video'"
@@ -180,7 +210,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <ul class="remote-media-grid">
+      <ul v-if="recentFiles.length" class="remote-media-grid">
         <li
           v-for="f in recentFiles"
           :key="f.id"
@@ -236,13 +266,21 @@ onMounted(() => {
               <template v-if="f.duration">· {{ formatDuration(f.duration) }}</template>
             </span>
           </div>
+          <!-- 浏览器播不了的文件直接标出来，不让用户点了才发现。 -->
+          <span v-if="!f.previewable" class="remote-media-noplay-badge">需下载</span>
         </li>
       </ul>
+
+      <p v-else-if="!mediaLoading && !mediaError" class="remote-media-loading">
+        还没有下载完成的文件。
+      </p>
     </section>
   </main>
 </template>
 
 <style scoped>
+/* 遥控器页不设 min-height:100vh —— 外壳已经是 100dvh 且自身滚动，
+   这里再撑一屏视口高就会多出一段永远滚不动的空白。 */
 .remote-page {
   max-width: 600px;
   margin: 0 auto;
@@ -251,7 +289,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 16px;
   font-family: inherit;
-  min-height: 100vh;
   box-sizing: border-box;
 }
 
@@ -509,5 +546,43 @@ onMounted(() => {
 .remote-media-meta-time {
   font-size: var(--font-caption);
   color: var(--text-3);
+}
+/* 媒体库加载失败：与「没有文件」区分开（错误要有颜色 + 重试入口）。 */
+.remote-media-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-ctrl);
+  color: var(--danger);
+  font-size: var(--font-aux);
+}
+.remote-retry-hint {
+  background: none;
+  border: 1px solid currentcolor;
+  border-radius: var(--radius-ctrl);
+  color: inherit;
+  cursor: pointer;
+  padding: 3px 10px;
+  font-size: var(--font-caption);
+}
+.remote-media-loading {
+  margin: 0;
+  text-align: center;
+  font-size: var(--font-aux);
+  color: var(--text-3);
+}
+/* 「需下载」徽章：状态胶囊，用 caption 档。 */
+.remote-media-noplay-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-3);
+  font-size: var(--font-caption);
+  white-space: nowrap;
 }
 </style>

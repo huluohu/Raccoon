@@ -28,6 +28,10 @@ const emit = defineEmits<{
   close: []
   download: [file: MediaFile]
   convert: [file: MediaFile, target: 'mp3' | 'mp4']
+  /** AI 总结生成成功：把新文本交给上层更新本地副本。
+   *  不在这里直接写 props.file.summary —— 改 prop 属于修改父组件的数据，
+   *  列表里的那份对象不会跟着变，反而会出现「抽屉里有了、列表里没有」。 */
+  summary: [file: MediaFile, summary: string]
 }>()
 
 const isVideo = computed(() => props.file?.kind === 'video')
@@ -53,7 +57,7 @@ async function generateSummary() {
   try {
     const res = await api.mediaSummary(props.file.id)
     summaryText.value = res.summary
-    props.file.summary = res.summary
+    emit('summary', props.file, res.summary)
   } catch (e: unknown) {
     summaryText.value = '生成失败: ' + (e instanceof Error ? e.message : '请检查设置页中的 AI 配置')
   } finally {

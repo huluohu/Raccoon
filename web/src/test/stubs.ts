@@ -116,7 +116,14 @@ export const RTableStub: Component = {
             h(
               'tr',
               { onClick: () => emit('row-click', row, i) },
-              cols.map((c) => h('td', null, [slots[`cell-${c.key}`]?.({ row, value: row[c.key], index: i }) ?? String(row[c.key] ?? '')])),
+              [
+                ...cols.map((c) =>
+                  h('td', null, [slots[`cell-${c.key}`]?.({ row, value: row[c.key], index: i }) ?? String(row[c.key] ?? '')]),
+                ),
+                // 行内操作列：真实 RTable 会渲染 actions 插槽，
+                // stub 不渲染的话，视图里的行操作在这份单测里等于不存在。
+                h('td', { class: 'stub-actions' }, [slots.actions?.({ row, index: i })]),
+              ],
             ),
           ),
         ),

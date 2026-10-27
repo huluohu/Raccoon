@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { flushPromises } from '@vue/test-utils'
 
 import PreviewDrawer from '@/components/media/PreviewDrawer.vue'
 import type { MediaFile } from '@/api/types'
@@ -11,6 +12,11 @@ import { mount } from '@/test/mount'
  * 浏览器播不了的编码必须直说「播不了」，不能假装能播——
  * 给一个转圈不动的播放器，比说清楚更让人困惑。
  */
+
+// 只 mock 用到的那一个接口（抽屉自己调 api 生成 AI 总结）。
+const mocks = vi.hoisted(() => ({ mediaSummary: vi.fn() }))
+vi.mock('@/api/client', () => ({ api: mocks }))
+
 const stubs = {
   DetailDrawer: {
     props: ['open', 'title'],
@@ -99,5 +105,25 @@ describe('PreviewDrawer 组件', () => {
     const w = mountDrawer(makeFile())
     await w.find('.stub-close').trigger('click')
     expect(w.emitted('close')).toBeTruthy()
+  })
+
+  it('生成 AI 总结后不改 prop，而是抛 summary 事件交给上层', async () => {
+    mocks.mediaSummary.mockResolvedValueOnce({ summary: '这是自动生成的总结' })
+    const file = makeFile()
+    const w = mountDrawer(file)
+
+    const btn = w.findAll('button').find((b) => b.text().includes('生成 AI 总结'))
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    await flushPromises()
+
+    // 抽屉里显示新总结
+    expect(w.text()).toContain('这是自动生成的总结')
+    // prop 不能被就地改写（改的是父组件的数据，列表里的副本不会跟着变）
+    expect(file.summary).toBeUndefined()
+    // 交给上层处理
+    const emitted = w.emitted('summary')
+    expect(emitted).toBeTruthy()
+    expect(emitted![0][1]).toBe('这是自动生成的总结')
   })
 })

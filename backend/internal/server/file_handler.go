@@ -130,6 +130,13 @@ func (s *Server) handleFileConvert(w http.ResponseWriter, r *http.Request) error
 		Uploader:    f.Uploader,
 		Kind:        kind,
 		Previewable: kind == "video" || kind == "audio",
+		// 转换产物继承源文件的可编辑元数据与封面：用户给视频挑的封面、
+		// 整理过的标题/简介/标签，对提取出的音轨同样成立——不然「提音频」
+		// 会把整理好的元数据丢一半。
+		CoverPath:   f.CoverPath,
+		Title:       f.Title,
+		Description: f.Description,
+		Tags:        f.Tags,
 		CreatedAt:   now,
 	}
 	if err := s.store.UpsertMediaFile(newMedia); err != nil {
@@ -153,8 +160,10 @@ func (s *Server) handleFileCoverCandidates(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return fileErrToHTTP(err)
 	}
-	if f.Kind != "video" && f.Kind != "audio" {
-		return httpx.Validation("只有视频/音频可以抽帧做封面")
+	if f.Kind != "video" {
+		// 只有视频有画面可抽：音频走 ffmpeg -frames:v 必然一帧都取不到，
+		// 与其让它跑完 6 次再报「未能抽取任何画面」，不如当场说清楚。
+		return httpx.Validation("只有视频可以抽帧做封面（音频没有画面）")
 	}
 	abs, err := s.resolveMediaPath(f.Path)
 	if err != nil {
@@ -179,6 +188,9 @@ func (s *Server) handleFileCoverCandidates(w http.ResponseWriter, r *http.Reques
 		return httpx.Conflict("ffmpeg 未配置，无法抽取封面")
 	}
 	outDir := filepath.Join(s.cfg.GetString("storage.data_dir"), "tmp", "covers")
+	// 抽帧前清掉该媒体的旧候选：候选文件名是「基名.cover.N.jpg」，
+	// 不清会与新候选同名覆盖（旧文件残留 + 磁盘占用）。
+	s.cleanCoverCandidates(outDir, abs)
 	cands, err := engine.ExtractCoverCandidates(r.Context(), ffmpeg, abs, outDir, float64(duration), 6)
 	if err != nil {
 		return httpx.Conflict("抽取封面失败: " + err.Error())
@@ -266,8 +278,30 @@ func (s *Server) handleFileCoverSet(w http.ResponseWriter, r *http.Request) erro
 	if err := s.store.UpdateMediaCover(f.ID, coverPath); err != nil {
 		return httpx.Internal("封面索引更新失败")
 	}
+	// 该媒体的候选帧已无用途（正式封面已落盘），清掉避免 tmp 目录堆积。
+	s.cleanCoverCandidates(candDir, abs)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "cover_path": coverPath})
 	return nil
+}
+
+// cleanCoverCandidates 清掉某个媒体的封面候选帧。
+//
+// 候选文件名是「基名.cover.N.jpg」，落在数据根的 tmp/covers 下。
+// 不清的后果：反复抽帧会留下大量孤儿 jpg（用户换了标题、改了文件名后
+// 旧候选永远对不上任何文件）。
+func (s *Server) cleanCoverCandidates(dir, mediaAbs string) {
+	base := strings.TrimSuffix(filepath.Base(mediaAbs), filepath.Ext(mediaAbs))
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	prefix := base + ".cover."
+	for _, e := range ents {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, e.Name()))
+	}
 }
 
 // handleFileCoverImage 送媒体封面图片（GET /api/v1/files/:id/cover）。
@@ -364,12 +398,17 @@ func (s *Server) handleFileScrape(w http.ResponseWriter, r *http.Request) error 
 }
 
 // probeDuration ffprobe 探时长（秒）。
+//
+// 超时必须有：ffprobe 读一个损坏的大文件可能挂住，而这里跑在 HTTP 请求的
+// 同步路径上——不设限就是一个能把请求线程永久占住的入口。
 func probeDuration(ffprobeBin, path string) (float64, error) {
 	if strings.TrimSpace(ffprobeBin) == "" {
 		return 0, fmt.Errorf("ffprobe 不可用")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	var raw string
-	err := engine.RunCmd(context.Background(), ffprobeBin,
+	err := engine.RunCmd(ctx, ffprobeBin,
 		[]string{"-v", "quiet", "-print_format", "json", "-show_format", path},
 		func(l string) { raw += l + "\n" }, "")
 	if err != nil {

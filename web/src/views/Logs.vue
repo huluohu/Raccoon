@@ -121,13 +121,25 @@ async function scrollToTop() {
 }
 
 /**
+ * 列表代次：loadFirst 会作废在途的 loadMore。
+ *
+ * 筛选一变就回到第一页（cursor 归零），此时若还有一个「加载更早的日志」请求在途，
+ * 它的结果属于**旧条件**下的那批数据，前插进来就是错位的行——
+ * 而且它会把 nextCursor 改回旧游标，用户再点「加载更多」会拿到重复的一页。
+ */
+let listGen = 0
+
+/**
  * 拉第一页并整体替换。
  * @param quiet 跟随轮询用：不切 loading（否则每 3 秒闪一次骨架）。
  */
 async function loadFirst(quiet = false) {
+  const gen = ++listGen
   if (!quiet) loading.value = true
+  loadingMore.value = false
   try {
     const res = await api.logs(baseParams())
+    if (gen !== listGen) return
     items.value = res.items ?? []
     rememberModules(items.value)
     cursor.value = ''
@@ -135,9 +147,10 @@ async function loadFirst(quiet = false) {
     errorMsg.value = ''
     if (follow.value) await scrollToTop()
   } catch (e) {
+    if (gen !== listGen) return
     errorMsg.value = errorText(e, '日志拉取失败')
   } finally {
-    if (!quiet) loading.value = false
+    if (!quiet && gen === listGen) loading.value = false
   }
 }
 
@@ -150,12 +163,15 @@ async function loadFirst(quiet = false) {
  */
 async function loadMore() {
   const reqCursor = nextCursor.value
+  const gen = listGen
   loadingMore.value = true
   const el = bodyEl.value
   const prevHeight = el?.scrollHeight ?? 0
   const prevTop = el?.scrollTop ?? 0
   try {
     const res = await api.logs({ ...baseParams(), cursor: reqCursor })
+    // 期间发生过 loadFirst（筛选变了）→ 这批结果作废。
+    if (gen !== listGen) return
     items.value = [...(res.items ?? []), ...items.value]
     rememberModules(res.items ?? [])
     cursor.value = reqCursor
@@ -165,9 +181,10 @@ async function loadMore() {
     await nextTick()
     if (el) el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
   } catch (e) {
+    if (gen !== listGen) return
     errorMsg.value = errorText(e, '加载更多失败')
   } finally {
-    loadingMore.value = false
+    if (gen === listGen) loadingMore.value = false
   }
 }
 
@@ -184,14 +201,33 @@ function stopFollow() {
   }
 }
 
+/**
+ * 跟随轮询（带在途守卫）。
+ *
+ * 接口慢于 3 秒时，不带守卫的轮询会**叠着发**：第 N 次还没回来，第 N+1 次又出去了。
+ * 多个响应回来时后到的旧响应会盖掉新的——日志列表会「往回跳」，
+ * 表现为用户盯着最新日志，它却突然退回了几秒前的状态。
+ */
+let pollBusy = false
+
+async function pollFollow() {
+  if (pollBusy) return
+  pollBusy = true
+  try {
+    await loadFirst(true)
+  } finally {
+    pollBusy = false
+  }
+}
+
 function startFollow() {
   if (followTimer) window.clearInterval(followTimer)
   // 立刻拉一次：开关打开后到第一拍之间不该有 3 秒空窗。
-  void loadFirst(true)
+  void pollFollow()
   followTimer = window.setInterval(() => {
     // 页面不可见时不打接口（docs/15 §6.5）：后台标签页里轮询只是白烧 CPU 和日志。
     if (document.hidden) return
-    void loadFirst(true)
+    void pollFollow()
   }, FOLLOW_MS)
 }
 

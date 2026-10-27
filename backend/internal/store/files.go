@@ -137,12 +137,20 @@ func (s *Store) UpsertMediaFile(m *MediaFile) error {
 	if m.Uploader != "" {
 		uploader = m.Uploader
 	}
+	// ON CONFLICT：同一路径重新登记（如重新下载同一文件、格式转换产物入库）时，
+	// **不覆盖用户手动编辑过的元数据**（标题/简介/标签/封面）。
+	// 原实现直接 `cover_path=excluded.cover_path`，而 worker.finish 登记产物时
+	// 这些字段是空的 → 用户在媒体库改好的标题与封面会被一次重新下载清空
+	// （2026-10-25 定位）。空值不覆盖非空值是这里的正确语义：
+	// 「没有这个字段的新值」≠「把这个字段清空」——清空要走专门的编辑接口。
 	_, err := s.RW.Exec(`INSERT INTO media_files (id, task_id, subscription_id, path, name, size, mime, duration, platform, uploader, kind, created_at, cover_path, title, description, tags)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(path) DO UPDATE SET size=excluded.size, mime=excluded.mime,
 		  duration=excluded.duration, platform=excluded.platform, uploader=excluded.uploader, kind=excluded.kind,
-		  cover_path=excluded.cover_path, title=excluded.title,
-		  description=excluded.description, tags=excluded.tags`,
+		  cover_path=CASE WHEN excluded.cover_path<>'' THEN excluded.cover_path ELSE media_files.cover_path END,
+		  title=CASE WHEN excluded.title<>'' THEN excluded.title ELSE media_files.title END,
+		  description=CASE WHEN excluded.description<>'' THEN excluded.description ELSE media_files.description END,
+		  tags=CASE WHEN excluded.tags<>'' THEN excluded.tags ELSE media_files.tags END`,
 		m.ID, taskID, subID, m.Path, m.Name, m.Size, mime, m.Duration, platform, uploader, m.Kind, m.CreatedAt,
 		m.CoverPath, m.Title, m.Description, m.Tags)
 	return err

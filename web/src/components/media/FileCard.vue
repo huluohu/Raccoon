@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import PlatformBadge from '@/components/task/PlatformBadge.vue'
 import RButton from '@/components/base/RButton.vue'
 import RMenu from '@/components/base/RMenu.vue'
+import { fileActions, type FileActionKey } from '@/components/media/fileActions'
 import { formatBytes, formatDuration, platformTone } from '@/utils/format'
 import type { MediaFile } from '@/api/types'
 
@@ -58,22 +59,35 @@ const thumbUrl = computed(() => {
 /** 展示标题：用户改过就用改的，否则回退文件名。 */
 const displayTitle = computed(() => props.file.title || props.file.name)
 
-/** 次要动作菜单项。 */
-const menuItems = computed(() => {
-  const items: { label: string; hint?: string; danger?: boolean; disabled?: boolean; onSelect: () => void }[] = []
-  if (props.file.kind === 'video' || props.file.kind === 'audio') {
-    items.push({ label: '制作封面', hint: '从视频抽帧，挑一张当封面', onSelect: () => emit('makeCover', props.file) })
+/** 次要动作菜单项（动作清单来自共享定义 fileActions，行为在这里绑定）。 */
+const menuItems = computed(() =>
+  fileActions(props.file).map((a) => ({
+    label: a.label,
+    hint: a.hint,
+    onSelect: () => dispatch(a.key),
+  })),
+)
+
+/** 把菜单动作映射到组件事件。 */
+function dispatch(key: FileActionKey) {
+  switch (key) {
+    case 'cover':
+      emit('makeCover', props.file)
+      break
+    case 'mp3':
+      emit('convert', props.file, 'mp3')
+      break
+    case 'mp4':
+      emit('convert', props.file, 'mp4')
+      break
+    case 'meta':
+      emit('editMeta', props.file)
+      break
+    case 'scrape':
+      emit('scrape', props.file)
+      break
   }
-  if (props.file.kind === 'video') {
-    items.push({ label: '提取 MP3 音频', onSelect: () => emit('convert', props.file, 'mp3') })
-    if (!props.file.name.endsWith('.mp4')) {
-      items.push({ label: '转为 MP4 格式', onSelect: () => emit('convert', props.file, 'mp4') })
-    }
-  }
-  items.push({ label: '编辑元数据', hint: '标题 / 作者 / 简介 / 标签', onSelect: () => emit('editMeta', props.file) })
-  items.push({ label: 'AI 刮削元数据', hint: '从字幕自动提取标题与标签', onSelect: () => emit('scrape', props.file) })
-  return items
-})
+}
 
 /**
  * 占位区底色：平台品牌色淡化 20% 铺渐变。

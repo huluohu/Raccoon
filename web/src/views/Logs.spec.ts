@@ -200,4 +200,47 @@ describe('Logs 视图', () => {
     expect(w.find('.err').exists()).toBe(false)
     expect(w.text()).toContain('恢复后的日志')
   })
+
+  // ---- 竞态（2026-10-25 全量 review 定位）----
+
+  it('筛选变化后，先前发出的「加载更早」结果作废（不混入新条件的行）', async () => {
+    let resolveMore: ((v: { items: LogItem[]; next_cursor: string }) => void) | undefined
+    mocks.logs
+      .mockResolvedValueOnce(page([item({ msg: '第一条' })], '2'))
+      // 「加载更早」挂住不返回
+      .mockImplementationOnce(() => new Promise((res) => { resolveMore = res }) as never)
+
+    const w = mountView(Logs, [], { global: { stubs: { RButton: RButtonStub, REmpty: REmptyStub } } })
+    await flushPromises()
+    await btnByText(w, '加载更早的日志')!.trigger('click')
+    await flushPromises()
+
+    // 改筛选 → 回到第一页
+    const chip = w.findAll('.chip').find((c: any) => c.text() === 'warn')!
+    await chip.trigger('click')
+    await flushPromises()
+
+    // 旧条件的「更早一批」这时才回来：不能进列表
+    resolveMore?.(page([item({ msg: '旧条件的行' })], '3'))
+    await flushPromises()
+    expect(w.text()).not.toContain('旧条件的行')
+  })
+
+  it('跟随轮询慢于 3 秒时不叠发请求（在途守卫）', async () => {
+    vi.useFakeTimers()
+    // 接口永不返回：模拟服务端慢
+    mocks.logs.mockImplementation(() => new Promise(() => {}) as never)
+
+    const w = mountView(Logs, [], { global: { stubs: { RButton: RButtonStub, REmpty: REmptyStub } } })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.logs).toHaveBeenCalledTimes(1)
+
+    await w.find('.follow input').setValue(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.logs).toHaveBeenCalledTimes(2)
+
+    // 上一拍还没回来 → 后续拍不再叠发（否则响应乱序会让日志「往回跳」）
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(mocks.logs).toHaveBeenCalledTimes(2)
+  })
 })

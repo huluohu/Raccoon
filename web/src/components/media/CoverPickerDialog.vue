@@ -31,14 +31,25 @@ const saving = ref(false)
 const errMsg = ref('')
 const candidates = ref<Candidate[]>([])
 const picked = ref('')
+/**
+ * 请求代号：防止「先打开 A、马上切到 B」时 A 的迟到响应覆盖 B 的候选。
+ *
+ * 触发路径：点 A 的「制作封面」→ 请求 A 在飞 → 用户关掉弹窗 → 点 B 的
+ * 「制作封面」→ 请求 B 在飞 → **A 的响应先回** → 候选变成 A 的画面，
+ * 而标题写的是 B 的文件 → 用户点「设为封面」就把 A 的帧写到 B 身上。
+ */
+let generation = 0
 
 watch(
   () => props.open,
   async (open) => {
+    // 每次开关都推进代号：旧的 in-flight 响应回来时会被判定为过期。
+    const gen = ++generation
     if (!open) {
       candidates.value = []
       picked.value = ''
       errMsg.value = ''
+      loading.value = false
       return
     }
     if (!props.file) return
@@ -46,12 +57,15 @@ watch(
     errMsg.value = ''
     try {
       const res = await api.coverCandidates(props.file.id)
+      // 过期响应直接丢弃：不碰状态也不关 loading（可能还有更新的请求在飞）。
+      if (gen !== generation) return
       candidates.value = res.items ?? []
       if (candidates.value.length) picked.value = candidates.value[0].id
     } catch (e: unknown) {
+      if (gen !== generation) return
       errMsg.value = e instanceof Error ? e.message : '抽取封面帧失败'
     } finally {
-      loading.value = false
+      if (gen === generation) loading.value = false
     }
   },
 )

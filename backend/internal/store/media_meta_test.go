@@ -93,3 +93,49 @@ func TestUpdateMediaMetadata_不存在报错(t *testing.T) {
 		t.Fatal("更新不存在的记录应报错")
 	}
 }
+
+// TestUpsertMediaFile_不覆盖用户编辑的元数据 重新登记同一路径时（如重新下载
+// 同一文件、格式转换产物入库），worker.finish 传的 title/cover_path 是空的——
+// 直接覆盖会把用户在媒体库整理好的标题与封面清空（2026-10-25 定位的 P0）。
+func TestUpsertMediaFile_不覆盖用户编辑的元数据(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// 用户手动整理过元数据
+	if err := s.UpsertMediaFile(&MediaFile{
+		ID: "mf9", Path: "/d/v.mp4", Name: "v.mp4", Size: 100,
+		Kind: "video", Title: "我改过的标题", CoverPath: "/d/v.cover.jpg",
+		Description: "我的简介", Tags: "科普,宇宙",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 重新下载同一文件 → 引擎产物登记（title/cover 全空）
+	if err := s.UpsertMediaFile(&MediaFile{
+		ID: "mf10", Path: "/d/v.mp4", Name: "v.mp4", Size: 200,
+		Kind: "video", Platform: "bilibili", Uploader: "某UP",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetMediaFile("mf9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "我改过的标题" {
+		t.Fatalf("标题不应被覆盖，实际 %q", got.Title)
+	}
+	if got.CoverPath != "/d/v.cover.jpg" {
+		t.Fatalf("封面不应被覆盖，实际 %q", got.CoverPath)
+	}
+	if got.Description != "我的简介" || got.Tags != "科普,宇宙" {
+		t.Fatalf("简介/标签不应被覆盖，实际 %q / %q", got.Description, got.Tags)
+	}
+	// 引擎侧的新值仍要写入
+	if got.Size != 200 || got.Uploader != "某UP" {
+		t.Fatalf("引擎侧字段应更新，实际 size=%d uploader=%q", got.Size, got.Uploader)
+	}
+}

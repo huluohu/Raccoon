@@ -40,12 +40,36 @@ const props = withDefaults(
 const open = ref(false)
 const rootEl = ref<HTMLElement | null>(null)
 const activeIdx = ref(-1)
+/** 向下弹出：默认向上弹（菜单挂在卡片动作区下方），
+ *  但触发器贴近视口顶部时向上会顶出屏幕——那时改向下弹。 */
+const dropDown = ref(false)
 
 const usableItems = computed(() => props.items.filter((i) => !i.disabled))
 
+/**
+ * 当前键盘高亮落在哪个菜单项上。
+ *
+ * 用**对象身份**比对而不是下标：`usableItems` 是过滤掉禁用项后的数组，
+ * 它的下标和 `items` 的下标不是一回事（有禁用项时整体错位）。
+ * 之前按下标比会把高亮打在禁用项上——「键盘选中的那一项」和「看到的选中项」不是同一个。
+ */
+function isActive(item: RMenuItem) {
+  return activeIdx.value >= 0 && usableItems.value[activeIdx.value] === item
+}
+
 function toggle() {
   open.value = !open.value
-  if (open.value) activeIdx.value = -1
+  if (!open.value) {
+    activeIdx.value = -1
+    return
+  }
+  activeIdx.value = -1
+  const el = rootEl.value
+  if (el) {
+    // 菜单高度按「每项约 44px」估算（含内边距），够用且不依赖渲染后的测量。
+    const need = props.items.length * 44 + 12
+    dropDown.value = el.getBoundingClientRect().top < need
+  }
 }
 
 function close() {
@@ -121,13 +145,13 @@ onBeforeUnmount(() => {
       </svg>
     </button>
 
-    <div v-if="open" class="rmenu-pop" role="menu" :aria-label="label">
+    <div v-if="open" class="rmenu-pop" :class="{ 'rmenu-pop--down': dropDown }" role="menu" :aria-label="label">
       <button
-        v-for="(item, i) in items"
+        v-for="item in items"
         :key="item.label"
         type="button"
         class="rmenu-item"
-        :class="{ 'is-danger': item.danger, 'is-active': usableItems[i] === usableItems[activeIdx] }"
+        :class="{ 'is-danger': item.danger, 'is-active': isActive(item) }"
         role="menuitem"
         :disabled="item.disabled"
         @click="select(item)"
@@ -172,6 +196,11 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
   z-index: 40;
+}
+/* 触发器贴近视口顶部时改为向下弹，否则菜单会被顶出屏幕看不见。 */
+.rmenu-pop--down {
+  bottom: auto;
+  top: calc(100% + 6px);
 }
 .rmenu-item {
   display: flex;

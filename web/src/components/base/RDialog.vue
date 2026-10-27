@@ -59,6 +59,14 @@ const props = withDefaults(
     cancelText?: string
     /** 确认按钮禁用（例如请求进行中）。 */
     confirmDisabled?: boolean
+    /**
+     * 对话框宽度（如 '560px'）。
+     *
+     * 为什么需要显式 prop：RDialog 的根节点是 <Teleport>，**Teleport 根组件
+     * 无法继承 attrs**——传 width 只会得到一条 Vue 警告（"Extraneous non-props
+     * attributes"）且完全不生效。这里显式接收并绑到面板的 style 上。
+     */
+    width?: string
   }>(),
   {
     description: '',
@@ -66,6 +74,7 @@ const props = withDefaults(
     confirmText: '确认',
     cancelText: '取消',
     confirmDisabled: false,
+    width: '',
   },
 )
 
@@ -201,7 +210,7 @@ function confirm() {
            Esc 就会重复 emit cancel。焦点即使跑出对话框，document 监听依然能兜住 Esc。 -->
       <div v-if="open" class="rdialog-root" role="dialog" aria-modal="true">
         <div class="rdialog-mask" @click="close" />
-        <div ref="panelEl" :class="cls">
+        <div ref="panelEl" :class="cls" :style="width ? { maxWidth: width } : undefined">
           <h3 class="rdialog-title">{{ title }}</h3>
           <p v-if="description" class="rdialog-desc">{{ description }}</p>
           <div class="rdialog-body">
