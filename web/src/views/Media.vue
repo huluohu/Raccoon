@@ -490,11 +490,12 @@ onMounted(load)
 .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }.skeleton-card { height: 200px; border-radius: var(--radius-card); background: var(--surface-2); }
 .error-card { background: var(--surface); border: 1px solid var(--danger); border-radius: var(--radius-card); padding: 16px 20px; color: var(--danger); display: flex; align-items: center; gap: 12px; }
 .deleting-hint { margin: 8px 0 0; font-size: var(--font-aux); color: var(--text-3); }
-/* 分页条：计数在左、按钮在右，一眼看到「还剩多少」。 */
+/* 分页条：计数与「加载更多」并排靠左。
+   不靠右的原因：桌面宠物浮层固定在视口右下角（bottom:84px/right:28px），
+   右对齐的按钮会被它盖住点不到——可交互的东西不放在那一块。 */
 .pager {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-top: 16px;
   padding-top: 12px;
