@@ -3,6 +3,7 @@
 docs
 data
 media
+downloads
 backend/bin
 web/node_modules
 web/dist

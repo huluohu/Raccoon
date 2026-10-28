@@ -100,8 +100,11 @@ jobs:
           tags: |
             fooololo/raccoon-server:${{ steps.ver.outputs.version }}
             fooololo/raccoon-server:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 固定 scope：跨版本复用同一个缓存条目。
+          # 不写 scope 时缓存按当前 ref（本次是 tag）分域——每个新 tag 都是
+          # 一份全新缓存，发版永远冷启动，几百 MB 依赖每次重下。
+          cache-from: type=gha,scope=raccoon-build
+          cache-to: type=gha,mode=max,scope=raccoon-build
 
       - name: 发布摘要
         run: |
@@ -148,8 +151,11 @@ jobs:
           tags: |
             ghcr.io/huluohu/raccoon-server:${{ steps.ver.outputs.version }}
             ghcr.io/huluohu/raccoon-server:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 固定 scope：跨版本复用同一个缓存条目。
+          # 不写 scope 时缓存按当前 ref（本次是 tag）分域——每个新 tag 都是
+          # 一份全新缓存，发版永远冷启动，几百 MB 依赖每次重下。
+          cache-from: type=gha,scope=raccoon-build
+          cache-to: type=gha,mode=max,scope=raccoon-build
 
       - name: 发布摘要
         run: |

@@ -76,4 +76,8 @@ jobs:
           platforms: linux/amd64
           push: false
           build-args: VERSION=ci
-          cache-from: type=gha
+          # 与发布流水线共用同一个固定 scope 的缓存条目：
+          # PR 构建顺手把层存进去，发版时直接命中（原来 CI 只读不写，
+          # 发版每个 tag 都是冷缓存，几百 MB 依赖每次重下）。
+          cache-from: type=gha,scope=raccoon-build
+          cache-to: type=gha,mode=max,scope=raccoon-build
