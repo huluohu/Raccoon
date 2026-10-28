@@ -64,10 +64,16 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	primary, fallback := resolveAttempts("", t.Proxy, w.mgr.cfg.GetString("net.proxy"))
 	res, usedProxy, switchNote, err := w.mgr.resolveWithProxy(ctx, w.eng, t.URL, cookieFile, primary, fallback, 0)
 	if switchNote != "" {
-		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
-			"proxy":      usedProxy,
+		fields := map[string]any{
 			"route_path": AppendRoutePath(t.RoutePath, switchNote),
-		}, "parsing")
+		}
+		// 只有「确实用了某个出口」才回写 proxy。回退直连时 usedProxy 是空串，
+		// 写回去等于把用户钉住的代理抹掉——之后所有重试都只能直连，
+		// 用户专门指定的出口形同虚设（2026-10-28 定位）。
+		if usedProxy != "" {
+			fields["proxy"] = usedProxy
+		}
+		_ = w.mgr.st.UpdateTaskFields(t.ID, fields, "parsing")
 		_ = w.mgr.st.AppendEvent(t.ID, "info", "proxy_switched", switchNote, "")
 	}
 	if err != nil {
@@ -89,6 +95,21 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		"engine_version": ver,
 	}, "parsing"); err != nil {
 		w.mgr.log.Error("解析结果写库失败", map[string]any{"task_id": t.ID, "err": err.Error()})
+	}
+	// 记录本次将要下载的**媒体直链与域名**（2026-10-28）。
+	//
+	// 为什么存：解析打的是站点 API，下载打的是媒体 CDN——两者往往不是同一个域名
+	//（YouTube: www.youtube.com vs googlevideo.com）。代理规则常常只覆盖了解析域名，
+	// 于是「解析成功、下载超时」。把媒体域名存下来，失败时才能点名说清是哪一段路断了。
+	mediaURL, mediaHost := mediaTargetsFor(t.Quality, res.Formats)
+	if mediaURL != "" {
+		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+			"media_url":  mediaURL,
+			"media_host": mediaHost,
+		}, "parsing")
+		// 同步内存副本：下载阶段失败时的提示要用它点名媒体域名。
+		t.MediaURL, t.MediaHost = mediaURL, mediaHost
+		_ = w.mgr.st.AppendEvent(t.ID, "info", "media_host", "媒体直链域名："+mediaHost, "")
 	}
 	if res.Duration > 0 {
 		_ = w.mgr.st.AppendEvent(t.ID, "info", "parsed", fmt.Sprintf("解析成功：%s", res.Title),
@@ -247,8 +268,10 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 			ID: store.NewTaskID(), TaskID: t.ID, Path: f.Path, Size: f.Size,
 			Mime: mime, Kind: kind, CreatedAt: now,
 		})
-		// 主文件：第一个非字幕/元数据产物。
-		if firstPath == "" && kind != "subtitle" && kind != "metadata" {
+		// 主文件：第一个非字幕/元数据/图片产物。
+		// 图片要排除：yt-dlp --write-thumbnail 落的封面 jpg 也在产物里，
+		// 拿它当主文件会让媒体库把一张封面当成下载的视频（2026-10-28 定位）。
+		if firstPath == "" && kind != "subtitle" && kind != "metadata" && kind != "image" {
 			firstPath, firstName, firstMime = f.Path, filepath.Base(f.Path), mime
 		}
 		total += f.Size
@@ -262,6 +285,9 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 			ID: store.NewTaskID(), TaskID: t.ID, Path: firstPath, Name: firstName,
 			Size: total, Mime: firstMime, Duration: dur, Platform: platform, Uploader: uploader,
 			Kind: store.MediaKindOf(firstMime, firstName), CreatedAt: now,
+			// 封面：平台缩略图优先，没有就用 ffmpeg 抽首帧（2026-10-28）。
+			// 此前封面只能靠用户手动「制作封面」，媒体库大面积无封面。
+			CoverPath: w.pickCover(files, firstPath),
 		})
 	}
 	_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
@@ -429,7 +455,10 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 			"scheduled_at":  time.Now().Add(backoff).UnixMilli(),
 			"error_code":    code,
 			"error_message": msg,
-			"speed_bps":     0,
+			// 重试期就把修复建议写上：网络类失败要点名媒体域名，
+			// 等到重试耗尽才显示，用户已经白等了几轮退避（30s→2m→10m）。
+			"fix_hint":  fixHintForTask(code, t.MediaHost),
+			"speed_bps": 0,
 		}
 		msgEvent := fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)
 		// 自动切换代理：若本次下载走的出口失败（网络类异常），而系统配置了
@@ -454,7 +483,7 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 		})
 		return
 	}
-	w.fail(t.ID, code, msg, fixHintFor(code))
+	w.fail(t.ID, code, msg, fixHintForTask(code, t.MediaHost))
 }
 
 // closeLiveRecording 直播录制收尾（「下播即成品」闭环）：live 来源的任务终态时，
@@ -615,6 +644,24 @@ func backoffFor(attempt int) time.Duration {
 	}
 }
 
+// fixHintForTask 错误码 → 修复建议；网络类错误点名媒体域名。
+//
+// 为什么点名域名（2026-10-28）：解析打的是站点 API，下载打的是媒体 CDN，
+// 两者的可达性可以完全不同——代理规则常常只覆盖了解析域名（youtube.com），
+// 媒体域名（googlevideo.com）却直连被墙。只说「网络连接失败」用户无从下手；
+// 说出「媒体直链来自 googlevideo.com」才知道该查哪一段路。
+func fixHintForTask(code, mediaHost string) string {
+	if mediaHost != "" {
+		switch code {
+		case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED":
+			return fmt.Sprintf(
+				`{"action":"retry_proxy","label":"网络连接失败：本次媒体直链来自 %s（解析域名 ≠ 媒体域名）——请确认代理规则覆盖该域名，或点击「切换代理重试」"}`,
+				mediaHost)
+		}
+	}
+	return fixHintFor(code)
+}
+
 // fixHintFor 错误码 → 修复建议（JSON：{action,label}；docs/04 §2.2）。
 func fixHintFor(code string) string {
 	switch code {
@@ -759,4 +806,128 @@ func (w *Worker) markCredentialExpiring(t *store.Task) {
 		fmt.Sprintf("平台 %s 的凭据已降级为「待确认」：下载返回鉴权失败，请到「平台账号」页检查", platform), "")
 	w.mgr.notify("credential_expiring", "warn",
 		"平台凭据可能已失效："+platform, "下载返回鉴权失败，请到「平台账号」页检查或更新 Cookie", t.ID)
+}
+
+// mediaTargetsFor 按任务清晰度挑出「将被下载」的那条媒体直链，并汇总它的域名。
+//
+// 口径与引擎的 formatSelector 对齐（engine/ytdlp.go formatSelector）：
+//   - audio → 只取音频档；
+//   - best/空 → 最高分辨率的视频档（DASH 站点会是「视频流 + 音频流」两条直链，
+//     域名可能不同，两个都记下来）；
+//   - 720p/1080p… → 该清晰度档，没有就退一档（宁可降档也别报「无此格式」）。
+//
+// 返回的直链**只用于排查与展示**：它带签名、会过期，不做断点续传复用。
+func mediaTargetsFor(quality string, formats []engine.FormatInfo) (url string, hosts string) {
+	if len(formats) == 0 {
+		return "", ""
+	}
+	pick := func(pred func(engine.FormatInfo) bool) (engine.FormatInfo, bool) {
+		for _, f := range formats {
+			if pred(f) {
+				return f, true
+			}
+		}
+		return engine.FormatInfo{}, false
+	}
+	isAudio := func(f engine.FormatInfo) bool { return f.Quality == "audio" }
+	heightOf := func(f engine.FormatInfo) int {
+		n := 0
+		for _, c := range f.Quality {
+			if c >= '0' && c <= '9' {
+				n = n*10 + int(c-'0')
+			}
+		}
+		return n
+	}
+	isVideo := func(f engine.FormatInfo) bool { return !isAudio(f) && heightOf(f) > 0 }
+
+	var chosen []engine.FormatInfo
+	switch quality {
+	case "audio":
+		if f, ok := pick(isAudio); ok {
+			chosen = append(chosen, f)
+		}
+	default:
+		limit := 0
+		switch quality {
+		case "1080p":
+			limit = 1080
+		case "720p":
+			limit = 720
+		case "480p":
+			limit = 480
+		}
+		// 视频档：取不超过上限的最高档；best/空 → 最高档
+		best := engine.FormatInfo{}
+		have := false
+		for _, f := range formats {
+			if !isVideo(f) {
+				continue
+			}
+			h := heightOf(f)
+			if limit > 0 && h > limit {
+				continue
+			}
+			if !have || h > heightOf(best) {
+				best = f
+				have = true
+			}
+		}
+		if have {
+			chosen = append(chosen, best)
+		}
+		// DASH 站点：视频流之外还要一条音频流
+		if a, ok := pick(isAudio); ok {
+			chosen = append(chosen, a)
+		}
+	}
+	if len(chosen) == 0 {
+		return "", ""
+	}
+	seen := map[string]bool{}
+	hostList := make([]string, 0, 2)
+	for _, f := range chosen {
+		if f.URL == "" {
+			continue
+		}
+		if url == "" {
+			url = f.URL
+		}
+		if f.Host != "" && !seen[f.Host] {
+			seen[f.Host] = true
+			hostList = append(hostList, f.Host)
+		}
+	}
+	return url, strings.Join(hostList, ",")
+}
+
+// pickCover 给媒体文件挑封面：平台缩略图优先，没有就用 ffmpeg 抽视频首帧。
+//
+// 两条来源：
+//  1. yt-dlp --write-thumbnail 落的图片（平台给的封面，最好看）；
+//  2. 没有平台封面时，用 ffmpeg 抽视频首帧（任何视频都有封面）。
+//
+// 返回封面文件的绝对路径（空串 = 没有封面）。抽帧会顺带去黑边
+// （平台封面与视频帧都可能带黑边，见 engine.TrimLetterbox）。
+func (w *Worker) pickCover(files []engine.DownloadedFile, mainPath string) string {
+	// 1) 产物里的图片（平台封面）
+	for _, f := range files {
+		switch strings.ToLower(filepath.Ext(f.Path)) {
+		case ".jpg", ".jpeg", ".png", ".webp":
+			return f.Path
+		}
+	}
+	// 2) 没有平台封面 → ffmpeg 抽首帧
+	ffmpeg := w.mgr.Engines().FFmpegBin
+	if ffmpeg == "" || mainPath == "" {
+		return ""
+	}
+	base := strings.TrimSuffix(mainPath, filepath.Ext(mainPath)) + ".cover.jpg"
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if err := engine.ExtractFirstFrame(ctx, ffmpeg, w.mgr.Engines().FFprobeBin, mainPath, base); err != nil {
+		w.mgr.log.Warn("抽取封面首帧失败", map[string]any{"path": mainPath, "err": err.Error()})
+		return ""
+	}
+	return base
 }

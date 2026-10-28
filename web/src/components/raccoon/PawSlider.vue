@@ -20,8 +20,8 @@ const props = withDefaults(
     minimal?: boolean
     /** 减少动效：爪印退化为圆点，且进度不再过渡（尊重 prefers-reduced-motion）。 */
     reduceMotion?: boolean
-    /** 填充色语义（对齐 task/TaskProgress 的三段配色）。 */
-    tone?: 'accent' | 'info' | 'success'
+    /** 填充色语义（对齐 task/TaskProgress 的状态配色与全站 STATUS_TONE 约定）。 */
+    tone?: 'accent' | 'info' | 'success' | 'danger' | 'neutral'
     /** 轨道粗细（像素）。 */
     thickness?: number
     /** 无障碍标签（读屏会念出来）。 */
@@ -53,13 +53,34 @@ const pct = computed(() => {
 
 /** 退化：极简或减少动效时爪印退化为圆点。 */
 const degrade = computed(() => props.minimal || props.reduceMotion)
+
+/**
+ * 爪印色：跟随 tone。
+ *
+ * 之前爪印的 SVG 写死 `fill="var(--accent)"`，tone 只影响填充条——而
+ * TaskProgress 用的是 thumbOnly（不渲染填充条），于是 tone 完全失效：
+ * 已完成的任务进度末端仍然顶着薄荷色爪印，看着像「还在下载」。
+ * 改成用 CSS 变量下发，爪印与填充条、进度条同色。
+ */
+const TONE_COLOR: Record<string, string> = {
+  accent: 'var(--accent)',
+  info: 'var(--info)',
+  success: 'var(--success)',
+  danger: 'var(--danger)',
+  neutral: 'var(--text-3)',
+}
+const thumbColor = computed(() => TONE_COLOR[props.tone] ?? TONE_COLOR.accent)
 </script>
 
 <template>
   <div
     class="paw"
     :class="{ 'paw--static': reduceMotion, 'paw--thumb-only': thumbOnly }"
-    :style="{ '--paw-size': size + 'px', '--paw-thickness': thickness + 'px' }"
+    :style="{
+      '--paw-size': size + 'px',
+      '--paw-thickness': thickness + 'px',
+      '--paw-thumb': thumbColor,
+    }"
   >
     <div
       v-if="!thumbOnly"
@@ -83,7 +104,7 @@ const degrade = computed(() => props.minimal || props.reduceMotion)
           viewBox="0 0 24 24"
           aria-hidden="true"
         >
-          <g fill="var(--accent)" stroke="var(--surface)" stroke-width="1">
+          <g fill="var(--paw-thumb)" stroke="var(--surface)" stroke-width="1">
             <ellipse cx="6.9" cy="8.8" rx="2.4" ry="3.1" transform="rotate(-20 6.9 8.8)" />
             <ellipse cx="12" cy="6.7" rx="2.4" ry="3.2" />
             <ellipse cx="17.1" cy="8.8" rx="2.4" ry="3.1" transform="rotate(20 17.1 8.8)" />
@@ -92,7 +113,7 @@ const degrade = computed(() => props.minimal || props.reduceMotion)
         </svg>
         <!-- 退化：2px 圆点，保留端点语义、丢掉花纹 -->
         <svg v-else class="paw-dot" :width="size" :height="size" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="2" fill="var(--accent)" stroke="var(--surface)" stroke-width="1" />
+          <circle cx="12" cy="12" r="2" fill="var(--paw-thumb)" stroke="var(--surface)" stroke-width="1" />
         </svg>
     </div>
   </div>
@@ -123,13 +144,19 @@ const degrade = computed(() => props.minimal || props.reduceMotion)
   transition: width 240ms linear;
 }
 .paw-fill--accent {
-  background: var(--gold);
+  background: var(--accent);
 }
 .paw-fill--info {
   background: var(--info);
 }
 .paw-fill--success {
   background: var(--success);
+}
+.paw-fill--danger {
+  background: var(--danger);
+}
+.paw-fill--neutral {
+  background: var(--text-3);
 }
 .paw-thumb {
   position: absolute;

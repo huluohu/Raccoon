@@ -175,9 +175,14 @@ func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*Res
 
 // ytdlpFormat yt-dlp formats[] 中 adapter 关心的字段（不建全量模型）。
 type ytdlpFormat struct {
-	FormatID       string   `json:"format_id"`
-	FormatNote     string   `json:"format_note"`
-	Ext            string   `json:"ext"`
+	FormatID   string `json:"format_id"`
+	FormatNote string `json:"format_note"`
+	Ext        string `json:"ext"`
+	// URL 是该格式的**真实直链**（媒体 CDN，带签名有时效）。
+	// 解析域名与媒体域名往往不是同一个（YouTube: www.youtube.com vs googlevideo.com），
+	// 「解析成功但下载失败」十有八九出在媒体域名上——留着它才能归因（2026-10-28）。
+	URL            string   `json:"url"`
+	Protocol       string   `json:"protocol"`
 	Height         int      `json:"height"`
 	Width          int      `json:"width"`
 	VCodec         string   `json:"vcodec"`
@@ -227,6 +232,7 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 		id   string
 		size int64
 		note string
+		url  string
 	}
 	byHeight := map[int]cand{}
 	var audioBest *cand
@@ -238,14 +244,14 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 			sz = *f.FilesizeApprox
 		}
 		if f.VCodec != "none" && f.Height > 0 {
-			c := cand{id: f.FormatID, size: sz, note: f.FormatNote}
+			c := cand{id: f.FormatID, size: sz, note: f.FormatNote, url: f.URL}
 			if old, ok := byHeight[f.Height]; !ok || (sz > 0 && sz < old.size) || old.size == 0 {
 				byHeight[f.Height] = c
 			}
 			continue
 		}
 		if f.VCodec == "none" && f.ACodec != "none" {
-			c := cand{id: f.FormatID, size: sz, note: "audio"}
+			c := cand{id: f.FormatID, size: sz, note: "audio", url: f.URL}
 			if audioBest == nil || (sz > 0 && (*audioBest).size == 0) || (sz > 0 && sz < (*audioBest).size) {
 				audioBest = &c
 			}
@@ -264,7 +270,13 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 			s := c.size
 			size = &s
 		}
-		out = append(out, FormatInfo{Quality: fmt.Sprintf("%dp", h), Size: size, Note: c.note})
+		out = append(out, FormatInfo{
+			Quality: fmt.Sprintf("%dp", h),
+			Size:    size,
+			Note:    c.note,
+			URL:     c.url,
+			Host:    urlHost(c.url),
+		})
 		if len(out) >= 6 {
 			break // 界面只展示前 6 档
 		}
@@ -275,7 +287,13 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 			s := (*audioBest).size
 			size = &s
 		}
-		out = append(out, FormatInfo{Quality: "audio", Size: size, Note: "仅音频"})
+		out = append(out, FormatInfo{
+			Quality: "audio",
+			Size:    size,
+			Note:    "仅音频",
+			URL:     (*audioBest).url,
+			Host:    urlHost((*audioBest).url),
+		})
 	}
 	return out
 }

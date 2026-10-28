@@ -56,6 +56,9 @@ export interface Task {
   url: string
   title?: string
   thumbnail?: string
+  /** 真实媒体直链与域名（排查用；直链带签名有时效，不做续传复用）。 */
+  media_url?: string
+  media_host?: string
   status: TaskStatus
   wait_reason?: string
   quality: string
@@ -140,6 +143,8 @@ export interface FormatOption {
   quality: string
   size?: number | null
   note?: string
+  /** 该档媒体直链的主机名（如 googlevideo.com）——解析域名 ≠ 媒体域名。 */
+  host?: string
 }
 
 export interface ParsePreview {

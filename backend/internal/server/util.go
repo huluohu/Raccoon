@@ -116,9 +116,13 @@ func (s *Server) testConnection(target string, params map[string]any) connTestRe
 			res.Message = "未配置代理地址（可在下方输入代理后点击测试）"
 			return res
 		}
+		if err := ValidateProxyURL(raw); err != nil {
+			res.Message = "代理地址格式非法：" + err.Error()
+			return res
+		}
 		u, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https" && u.Scheme != "socks5" && u.Scheme != "socks5h") {
-			res.Message = "代理地址格式非法，需以 http://、https:// 或 socks5:// 开头"
+		if err != nil {
+			res.Message = "代理地址格式非法"
 			return res
 		}
 		start := time.Now()

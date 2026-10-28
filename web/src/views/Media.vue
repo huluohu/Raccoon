@@ -77,6 +77,9 @@ const KINDS = [
 
 /** 表格列定义（RTable columns）。 */
 const COLUMNS = [
+  // 封面列：表格视图此前完全没有封面，切表后只能靠文件名辨认——
+  // 卡片与表格是同一份数据的两种形态，能力必须等价。
+  { key: 'cover', title: '封面', width: '96px' },
   { key: 'name', title: '文件名' },
   { key: 'kind', title: '类型', width: '80px' },
   { key: 'platform', title: '平台', width: '120px' },
@@ -363,6 +366,16 @@ onMounted(load)
       empty-text="没有匹配的文件"
       @row-click="(f: MediaFile) => openDetail(f)"
     >
+      <template #cell-cover="{ row }">
+        <img
+          v-if="(row as MediaFile).cover_path"
+          class="cell-cover"
+          :src="coverUrl((row as MediaFile).id)"
+          :alt="(row as MediaFile).title || (row as MediaFile).name"
+          loading="lazy"
+        />
+        <span v-else class="cell-cover cell-cover--ph" aria-hidden="true">无</span>
+      </template>
       <template #cell-name="{ row }">
         <span class="cell-name" :title="(row as MediaFile).name">{{ (row as MediaFile).name }}</span>
       </template>
@@ -484,6 +497,23 @@ onMounted(load)
 .vt-btn + .vt-btn { border-left: 1px solid var(--border); }
 .vt-btn.on { background: var(--accent); color: var(--on-accent); }
 .cell-name { display: block; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 表格里的封面小图：与卡片同一套 16:9 契约，缩到 96 宽也保持同一形状。 */
+.cell-cover {
+  display: block;
+  width: 96px;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  object-fit: cover;
+  border-radius: var(--radius-ctrl);
+  background: var(--surface-2);
+}
+.cell-cover--ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: var(--font-aux);
+}
 /* 卡片网格：auto-fill 保持卡片固有尺寸（2026-10-24 用户裁决，推翻早先的 auto-fit）。
    auto-fit 的空轨道塌陷会把唯一有内容的卡片拉伸占满整行——
    「1 个视频排满全宽」比右侧留白更丑（用户实测截图裁决）。 */

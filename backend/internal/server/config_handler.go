@@ -213,10 +213,8 @@ func validateSettingValue(key string, val any, meta config.Setting) error {
 		if !ok {
 			return httpx.Validation(key + " 需要字符串")
 		}
-		if strings.TrimSpace(str) != "" {
-			if !strings.HasPrefix(str, "http://") && !strings.HasPrefix(str, "https://") && !strings.HasPrefix(str, "socks5://") {
-				return httpx.Validation("代理地址需以 http:// / https:// / socks5:// 开头")
-			}
+		if err := ValidateProxyURL(str); err != nil {
+			return httpx.Validation(err.Error())
 		}
 	case "download.default_quality":
 		str, ok := val.(string)

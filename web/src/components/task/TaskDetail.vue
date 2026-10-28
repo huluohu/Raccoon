@@ -259,6 +259,15 @@ const conclusion = computed(() => {
 
 const title = computed(() => props.task.title || props.task.url)
 
+/**
+ * 缩略图地址：走服务端代理（去黑边 + 缩放 + 缓存），不直连平台 CDN。
+ * 代理端点在服务端不可用时（老版本镜像）自动回退到原始直链。
+ */
+const thumbUrl = computed(() => {
+  if (!props.task.thumbnail) return ''
+  return api.taskThumbnailUrl(props.task.id)
+})
+
 /** 引擎与版本合成一行（没引擎时显示占位，不留空）。 */
 const engineText = computed(() => {
   const engine = props.task.engine || '—'
@@ -299,6 +308,15 @@ async function onGenerateTaskSummary() {
     <!-- ① 概览 -->
     <section class="td-sec">
       <h3 class="td-sec-title">概览</h3>
+      <!-- 缩略图：任务详情此前完全没有封面，与列表/媒体库不一致（同一份内容三种形态）。 -->
+      <img
+        v-if="thumbUrl"
+        class="td-thumb"
+        :src="thumbUrl"
+        :alt="title"
+        loading="lazy"
+        referrerpolicy="no-referrer"
+      />
       <p class="td-title" :title="title">{{ title }}</p>
       <dl class="td-kv">
         <dt>状态</dt>
@@ -316,6 +334,16 @@ async function onGenerateTaskSummary() {
         <template v-if="task.proxy">
           <dt>网络代理</dt>
           <dd class="td-path">{{ task.proxy }}</dd>
+        </template>
+        <!-- 媒体直链域名：解析打的是站点 API，下载打的是媒体 CDN（两者常不是同一个域名）。
+             把域名摊开，「解析成功却下载超时」才看得见该查哪一段路。 -->
+        <template v-if="task.media_host">
+          <dt>媒体直链域名</dt>
+          <dd class="td-path">{{ task.media_host }}</dd>
+        </template>
+        <template v-if="task.media_url">
+          <dt>媒体直链</dt>
+          <dd class="td-path td-media-url" :title="task.media_url">{{ task.media_url }}</dd>
         </template>
         <dt>已下载</dt>
         <dd class="tnum">{{ formatBytes(task.downloaded_size) }}</dd>
@@ -554,6 +582,13 @@ async function onGenerateTaskSummary() {
 }
 .td-path {
   color: var(--text-2);
+}
+/* 媒体直链很长（带签名参数）：单行省略，悬停看全文。 */
+.td-media-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 .td-files {

@@ -19,6 +19,8 @@ type Task struct {
 	SavePath        string  `json:"save_path,omitempty"`
 	ConvertTo       string  `json:"convert_to,omitempty"` // 产物目标格式：""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
 	Proxy           string  `json:"proxy,omitempty"`      // 任务级代理配置（""=跟随系统，有值=独立走代理）
+	MediaURL        string  `json:"media_url,omitempty"`  // 真实媒体直链（CDN，带签名有时效；仅供排查）
+	MediaHost       string  `json:"media_host,omitempty"` // 媒体直链主机名（如 googlevideo.com）
 	ExpectedSize    *int64  `json:"expected_size"`        // NULL=未知，禁估算
 	DownloadedSize  int64   `json:"downloaded_size"`
 	SpeedBps        int64   `json:"speed_bps"`
@@ -87,4 +89,7 @@ type FormatOption struct {
 	Quality string `json:"quality"`
 	Size    *int64 `json:"size"`
 	Note    string `json:"note,omitempty"`
+	// Host 该档媒体直链的主机名（如 googlevideo.com）。
+	// 解析域名 ≠ 媒体域名是「解析成功却下载失败」的主因，界面上要能提前看到。
+	Host string `json:"host,omitempty"`
 }

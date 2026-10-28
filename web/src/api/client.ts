@@ -153,6 +153,14 @@ export const api = {
     request<{ ok: boolean }>(`/tasks/${taskId}/files/${fileId}`, { method: 'DELETE' }),
   taskEvents: (id: string, after = 0) =>
     request<{ items: import('./types').TaskEvent[] | null }>(`/tasks/${id}/events?after=${after}`),
+  /**
+   * 任务缩略图地址（服务端代理：下载 → 去黑边 → 缩放 → 缓存）。
+   *
+   * 不直连平台 CDN 的原因：平台封面常把 2.35:1 画面垫在 16:9 画布里（上下黑边，
+   * CSS 裁不掉），部分平台还防盗链/签名过期。服务端拉不到时会 302 回原始直链，
+   * 客户端自己能拉到就照常显示。
+   */
+  taskThumbnailUrl: (id: string) => `${BASE}/tasks/${id}/thumbnail`,
   cancelTask: (id: string) => request<{ ok: boolean }>(`/tasks/${id}/cancel`, { method: 'POST' }),
   /** 任务生成 AI 结构化总结（POST /tasks/:id/summary）。 */
   taskSummary: (id: string) =>

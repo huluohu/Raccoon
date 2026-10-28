@@ -24,7 +24,14 @@ onBeforeUnmount(() => {
   window.matchMedia?.('(prefers-reduced-motion: reduce)').removeEventListener('change', syncReduceMotion)
 })
 
-/** 进度阶段（决定条色）。 */
+/**
+ * 进度阶段（决定条色）。
+ *
+ * 终态必须单独成支：之前 done/failed/cancelled 全落进 default → 'idle'，
+ * 而 idle 用的是 --text-3（弱化文字色）——一条 100% 宽的灰蓝条看着像
+ * 「什么都没开始」，用户完全读不出「已完成」。现在终态对齐全站的
+ * STATUS_TONE 约定（utils/format.ts）：完成=success、失败=danger、取消=muted。
+ */
 const stage = computed(() => {
   switch (props.task.status) {
     case 'parsing':
@@ -33,6 +40,12 @@ const stage = computed(() => {
       return 'download'
     case 'post':
       return 'post'
+    case 'done':
+      return 'done'
+    case 'failed':
+      return 'failed'
+    case 'cancelled':
+      return 'cancelled'
     default:
       return 'idle'
   }
@@ -68,11 +81,26 @@ const pct = computed(() => {
   return Math.max(0, Math.min(100, props.task.progress ?? 0))
 })
 
-/** 爪印色与进度条同色系（parse=info / post=success / 其余=accent）。 */
-const pawTone = computed<'accent' | 'info' | 'success'>(() => {
-  if (stage.value === 'parse') return 'info'
-  if (stage.value === 'post') return 'success'
-  return 'accent'
+/**
+ * 爪印色与进度条同色系（parse=info / post=success / done=success / failed=danger）。
+ * 爪印是进度条的端点标记，它说「到这儿了」——颜色必须跟状态一致，
+ * 否则完成的进度条末端顶着一枚薄荷色爪印，又被读成「还在下载」。
+ */
+const pawTone = computed<'accent' | 'info' | 'success' | 'danger' | 'neutral'>(() => {
+  switch (stage.value) {
+    case 'parse':
+      return 'info'
+    case 'post':
+      return 'success'
+    case 'done':
+      return 'success'
+    case 'failed':
+      return 'danger'
+    case 'cancelled':
+      return 'neutral'
+    default:
+      return 'accent'
+  }
 })
 
 const sizeText = computed(() => {
@@ -127,6 +155,11 @@ const sizeText = computed(() => {
 }
 .tprog--parse .tprog-fill { background: var(--info); }
 .tprog--post .tprog-fill { background: var(--success); }
+/* 终态：完成=成功绿、失败=危险红、取消=弱化灰。
+   与全站 STATUS_TONE（utils/format.ts）一致，进度条不再自建一套语义色。 */
+.tprog--done .tprog-fill { background: var(--success); }
+.tprog--failed .tprog-fill { background: var(--danger); }
+.tprog--cancelled .tprog-fill { background: var(--text-3); }
 .tprog--idle .tprog-fill { background: var(--text-3); }
 /* 条纹底色跟随阶段：解析=信息蓝、后处理=成功绿。写死 --info 会让后处理
    显示成一条「蓝色条纹的绿色任务」，阶段色与条纹色自相矛盾。 */

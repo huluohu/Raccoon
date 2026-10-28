@@ -26,6 +26,7 @@ import { computed } from 'vue'
 import StatusDot from './StatusDot.vue'
 import TaskProgress from './TaskProgress.vue'
 import PlatformBadge from './PlatformBadge.vue'
+import { api } from '@/api/client'
 import type { Task } from '@/api/types'
 import { formatBytes, formatRelative, formatSpeed, waitReasonWithCountdown } from '@/utils/format'
 import { useNowTick } from '@/utils/now'
@@ -110,7 +111,7 @@ const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.va
       <img
         v-if="task.thumbnail"
         class="tcard-thumb"
-        :src="task.thumbnail"
+        :src="api.taskThumbnailUrl(task.id)"
         :alt="title"
         loading="lazy"
         referrerpolicy="no-referrer"
@@ -240,11 +241,21 @@ const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.va
 
 .tcard-thumb {
   width: 120px;
-  height: 68px;
+  /* 16:9 比例契约：任务卡 / 任务行 / 媒体库卡片 / 封面弹窗统一，
+     同一张封面在各处不会被裁成不同形状（这里原来写死 120×68 = 1.765）。 */
+  aspect-ratio: 16 / 9;
+  height: auto;
   flex-shrink: 0;
   object-fit: cover;
   border-radius: var(--radius-ctrl);
   background: var(--surface-3);
+}
+/* 深色主题：封面与卡片底色明度接近，没有描边会「浮空」（docs/07 §2）。
+   媒体库卡片早就补了，任务缩略图一直漏着（docs/13 R11 未落地）。 */
+:global([data-theme='night']) .tcard-thumb,
+:global([data-theme='scarf']) .tcard-thumb,
+:global([data-theme='berry']) .tcard-thumb {
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 .tcard-thumb--ph {
   display: flex;

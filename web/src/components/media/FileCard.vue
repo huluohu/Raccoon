@@ -195,7 +195,10 @@ const thumbTint = computed(() => {
   flex-direction: column;
 }
 .file-thumb {
-  height: 140px;
+  /* 16:9 比例契约（全站统一）。原来写死 height:140px、宽度随网格伸缩，
+     比例会在 2:1~3.5:1 之间随视口漂移——同一个封面在不同屏幕被裁成不同形状。 */
+  aspect-ratio: 16 / 9;
+  height: auto;
   background: var(--surface-2);
   display: flex;
   align-items: center;

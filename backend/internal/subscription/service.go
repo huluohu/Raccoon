@@ -147,7 +147,11 @@ func (s *Service) discover(ctx context.Context, sub *store.Subscription) ([]Disc
 	}
 	// 收藏夹/UP 主需要平台 API 凭据；这里用引擎的 playlist 解析能力。
 	// 未配置凭据时如实返回错误，不静默跳过。
-	res, err := s.eng.YTDLP.ResolvePlaylist(ctx, sub.SourceURL)
+	//
+	// 出口与其它链路一致：走全局 net.proxy（订阅自己没有独立的代理配置项）。
+	// 之前这一步恒直连 —— 只靠代理可达的站点，订阅永远发现不到内容，
+	// 也就永远不会建任务（2026-10-28 定位）。
+	res, err := s.eng.YTDLP.ResolvePlaylist(ctx, sub.SourceURL, s.cfg.GetString("net.proxy"))
 	if err != nil {
 		return nil, err
 	}

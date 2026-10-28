@@ -72,8 +72,9 @@
 | --- | --- | --- |
 | GET | /tasks | 列表：status/platform/source/q/kind 过滤，游标分页；附 `counts` 各状态计数（总览页用） |
 | POST | /tasks | 创建：`{items:[{url,quality?,save_path?,convert_to?,options?}], preview:false, parent_id?}`；`preview:true` 不落库只返回解析结果。重复提交 409 + `existing_task_id`。`convert_to`：产物目标格式，缺省=源格式，可选 `mp4`（post 阶段优先无损 remux，编解码不兼容才 H.264 转码）/ `mp3`（提取音轨）；转换失败保留源格式并记 warn 事件，不推翻下载成功 |
-| GET | /tasks/{id} | 详情（含子任务计数、当前配置版本、尝试次数、失败修复提示） |
+| GET | /tasks/{id} | 详情（含子任务计数、当前配置版本、尝试次数、失败修复提示）。另含 `media_url`/`media_host`：解析阶段拿到的**真实媒体直链**与它的主机名（如 googlevideo.com）——解析打的是站点 API、下载打的是媒体 CDN，两者常不是同一个域名，「解析成功却下载失败」十有八九出在后者上；直链带签名有时效，**仅用于排查与展示**，不做断点续传复用 |
 | GET | /tasks/{id}/events | 事件流（结构化 + 引擎日志 warn/error），游标分页 |
+| GET | /tasks/{id}/thumbnail | 缩略图代理：服务端下载平台封面 → 去黑边 → 缩放到 640 宽 → 缓存返回（`Cache-Control: public, max-age=86400`）。不直连平台 CDN 的原因：平台封面常把 2.35:1 画面垫在 16:9 画布里（黑边裁不掉）、部分平台防盗链/签名过期、每个客户端都要重复回源。服务端拉不到时 **302 回原始直链**（客户端可能有别的出口）。无缩略图 → 404 |
 | POST | /tasks/{id}/cancel | 取消（幂等：终态任务返回当前状态 200） |
 | POST | /tasks/{id}/priority | 置顶/取消置顶（仅 waiting；`{"priority":0|1..100}`，调度按 priority DESC + created_at 领取） |
 | POST | /tasks/{id}/summary | 一键调用 AI 服务生成已完成任务的结构化总结 |
@@ -87,7 +88,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null}]/kind/is_playlist/proxy_used/route_note/entries(preview)。出口口径与任务执行**完全一致**（显式 proxy > 全局 net.proxy > 直连）；主出口遇网络异常自动换备用出口重试（每次尝试独立 ctx，不会被前一次的超时拖死）。不落库、不入队 |
+| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null,host?}]/kind/is_playlist/proxy_used/route_note/entries(preview)。出口口径与任务执行**完全一致**（显式 proxy > 全局 net.proxy > 直连）；主出口遇网络异常自动换备用出口重试（每次尝试独立 ctx，不会被前一次的超时拖死）。不落库、不入队 |
 
 ### 2.4 配置中心 `config`
 

@@ -183,18 +183,22 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 		// 同一视频被重复下载。
 		childPlatform := engine.PlatformGuess(norm)
 		child := &store.Task{
-			ID:            store.NewTaskID(), // 同上：CreateTask 不补 ID
-			ParentID:      &pid,
-			Kind:          task.KindDownload,
-			Source:        task.SourceWeb,
-			SourceRef:     parent.ID,
-			Platform:      childPlatform,
-			URL:           norm,
-			DedupeKey:     store.DedupeKey(task.KindDownload, childPlatform, norm),
-			Status:        task.StatusWaiting,
-			Quality:       it.Quality,
-			SavePath:      it.SavePath,
-			ConvertTo:     it.ConvertTo,
+			ID:        store.NewTaskID(), // 同上：CreateTask 不补 ID
+			ParentID:  &pid,
+			Kind:      task.KindDownload,
+			Source:    task.SourceWeb,
+			SourceRef: parent.ID,
+			Platform:  childPlatform,
+			URL:       norm,
+			DedupeKey: store.DedupeKey(task.KindDownload, childPlatform, norm),
+			Status:    task.StatusWaiting,
+			Quality:   it.Quality,
+			SavePath:  it.SavePath,
+			ConvertTo: it.ConvertTo,
+			// 任务级代理要带到子任务：批量接口的请求体里带了 proxy
+			// （submitItemJSON 有这个字段，前端也会传），此前建子任务时却没写进去，
+			// 传了等于没传——批量下的任务永远走不到指定的出口（2026-10-28 定位）。
+			Proxy:         strings.TrimSpace(it.Proxy),
 			ConfigVersion: s.cfg.Version(),
 			MaxAttempts:   3,
 			CreatedAt:     now,

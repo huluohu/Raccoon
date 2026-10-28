@@ -925,11 +925,30 @@ def check_round2_contracts() -> None:
 
     # R11：深色主题封面 1px 描边（深底封面与卡片底色太接近）。
     # 四主题下 night/scarf/berry 是深色画布，snow 是浅色——描边只挂深色主题。
+    # 2026-10-28：媒体库卡片早就补了，**任务缩略图一直漏着**（docs/13 R11 未落地），
+    # 现在四个缩略图位置都要有描边。
     card = read("components/media/FileCard.vue")
     dark_themes_ok = all(t in card for t in ("night", "scarf", "berry"))
     check("§2 深色主题封面 1px 描边（night/scarf/berry）",
           dark_themes_ok and "inset 0 0 0 1px" in card,
           "components/media/FileCard.vue")
+    thumb_border_missing = [
+        f for f in ("components/task/TaskCard.vue", "components/task/TaskRow.vue", "views/Tasks.vue")
+        if "inset 0 0 0 1px" not in read(f)
+    ]
+    check("§2 深色主题缩略图也有 1px 描边（任务卡/任务行/预览）",
+          not thumb_border_missing,
+          f"缺描边：{thumb_border_missing}")
+
+    # 封面比例契约：全站统一 16:9（2026-10-28）。此前有 1.765 / 1.75 / 高度自适应
+    # 三种写法，同一张封面在不同位置被裁成不同形状。
+    ratio_missing = [
+        f for f in ("components/task/TaskCard.vue", "components/task/TaskRow.vue",
+                    "views/Tasks.vue", "components/media/FileCard.vue")
+        if "aspect-ratio: 16 / 9" not in read(f)
+    ]
+    check("§2 封面比例统一 16:9（任务卡/任务行/预览/媒体库卡片）",
+          not ratio_missing, f"缺 16:9：{ratio_missing}")
 
     # docs/04 路由总表必须收录本轮新增端点（文档即契约）
     api_doc = (ROOT / "docs" / "04-API详细设计.md").read_text(encoding="utf-8")
@@ -1043,6 +1062,9 @@ def check_spec_files() -> None:
         "SourceList.spec.ts", "RecordPlanForm.spec.ts", "RecordingList.spec.ts",
         "CredentialList.spec.ts", "QbTestPanel.spec.ts", "TelegramPanel.spec.ts",
         "SettingsNav.spec.ts", "SettingItem.spec.ts", "DiagPanel.spec.ts",
+        # 进度条的状态配色是「完成=绿 / 失败=红」这类语义契约（2026-10-28 用户截图裁决），
+        # 有独立用例才不会被后来的一次改色悄悄改回去。
+        "TaskProgress.spec.ts",
     }
     have = set(comp_specs)
     missing_comp = sorted(view_comp_specs - have)

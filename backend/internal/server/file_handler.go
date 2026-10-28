@@ -321,10 +321,28 @@ func (s *Server) handleFileCoverImage(w http.ResponseWriter, r *http.Request) er
 	if statErr != nil || st.Size() == 0 {
 		return httpx.NotFound("封面文件已不存在")
 	}
-	w.Header().Set("Content-Type", "image/jpeg")
+	// Content-Type 按真实扩展名给：封面可能是 jpg（我们抽帧/转的），
+	// 也可能是平台给的 webp/png（直接用平台封面时）——固定 jpeg 会让浏览器
+	// 按错误类型解析（部分浏览器直接不渲染）。
+	w.Header().Set("Content-Type", coverContentType(abs))
 	w.Header().Set("Cache-Control", "no-store")
 	http.ServeFile(w, r, abs)
 	return nil
+}
+
+// coverContentType 封面文件的 Content-Type（按扩展名；未知一律 jpeg）。
+func coverContentType(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	case ".jpeg", ".jpg":
+		return "image/jpeg"
+	}
+	return "image/jpeg"
 }
 
 // handleFileMetadataEdit 编辑媒体元数据（PATCH /api/v1/files/:id）。

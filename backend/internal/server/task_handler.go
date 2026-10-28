@@ -57,6 +57,8 @@ func (s *Server) setupTasks() {
 	s.router.POST("/api/v1/tasks", s.requireAuth(s.csrfForSession(s.handleTasksCreate)))
 	s.router.GET("/api/v1/tasks/:id", s.requireAuth(s.handleTaskDetail))
 	s.router.GET("/api/v1/tasks/:id/events", s.requireAuth(s.handleTaskEvents))
+	// 缩略图代理：平台封面直连会有黑边/防盗链/重复回源（见 thumbnail_handler.go）
+	s.router.GET("/api/v1/tasks/:id/thumbnail", s.requireAuth(s.handleTaskThumbnail))
 	s.router.POST("/api/v1/tasks/:id/cancel", s.requireAuth(s.csrfForSession(s.handleTaskCancel)))
 	s.router.POST("/api/v1/tasks/:id/retry", s.requireAuth(s.csrfForSession(s.handleTaskRetry)))
 	s.router.POST("/api/v1/tasks/:id/summary", s.requireAuth(s.csrfForSession(s.handleTaskSummary)))
@@ -130,6 +132,11 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 	for _, it := range req.Items {
 		if err := validateOutboundURL(it.URL); err != nil {
 			return err
+		}
+		// 任务级代理也要校验：此前零校验，认证用户可以把代理指向内网/云元数据地址，
+		// 让引擎替他把请求发过去（出站跳板）。私网代理是正当用法，所以只禁链路本地。
+		if err := ValidateProxyURL(it.Proxy); err != nil {
+			return httpx.Validation(err.Error())
 		}
 	}
 	if req.Preview {
@@ -231,6 +238,10 @@ func (s *Server) handleTaskRetry(w http.ResponseWriter, r *http.Request) error {
 	if body.Kind != "" {
 		err = s.tasks.RetryVia(id, body.Kind)
 	} else if body.UseProxy || strings.TrimSpace(body.Proxy) != "" {
+		// 换代理同样要校验（与提交任务同一口径）。
+		if verr := ValidateProxyURL(body.Proxy); verr != nil {
+			return httpx.Validation(verr.Error())
+		}
 		err = s.tasks.RetryWithProxy(id, body.Proxy)
 	} else {
 		err = s.tasks.Retry(id)
@@ -365,6 +376,9 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) error {
 	// 主出口超时后还有备用出口的完整时限可用。
 	ctx, cancel := context.WithTimeout(r.Context(), 100*time.Second)
 	defer cancel()
+	if err := ValidateProxyURL(req.Proxy); err != nil {
+		return httpx.Validation(err.Error())
+	}
 	pv, err := s.tasks.Preview(ctx, strings.TrimSpace(req.URL), strings.TrimSpace(req.Proxy))
 	if err != nil {
 		return taskErrToHTTP(err)

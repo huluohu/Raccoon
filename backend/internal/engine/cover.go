@@ -107,3 +107,37 @@ func formatClock(sec float64) string {
 	}
 	return fmt.Sprintf("%02d:%02d", m, s)
 }
+
+// ExtractFirstFrame 抽视频首帧存成图片（自动封面用）。
+//
+// 为什么不直接用平台封面：不是每个平台都给封面（也没有 --write-thumbnail 时
+// 根本没有），而视频自己一定有画面。抽帧会顺带去黑边（engine.TrimLetterbox）。
+//
+// 取 1 秒而不是 0 秒：0 秒常是黑场/片头，取 1 秒更可能有画面；
+// 视频短于 1 秒时退回 0 秒再试一次。
+func ExtractFirstFrame(ctx context.Context, ffmpegBin, ffprobeBin, videoPath, outPath string) error {
+	if strings.TrimSpace(ffmpegBin) == "" {
+		return fmt.Errorf("ffmpeg 不可用")
+	}
+	run := func(seek string) error {
+		return RunCmd(ctx, ffmpegBin, []string{
+			"-y", "-ss", seek, "-i", videoPath,
+			"-frames:v", "1", "-q:v", "3", outPath,
+		}, nil, "")
+	}
+	err := run("1")
+	if err != nil {
+		if err2 := run("0"); err2 != nil {
+			return err
+		}
+	}
+	// 去黑边（平台封面与视频帧都可能带黑边）。失败不致命：保留原图即可。
+	_ = TrimLetterbox(ctx, ffmpegBin, ffprobeBin, outPath, outPath+".trim.jpg", 0)
+	if st, statErr := os.Stat(outPath + ".trim.jpg"); statErr == nil && st.Size() > 0 {
+		if err := os.Rename(outPath+".trim.jpg", outPath); err == nil {
+			return nil
+		}
+		_ = os.Remove(outPath + ".trim.jpg")
+	}
+	return nil
+}

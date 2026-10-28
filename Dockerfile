@@ -82,7 +82,12 @@ RUN pip3 install --no-cache-dir --break-system-packages "gallery-dl==${GALLERYDL
     && pip3 install --no-cache-dir --break-system-packages "curl_cffi==${CURLCFFI_VERSION}" \
     && python3 -c "import curl_cffi; print('curl_cffi', curl_cffi.__version__)" \
     && pip3 install --no-cache-dir --break-system-packages "mutagen==1.47.0" \
-    && python3 -c "import mutagen; print('mutagen', mutagen.version_string)"
+    && python3 -c "import mutagen; print('mutagen', mutagen.version_string)" \
+    # PySocks：gallery-dl 的 socks5 代理要靠它（底层是 requests，没装 PySocks 时
+    # 配 socks5:// 会直接 InvalidSchema 失败——同一份 net.proxy 在 yt-dlp 上正常，
+    # 在图片站任务上却挂，2026-10-28 定位）
+    && pip3 install --no-cache-dir --break-system-packages "PySocks==1.7.1" \
+    && python3 -c "import socks; print('PySocks ok')"
 
 # yt-dlp 固定版本（升级引擎=升级镜像，docs/02 §8）。
 # 放在最后：层是链式的，改这一层只会让**它之后**的层失效——

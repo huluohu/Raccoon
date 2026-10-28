@@ -61,7 +61,7 @@ var Registry = []Setting{
 	// 产物增强（docs/04 §2.2 items 说明）：封面落盘是纯下载动作无额外依赖；
 	// 元数据内嵌走 yt-dlp 后处理器，mp4/m4a 需要 mutagen（镜像已内置）、
 	// mkv/webm 走 ffmpeg。默认关：目录里多出 .jpg/.info 文件不是所有人都想要。
-	{Key: "download.save_thumbnail", Label: "保存封面图", Desc: "封面图落盘（jpg，与视频同目录）", Default: false, Effective: NextTask},
+	{Key: "download.save_thumbnail", Label: "保存封面图", Desc: "封面图落盘（jpg，与视频同目录）；默认开——媒体库的封面就来自它", Default: true, Effective: NextTask},
 	{Key: "download.embed_metadata", Label: "写入元数据", Desc: "标题/作者等元数据写入媒体文件（需 ffmpeg/mutagen）", Default: false, Effective: NextTask},
 	{Key: "subscription.interval_min", Label: "订阅检查间隔", Desc: "订阅检查间隔（分钟）", Default: 30, Effective: NextTask},
 	{Key: "live.check_interval_sec", Label: "开播检测间隔", Desc: "直播开播检测间隔（秒）", Default: 60, Effective: NextTask},

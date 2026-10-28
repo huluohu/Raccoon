@@ -15,6 +15,7 @@ import { computed } from 'vue'
 import StatusDot from './StatusDot.vue'
 import TaskProgress from './TaskProgress.vue'
 import PlatformBadge from './PlatformBadge.vue'
+import { api } from '@/api/client'
 import type { Task } from '@/api/types'
 import { formatBytes, formatRelative, formatSpeed, waitReasonWithCountdown } from '@/utils/format'
 import { useNowTick } from '@/utils/now'
@@ -98,7 +99,7 @@ const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.va
     <img
       v-if="task.thumbnail"
       class="trow-thumb"
-      :src="task.thumbnail"
+      :src="api.taskThumbnailUrl(task.id)"
       :alt="title"
       loading="lazy"
       referrerpolicy="no-referrer"
@@ -215,11 +216,19 @@ const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.va
 
 .trow-thumb {
   width: 84px;
-  height: 48px;
+  /* 16:9 比例契约（与任务卡/媒体库卡片/封面弹窗一致，原来写死 84×48 = 1.75）。 */
+  aspect-ratio: 16 / 9;
+  height: auto;
   flex-shrink: 0;
   object-fit: cover;
   border-radius: var(--radius-ctrl);
   background: var(--surface-3);
+}
+/* 深色主题描边（docs/07 §2；任务缩略图此前一直漏着）。 */
+:global([data-theme='night']) .trow-thumb,
+:global([data-theme='scarf']) .trow-thumb,
+:global([data-theme='berry']) .trow-thumb {
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 .trow-thumb--ph {
   display: flex;

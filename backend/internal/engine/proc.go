@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -85,6 +86,11 @@ type FormatInfo struct {
 	Quality string // 展示名：1080p / 720p / audio / best ...
 	Size    *int64 // nil=未知（禁估算）
 	Note    string
+	// URL 该格式的**真实直链**（媒体 CDN，带签名有时效）。
+	// Host 是它的主机名——「解析域名 ≠ 媒体域名」是「解析成功却下载失败」的主因，
+	// 把域名摊开才能归因（2026-10-28）。
+	URL  string
+	Host string
 }
 
 // ProgressFn 进度回调类型别名。
@@ -267,4 +273,20 @@ func LookPath(bin, override string) (string, error) {
 		return "", fmt.Errorf("未找到 %s 可执行文件: %w", bin, err)
 	}
 	return p, nil
+}
+
+// urlHost 取 URL 的主机名（去掉端口）；解析不出就返回空串。
+//
+// 用途：把「媒体直链来自哪个 CDN」摊开给人看——解析域名（youtube.com）与
+// 媒体域名（googlevideo.com）往往不同，下载失败十有八九出在后者上。
+func urlHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

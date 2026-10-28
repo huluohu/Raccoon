@@ -38,9 +38,16 @@ type ytdlpPlaylistJSON struct {
 }
 
 // ResolvePlaylist 解析播放列表/合集/收藏夹（订阅发现内容）。
-func (y *YTDLP) ResolvePlaylist(ctx context.Context, url string) (*PlaylistResult, error) {
+//
+// proxy 为空 = 直连。这里必须支持代理：订阅的「周期发现」是订阅链路的**第一步**，
+// 之前这一步恒直连 —— 只靠代理可达的站点，订阅根本发现不到内容，
+// 也就永远不会建任务（而同一订阅在创建时的预览却是走代理的，前后口径不一致）。
+func (y *YTDLP) ResolvePlaylist(ctx context.Context, url, proxy string) (*PlaylistResult, error) {
 	args := []string{"--flat-playlist", "--dump-single-json", "--no-warnings", "--socket-timeout", "20"}
 	args = append(args, y.impersonateArgs()...)
+	if proxy != "" {
+		args = append(args, "--proxy", proxy)
+	}
 	args = append(args, url)
 	var raw strings.Builder
 	err := RunCmd(ctx, y.Bin, args, func(l string) {

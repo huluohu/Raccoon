@@ -33,6 +33,14 @@ const url = ref('')
 const submitting = ref(false)
 const parseErr = ref('')
 const preview = ref<ParsePreview | null>(null)
+
+/** 预览里各清晰度的媒体直链域名（去重）。 */
+const mediaHostPreview = computed(() => {
+  const hosts = (preview.value?.formats ?? [])
+    .map((f) => f.host)
+    .filter((h): h is string => !!h)
+  return [...new Set(hosts)].join('、')
+})
 const chosenQuality = ref('')
 /** 产物格式：''=源格式（默认）/ mp4 / mp3；post 阶段由 ffmpeg remux 或转码。 */
 const chosenFormat = ref('')
@@ -589,11 +597,17 @@ onBeforeUnmount(() => {
             type="button"
             class="q"
             :class="{ on: chosenQuality === f.quality }"
+            :title="f.host ? `媒体直链域名：${f.host}` : ''"
             @click="chosenQuality = f.quality"
           >
             {{ f.quality }}<em v-if="f.size">{{ formatBytes(f.size) }}</em>
           </button>
         </div>
+        <!-- 媒体域名预告：解析打的是站点 API，下载打的是媒体 CDN（两者常不是同一个域名）。
+             在下载之前就告诉用户「这条要走哪个 CDN」，别等超时了才猜。 -->
+        <p v-if="mediaHostPreview" class="pv-host-hint">
+          媒体直链域名：<span class="pv-host-name">{{ mediaHostPreview }}</span>
+        </p>
         <!-- 产物格式：默认源格式零开销；MP4 优先无损 remux（不兼容才转码）、MP3 提取音轨。 -->
         <div class="fmt-row" role="radiogroup" aria-label="产物格式">
           <span class="fmt-label">格式</span>
@@ -814,12 +828,24 @@ onBeforeUnmount(() => {
 
 /* 预览卡 */
 .preview { display: flex; gap: 14px; }
-.thumb { width: 120px; height: 68px; object-fit: cover; border-radius: var(--radius-ctrl); background: var(--surface-3); flex-shrink: 0; }
-.thumb.sm { width: 84px; height: 48px; }
+/* 16:9 比例契约（全站统一：任务卡 / 任务行 / 媒体库卡片 / 封面弹窗）。 */
+.thumb { width: 120px; aspect-ratio: 16 / 9; height: auto; object-fit: cover; border-radius: var(--radius-ctrl); background: var(--surface-3); flex-shrink: 0; }
+.thumb.sm { width: 84px; }
+/* 深色主题描边（docs/07 §2）。 */
+:global([data-theme='night']) .thumb,
+:global([data-theme='scarf']) .thumb,
+:global([data-theme='berry']) .thumb { box-shadow: inset 0 0 0 1px var(--border); }
 .thumb.ph { display: flex; align-items: center; justify-content: center; color: var(--text-3); font-size: var(--font-caption); }
 .pv-body { flex: 1; min-width: 0; }
 .pv-title { margin: 0 0 6px; font-weight: var(--weight-medium); font-size: var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-meta { margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-aux); color: var(--text-2); }
+/* 媒体直链域名预告：解析域名 ≠ 媒体域名，下载前就该让人看见。 */
+.pv-host-hint {
+  margin: 0 0 10px;
+  font-size: var(--font-aux);
+  color: var(--text-3);
+}
+.pv-host-name { color: var(--text-2); }
 .qualities { display: flex; flex-wrap: wrap; gap: 6px; }
 /* 格式选择行：与清晰度同一套按钮，前面加一个固定标签说明这排是什么。 */
 .fmt-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

@@ -645,7 +645,7 @@ func (m *Manager) Preview(ctx context.Context, url string, proxyOpt ...string) (
 		RouteNote:  routeNote,
 	}
 	for _, f := range res.Formats {
-		pv.Formats = append(pv.Formats, store.FormatOption{Quality: f.Quality, Size: f.Size, Note: f.Note})
+		pv.Formats = append(pv.Formats, store.FormatOption{Quality: f.Quality, Size: f.Size, Note: f.Note, Host: f.Host})
 	}
 	if res.IsPlaylist {
 		pv.Kind = "playlist"
