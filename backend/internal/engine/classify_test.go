@@ -174,3 +174,36 @@ func TestParseItemOf(t *testing.T) {
 		}
 	}
 }
+
+// TestClassify_媒体源403不当成网络超时 403 是「媒体源拒绝了请求」，
+// 不是「网络不通」——早先它被 "unable to download" 兜底分支吞成了 NET_TIMEOUT，
+// 于是用户被告知「网络失败、去换代理」，而真实原因是媒体 CDN 拒绝
+// （Referer/指纹/区域限制）。2026-10-28 定位。
+func TestClassify_媒体源403不当成网络超时(t *testing.T) {
+	out := "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+	err := classify(&ExitError{Code: 1}, out)
+	ue, ok := err.(*EngineError)
+	if !ok {
+		t.Fatalf("应返回 EngineError，实际 %T", err)
+	}
+	if ue.Code != "HTTP_FORBIDDEN" {
+		t.Fatalf("403 应归类为 HTTP_FORBIDDEN，实际 %q（%s）", ue.Code, ue.Message)
+	}
+	if ue.Message == "网络连接失败或被重置" {
+		t.Fatalf("403 的提示不应说成网络失败：%q", ue.Message)
+	}
+}
+
+// TestClassify_5xx优先于unabletodownload兜底 "unable to download video data:
+// HTTP Error 502" 是服务端错误，不是网络不通。
+func TestClassify_5xx优先于unabletodownload兜底(t *testing.T) {
+	out := "ERROR: unable to download video data: HTTP Error 502: Bad Gateway"
+	err := classify(&ExitError{Code: 1}, out)
+	ue, ok := err.(*EngineError)
+	if !ok {
+		t.Fatalf("应返回 EngineError，实际 %T", err)
+	}
+	if ue.Code != "HTTP_5XX" {
+		t.Fatalf("502 应归类为 HTTP_5XX，实际 %q", ue.Code)
+	}
+}

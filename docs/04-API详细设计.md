@@ -88,7 +88,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null,host?}]/kind/is_playlist/proxy_used/route_note/entries(preview)。出口口径与任务执行**完全一致**（显式 proxy > 全局 net.proxy > 直连）；主出口遇网络异常自动换备用出口重试（每次尝试独立 ctx，不会被前一次的超时拖死）。不落库、不入队 |
+| POST | /parse | `{url, proxy?}` → 预览卡数据：title/thumbnail/uploader/duration/formats[{quality,size|null,host?}]/kind/is_playlist/proxy_used/route_note/entries(preview)。**播放列表类链接**（bad.news 这类「页面里嵌了一个视频」）的真实格式与标题在 `entries[0]` 里，顶层为空——已用条目兜底，否则这类链接预览没有清晰度可选、媒体域名也记不上。出口口径与任务执行**完全一致**（显式 proxy > 全局 net.proxy > 直连）；主出口遇网络异常自动换备用出口重试（每次尝试独立 ctx，不会被前一次的超时拖死）。不落库、不入队 |
 
 ### 2.4 配置中心 `config`
 

@@ -161,6 +161,21 @@ func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*Res
 			return nil, &EngineError{Code: "PARSE_FAILED", Message: "解析引擎输出失败: " + err.Error()}
 		}
 	}
+	// 播放列表/合集：真实内容在第一个条目里（顶层 formats 为空）。
+	// 顶层没内容时用条目兜底——否则这类链接预览无清晰度可选、媒体域名也记不上。
+	if len(d.Formats) == 0 && len(d.Entries) > 0 {
+		e := d.Entries[0]
+		d.Formats = e.Formats
+		if d.Title == "" || d.Title == e.ID {
+			d.Title = e.Title
+		}
+		if d.Duration == 0 {
+			d.Duration = e.Duration
+		}
+		if d.Thumbnail == "" {
+			d.Thumbnail = e.Thumbnail
+		}
+	}
 	res := &ResolveResult{
 		Title:      d.Title,
 		Thumbnail:  firstNonEmpty(d.Thumbnail, d.Thumbnails()),
@@ -211,6 +226,22 @@ type ytdlpJSON struct {
 	Extractor    string        `json:"extractor"`
 	Type         string        `json:"_type"`
 	Formats      []ytdlpFormat `json:"formats"`
+	// Entries 播放列表/合集的条目（--playlist-items 1 时只有一条）。
+	// 这类链接（bad.news 这类「页面里嵌了一个视频」）的真实格式与标题
+	// 都在条目里，顶层是空的——不取条目，预览就没有清晰度可选，
+	// 媒体直链域名也记不上（2026-10-28 定位）。
+	Entries []ytdlpEntry `json:"entries"`
+}
+
+// ytdlpEntry 播放列表的一个条目。
+type ytdlpEntry struct {
+	ID        string        `json:"id"`
+	Title     string        `json:"title"`
+	URL       string        `json:"url"`
+	Webpage   string        `json:"webpage_url"`
+	Duration  float64       `json:"duration"`
+	Thumbnail string        `json:"thumbnail"`
+	Formats   []ytdlpFormat `json:"formats"`
 }
 
 func (j ytdlpJSON) Thumbnails() string {
@@ -809,17 +840,28 @@ func classify(err error, output string) error {
 	case strings.Contains(low, "429"), strings.Contains(low, "too many requests"), strings.Contains(low, "rate limit"):
 		ue.Code = "RATE_LIMITED"
 		ue.Message = "平台限流，稍后自动重试"
-	case strings.Contains(low, "timed out"), strings.Contains(low, "timeout"),
-		strings.Contains(low, "connection reset"), strings.Contains(low, "connection error"),
-		strings.Contains(low, "temporary failure in name resolution"), strings.Contains(low, "unable to download"):
-		ue.Code = "NET_TIMEOUT"
-		ue.Message = "网络连接失败或被重置，稍后自动重试"
+	// 403 Forbidden：媒体源**拒绝**了请求（不是网络不通）。
+	// 必须排在下面 "unable to download" 兜底之前——yt-dlp 的原文
+	// "unable to download video data: HTTP Error 403: Forbidden" 里含
+	// "unable to download"，早先被兜底分支吞成「网络连接失败」，
+	// 于是用户被告知「网络超时、去换代理」，而真实原因是媒体 CDN 拒绝
+	// （Referer/指纹/区域限制/签名过期）。
+	case strings.Contains(low, "http error 403"), strings.Contains(low, "403: forbidden"),
+		strings.Contains(low, "403 forbidden"):
+		ue.Code = "HTTP_FORBIDDEN"
+		ue.Message = "媒体源拒绝了请求（HTTP 403）：不是网络不通——通常是媒体 CDN 不接受当前请求（来源页 Referer、指纹或区域限制）"
 	case strings.Contains(low, "http error 5"):
 		ue.Code = "HTTP_5XX"
 		ue.Message = "平台服务端错误，稍后自动重试"
 	case strings.Contains(low, "http error 4"):
 		ue.Code = "HTTP_4XX"
 		ue.Message = "平台返回客户端错误，请检查链接与权限"
+	// 网络类兜底（放最后：上面已把带 HTTP 状态码的分支截走）
+	case strings.Contains(low, "timed out"), strings.Contains(low, "timeout"),
+		strings.Contains(low, "connection reset"), strings.Contains(low, "connection error"),
+		strings.Contains(low, "temporary failure in name resolution"), strings.Contains(low, "unable to download"):
+		ue.Code = "NET_TIMEOUT"
+		ue.Message = "网络连接失败或被重置，稍后自动重试"
 	}
 	return ue
 }

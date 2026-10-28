@@ -651,11 +651,29 @@ func backoffFor(attempt int) time.Duration {
 // 媒体域名（googlevideo.com）却直连被墙。只说「网络连接失败」用户无从下手；
 // 说出「媒体直链来自 googlevideo.com」才知道该查哪一段路。
 func fixHintForTask(code, mediaHost string) string {
+	// 403：媒体源拒绝了请求——不是网络不通，换代理有时有用（区域限制），
+	// 但更常见的是媒体 CDN 不接受当前请求（来源页 Referer、指纹不符）。
+	if code == "HTTP_FORBIDDEN" {
+		if mediaHost != "" {
+			return fmt.Sprintf(
+				`{"action":"retry_proxy","label":"媒体源拒绝了请求（HTTP 403，来自 %s）——不是网络不通：常见原因是媒体 CDN 不接受当前请求（来源页 Referer、指纹或区域限制），可换出口重试"}`,
+				mediaHost)
+		}
+		return `{"action":"retry_proxy","label":"媒体源拒绝了请求（HTTP 403）——不是网络不通：常见原因是媒体 CDN 不接受当前请求（来源页 Referer、指纹或区域限制），可换出口重试"}`
+	}
 	if mediaHost != "" {
 		switch code {
-		case "NET_TIMEOUT", "HTTP_5XX", "RATE_LIMITED":
+		case "NET_TIMEOUT":
 			return fmt.Sprintf(
 				`{"action":"retry_proxy","label":"网络连接失败：本次媒体直链来自 %s（解析域名 ≠ 媒体域名）——请确认代理规则覆盖该域名，或点击「切换代理重试」"}`,
+				mediaHost)
+		case "HTTP_5XX":
+			return fmt.Sprintf(
+				`{"action":"retry_proxy","label":"平台或媒体源返回服务端错误（5xx）：本次媒体直链来自 %s，可稍后重试或点击「切换代理重试」"}`,
+				mediaHost)
+		case "RATE_LIMITED":
+			return fmt.Sprintf(
+				`{"action":"retry_proxy","label":"被限流：本次媒体直链来自 %s，可稍后重试或换出口"}`,
 				mediaHost)
 		}
 	}

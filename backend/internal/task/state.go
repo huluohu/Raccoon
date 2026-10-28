@@ -100,14 +100,15 @@ func IsActive(s string) bool {
 // ENGINE_ERROR 是分类兜底码、TIMEOUT 是 ctx 超时，两者都可能瞬时性，纳入可重试。
 // NET_RESET 已删除：classify 把 connection reset 归入 NET_TIMEOUT，该码从未被产生过。
 var RetryableErrorCodes = map[string]bool{
-	"NET_TIMEOUT":  true,
-	"HTTP_5XX":     true,
-	"RATE_LIMITED": true,
-	"ENGINE_CRASH": true,
-	"WORKER_PANIC": true,
-	"ENGINE_ERROR": true,
-	"TIMEOUT":      true,
-	"BOT_CHECK":    true, // 平台 IP 人机验证：间歇性，重试大概率过（docs/05 §7）
+	"NET_TIMEOUT":    true,
+	"HTTP_5XX":       true,
+	"RATE_LIMITED":   true,
+	"ENGINE_CRASH":   true,
+	"WORKER_PANIC":   true,
+	"ENGINE_ERROR":   true,
+	"TIMEOUT":        true,
+	"BOT_CHECK":      true, // 平台 IP 人机验证：间歇性，重试大概率过（docs/05 §7）
+	"HTTP_FORBIDDEN": true, // 媒体源 403：CDN 拦截常是间歇的，重试可能过；但它不是网络不通，不自动换代理
 }
 
 func IsRetryable(code string) bool { return RetryableErrorCodes[code] }
