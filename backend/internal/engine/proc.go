@@ -3,11 +3,10 @@
 package engine
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -149,10 +148,61 @@ func unregisterPID(pid int) {
 	_ = os.WriteFile(path, []byte(strings.Join(keep, "\n")), 0o600)
 }
 
+// lineWriter 把子进程的字节流按行喂给 onLine。
+//
+// 为什么自己实现而不是用 bufio.Scanner：cmd.Stdout 必须是一个 io.Writer，
+// os/exec 会在内部起 goroutine 把管道内容拷进它；两个拷贝 goroutine
+// （stdout / stderr）会并发调用 Write，所以这里要加锁——调用方传的 onLine
+// 多半是往 strings.Builder 里追加，那不是并发安全的。
+type lineWriter struct {
+	mu     sync.Mutex
+	onLine func(string)
+	buf    []byte
+}
+
+func (w *lineWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimRight(string(w.buf[:i]), "\r")
+		w.buf = w.buf[i+1:]
+		if w.onLine != nil {
+			w.onLine(line)
+		}
+	}
+	return len(p), nil
+}
+
+// flush 吐出末尾没有换行的那一行（引擎最后一行常不带 \n）。
+func (w *lineWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.buf) == 0 {
+		return
+	}
+	line := strings.TrimRight(string(w.buf), "\r\n")
+	w.buf = nil
+	if w.onLine != nil && line != "" {
+		w.onLine(line)
+	}
+}
+
 // RunCmd 以新进程组运行命令；ctx 取消时杀整个进程组（含 yt-dlp 派生的 ffmpeg）。
-// stdout 逐行回调 onLine；stderr 合并进同一扫描器（yt-dlp 进度走 stderr）。
+// stdout 逐行回调 onLine；stderr 合并进同一回调（yt-dlp 进度走 stderr）。
 // dir 非空时作为子进程工作目录（yt-dlp 的 -o 相对模板据此落盘，必须显式传
 // SaveDir，否则文件会落到服务进程 cwd）。
+//
+// 输出捕获用 cmd.Stdout/cmd.Stderr = writer，**不用 StdoutPipe**：
+// StdoutPipe 的官方约定是「必须读完再 Wait」，而 Wait 会关闭管道——
+// 顺序反了就会吞掉快退进程的输出，解析侧拿到空字符串，报成
+// 「解析引擎输出失败: unexpected end of JSON input」（链接其实完全正常）。
+// 交给 os/exec 自己拷贝时，Wait 会等拷贝完成，输出不会丢，也没有多余的
+// 扫描 goroutine 与空等（旧实现每次调用恒定多花 2 秒，且泄漏一个 goroutine）。
 func RunCmd(ctx context.Context, bin string, args []string, onLine func(string), dir string) error {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -169,64 +219,22 @@ func RunCmd(ctx context.Context, bin string, args []string, onLine func(string),
 		}
 		return nil
 	}
-	cmd.WaitDelay = 10 * time.Second // Cancel 后兜底强杀
+	// Cancel 后兜底强杀；另外兜住「子进程退出但管道仍被孙进程持有」
+	// （yt-dlp 派生的 ffmpeg）：最多再等 10 秒就放弃剩余输出。
+	cmd.WaitDelay = 10 * time.Second
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return err
-	}
+	lw := &lineWriter{onLine: onLine}
+	cmd.Stdout = lw
+	cmd.Stderr = lw
+
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动 %s 失败: %w", bin, err)
 	}
 	registerPID(cmd.Process.Pid)
 	defer unregisterPID(cmd.Process.Pid)
-	lines := make(chan string, 64)
-	scan := func(r io.Reader) {
-		defer func() { _ = recover() }()
-		br := bufio.NewReaderSize(r, 1<<16)
-		for {
-			line, err := br.ReadString('\n')
-			if line != "" {
-				select {
-				case lines <- strings.TrimRight(line, "\r\n"):
-				case <-ctx.Done():
-					return
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}
-	go scan(stdout)
-	go scan(stderr)
-	scanDone := make(chan struct{})
-	go func() {
-		defer close(scanDone)
-		for {
-			select {
-			case ln, ok := <-lines:
-				if !ok {
-					return
-				}
-				if onLine != nil {
-					onLine(ln)
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+
 	waitErr := cmd.Wait()
-	// 等扫描器排空（上限 2s，防丢失尾部行）。
-	select {
-	case <-scanDone:
-	case <-time.After(2 * time.Second):
-	}
+	lw.flush()
 	if waitErr != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
