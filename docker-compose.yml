@@ -1,6 +1,12 @@
 # Raccoon 单容器部署：一个应用容器、一个 Web 端口、持久化数据 + 下载两个卷。
-# network_mode 显式 bridge：容器接入默认网桥，宿主机反代（Nginx Proxy Manager 等）经 127.0.0.1:8530 访问不断链。
 # 镜像发布在 Docker Hub（fooololo/raccoon-server）；本地开发/自建走 build。
+#
+# network_mode 显式 bridge（反代场景必留）：容器接入**默认网桥**。
+# 少了这一行，容器会落进 compose 自动创建的用户自定义网络，端口发布走另一套转发规则——
+# 宿主机自己 curl 映射端口没问题，但**别的容器**（NAS 上共用的 Nginx Proxy Manager /
+# openresty 等）连宿主机的映射端口会超时，反代表现为 504 Gateway Time-out。
+# 排查与改法见 docs/17-部署指南.md §6.4；改网络模式后必须
+# `docker compose up -d --force-recreate`（up -d 不会改已存在容器的网络）。
 #
 # 镜像 tag 用 latest（2026-10-25 裁决）：不随发版改这个文件——
 # 更新 = docker compose pull && docker compose up -d；

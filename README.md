@@ -66,6 +66,7 @@ chown -R 1000:1000 /opt/raccoon
 docker run -d \
   --name raccoon \
   --restart unless-stopped \
+  --network bridge \
   -p 8530:8530 \
   -v /opt/raccoon/data:/data \
   -v /opt/raccoon/downloads:/downloads \
@@ -75,6 +76,10 @@ docker run -d \
 # 3. 健康检查（应返回 {"status":true,...}）
 curl http://127.0.0.1:8530/healthz
 ```
+
+> `--network bridge`（compose 里是 `network_mode: bridge`）建议保留：容器接入默认网桥后，
+> 宿主机与其它容器（如反向代理）才能稳定访问映射端口。少了它，反代常表现为 504 超时。
+> 详见[部署指南](docs/17-部署指南.md) §6.4。
 
 升级：`docker stop raccoon && docker rm raccoon` 后用新 tag 重复第 2 步（数据都在挂载目录里）。
 
@@ -88,6 +93,7 @@ services:
     image: fooololo/raccoon-server:latest   # 升级 = 改这一行
     container_name: raccoon
     restart: unless-stopped
+    network_mode: bridge                    # 反代场景保留：默认网桥，反代才连得上映射端口
     ports:
       - "8530:8530"
     volumes:
@@ -140,7 +146,7 @@ NAS 部署与上面完全同构——镜像名、端口、挂载、环境变量�
 2. 粘贴任意视频链接 → 解析预览 → 选清晰度 / 格式（源格式 / MP4 / MP3）→ 加入队列；
 3. 需要会员内容：连接页点 **B 站扫码登录**，手机 B 站 App 扫码即用。
 
-公网访问请务必套 HTTPS 反向代理（Nginx 需 `proxy_buffering off` 以支持实时进度流），并使用强口令与最小权限的 API 令牌。
+公网访问请务必套 HTTPS 反向代理（Nginx 需 `proxy_buffering off` 以支持实时进度流；反代上游要写**宿主机端口**而非容器端口），并使用强口令与最小权限的 API 令牌。反代的完整配置与排障见[部署指南](docs/17-部署指南.md) §6。
 
 ### 能力边界（诚实声明）
 
