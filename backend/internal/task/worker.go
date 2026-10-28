@@ -225,6 +225,21 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	before := engine.DirSnapshot(saveDir)
 	files, err := w.eng.Download(ctx, t.URL, opts, onProgress)
 	if err != nil {
+		// 下载被媒体源拒绝（403）→ 走**直取旁路**：用解析阶段拿到的媒体直链、
+		// 用 ffmpeg 拉流，Referer 指向媒体源自己而不是来源页。
+		//
+		// 为什么需要：通用提取器会把页面自己的请求头（含 Referer）抄到媒体
+		// 请求上，媒体 CDN 的防盗链策略据此拒绝 → 403。浏览器侧的下载插件是在
+		// 页面上下文里拦截请求、天然带对上下文；服务端只能自己定
+		// （详见 engine/media_fetch.go）。
+		if alt, ok := w.fetchMediaDirect(ctx, t, res, saveDir, err); ok {
+			files = alt
+			err = nil
+			_ = w.mgr.st.AppendEvent(t.ID, "info", "media_direct",
+				"媒体源拒绝了常规下载请求，已改用直链方式重新获取", "")
+		}
+	}
+	if err != nil {
 		// 下载失败：清理 yt-dlp 留下的 .part / .ytdl 孤儿文件。
 		// 只清本次下载开始后新增的临时文件，不动之前已存在的文件。
 		if n := engine.CleanOrphanFiles(saveDir, before); n > 0 {
@@ -948,4 +963,114 @@ func (w *Worker) pickCover(files []engine.DownloadedFile, mainPath string) strin
 		return ""
 	}
 	return base
+}
+
+// fetchMediaDirect 直取旁路：媒体源拒绝常规下载（403）时，用解析阶段拿到的
+// 媒体直链 + ffmpeg 拉流再试一次（Referer 指向媒体源自己）。
+//
+// 返回 (产物, true) 表示直取成功；ok=false 表示这条路径不适用或失败，
+// 交回调用方按原错误处理（不掩盖原始失败原因）。
+func (w *Worker) fetchMediaDirect(ctx context.Context, t *store.Task, res *engine.ResolveResult, saveDir string, dlErr error) ([]engine.DownloadedFile, bool) {
+	ffmpeg := w.mgr.Engines().FFmpegBin
+	if ffmpeg == "" || res == nil {
+		return nil, false
+	}
+	// 只在「媒体源拒绝」时才值得换路：其它失败（网络不通、格式没了）直取也救不了。
+	if engineErrCode(dlErr) != "HTTP_FORBIDDEN" {
+		return nil, false
+	}
+	video, audio := manifestSources(res.Formats)
+	if video == "" {
+		return nil, false
+	}
+	base := strings.TrimSuffix(filepath.Base(t.URL), filepath.Ext(t.URL))
+	name := fmt.Sprintf("%s [%s].mp4", sanitizeFileName(res.Title, 120), base)
+	dst := filepath.Join(saveDir, name)
+	_ = w.mgr.st.AppendEvent(t.ID, "info", "media_direct_start",
+		"改用直链方式获取媒体（Referer 指向媒体源）", "")
+
+	err := engine.FetchMediaDirect(ctx, ffmpeg, []engine.MediaSource{
+		{URL: video},
+		{URL: audio, Audio: true},
+	}, dst, float64(res.Duration), func(p engine.Progress) {
+		if p.Percent < 0 {
+			return
+		}
+		fields := map[string]any{}
+		if p.Percent >= 0 {
+			fields["progress"] = p.Percent
+		}
+		if p.Downloaded > 0 {
+			// 直取时时长常常未知（百分比算不出），但已写入的字节数是实的——
+			// 报出来用户才看得到「在动」。
+			fields["downloaded_size"] = p.Downloaded
+		}
+		if len(fields) > 0 {
+			_ = w.mgr.st.UpdateTaskFields(t.ID, fields, "")
+		}
+	})
+	if err != nil {
+		_ = w.mgr.st.AppendEvent(t.ID, "warn", "media_direct_failed",
+			"直链获取也失败："+err.Error(), "")
+		return nil, false
+	}
+	st, statErr := os.Stat(dst)
+	if statErr != nil || st.Size() == 0 {
+		return nil, false
+	}
+	return []engine.DownloadedFile{{Path: dst, Size: st.Size()}}, true
+}
+
+// manifestSources 从解析出的格式里挑出「清单型」媒体直链（视频流 + 音轨）。
+//
+// 只认清单（HLS/DASH）：普通直链文件用 yt-dlp 自己的下载器没问题，
+// 不该绕这一圈（绕了反而丢进度与断点续传）。
+func manifestSources(formats []engine.FormatInfo) (video, audio string) {
+	for _, f := range formats {
+		if !engine.IsManifestURL(f.URL) {
+			continue
+		}
+		if f.Quality == "audio" {
+			if audio == "" {
+				audio = f.URL
+			}
+			continue
+		}
+		if video == "" {
+			video = f.URL
+		}
+	}
+	return video, audio
+}
+
+// sanitizeFileName 文件名清洗（去掉路径分隔符与控制字符，截断到 n 个字符）。
+func sanitizeFileName(s string, n int) string {
+	s = strings.Map(func(r rune) rune {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', 0:
+			return -1
+		}
+		if r < 32 {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		s = "media"
+	}
+	runes := []rune(s)
+	if len(runes) > n {
+		s = string(runes[:n])
+	}
+	return s
+}
+
+// engineErrCode 取引擎错误的错误码（非引擎错误返回空串）。
+func engineErrCode(err error) string {
+	var ue *engine.EngineError
+	if errors.As(err, &ue) {
+		return ue.Code
+	}
+	return ""
 }
