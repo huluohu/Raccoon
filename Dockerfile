@@ -98,6 +98,40 @@ RUN curl -fsSL -o /usr/local/bin/yt-dlp \
     && chmod 0755 /usr/local/bin/yt-dlp \
     && yt-dlp --version
 
+# JS 运行时（quickjs-ng）：**免登录高画质的必要条件**（2026-10-29 实测）。
+#
+# 为什么必须有：yt-dlp 解析 YouTube 时靠 JS 解签名（nsig）。没有 JS 运行时，
+# 它会退化成 _DEFAULT_JSLESS_CLIENTS = ('visionos',) —— **只剩 1 个 player
+# client**；有运行时则是 _DEFAULT_CLIENTS = ('tv_samsung', 'visionos', 'web')
+# —— 3 个。实测（容器内 yt-dlp --verbose）：
+#
+#   无运行时：[youtube] Downloading visionos player API JSON          ← 1 个
+#   有运行时：[youtube] Downloading tv samsung player API JSON        ← 3 个
+#                [youtube] Downloading visionos player API JSON
+#
+# client 少了 → 可用格式池变小 → 匿名下载拿不到高画质（tv_samsung 是
+# 免登录能出高画质的主力 client）。yt-dlp 自己也警告：
+# "YouTube extraction without a JS runtime has been deprecated, and some
+# formats may be missing"。
+#
+# 为什么用 quickjs-ng 而不是官方推荐的 deno：
+#   - deno 解压后 91MB，quickjs-ng 只有 2MB（镜像瘦身优先，见 v1.0.5 瘦身记录）；
+#   - yt-dlp 的 EJS 只需要一个能跑 JS 的运行时，quickjs-ng 完全够用
+#     （yt-dlp --verbose 显示 "JS runtimes: quickjs-ng-0.17.0"）；
+#   - 二进制按架构取，amd64/arm64 都有官方 release。
+#
+# 放在 yt-dlp 之后：与 yt-dlp 同属「引擎」层，升级任一个都只重跑这一小段。
+ARG QUICKJS_VERSION=0.17.0
+RUN case "${TARGETARCH}" in \
+         amd64) QJS_ASSET=qjs-linux-x86_64 ;; \
+         arm64) QJS_ASSET=qjs-linux-aarch64 ;; \
+         *) echo "不支持的架构: ${TARGETARCH}"; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /usr/local/bin/qjs \
+         "https://github.com/quickjs-ng/quickjs/releases/download/v${QUICKJS_VERSION}/${QJS_ASSET}" \
+    && chmod 0755 /usr/local/bin/qjs \
+    && qjs --version
+
 COPY --from=go-build /out/raccoon /usr/local/bin/raccoon
 # 非 root 运行（方案 §7.1）
 RUN useradd --system --uid 1000 --create-home --home-dir /data raccoon

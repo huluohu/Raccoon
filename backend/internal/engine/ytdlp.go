@@ -131,6 +131,8 @@ func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*Res
 	// 完整条目信息由下载阶段单独拉，不受影响。
 	args := []string{"--dump-single-json", "--no-warnings", "--no-playlist", "--playlist-items", "1", "--socket-timeout", "20"}
 	args = append(args, y.impersonateArgs()...)
+	args = append(args, jsRuntimeArgs()...)
+	args = append(args, formatSortArgs()...)
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}
@@ -257,13 +259,45 @@ func (j ytdlpJSON) Thumbnails() string {
 	return best.URL
 }
 
-// collectFormats 每分辨率取最小体积候选（界面只展示一版），附加音频档。
+// collectFormats 每分辨率取**画质最好**的候选（界面只展示一版），附加音频档。
+//
+// 取哪一条必须与下载阶段一致（formatSortArgs 定的排序：同档内码率从高到低）。
+// 早先这里取的是**最小体积**那条，与下载阶段实际选中的流对不上：
+// B 站 1080p 预览显示 15.28MiB（AV1），下载却拿到 75.23MiB（AVC）；
+// 用户看到的体积与实际产物对不上号，等于预览在说谎。
+//
+// 「画质最好」的判据用码率（tbr），与 yt-dlp 的 br 排序字段同源：
+//  1. 码率高者胜（同分辨率下码率越高画质越好）；
+//  2. 码率缺失（0）时退回比体积，大者胜；
+//  3. 都拿不到时保留先到的那条（站点没给体积信息的常见情况）。
+//
+// 音频档同理取码率最高的一条（bestaudio 的口径），不再取最小体积。
 func collectFormats(fs []ytdlpFormat) []FormatInfo {
 	type cand struct {
 		id   string
 		size int64
+		br   float64
 		note string
 		url  string
+	}
+	// betterB 判定 a 是否比 b 更好（码率优先，体积兜底）。
+	betterB := func(a, b cand) bool {
+		if a.br > 0 && b.br > 0 {
+			return a.br > b.br
+		}
+		if a.br > 0 && b.br <= 0 {
+			return true
+		}
+		if a.br <= 0 && b.br > 0 {
+			return false
+		}
+		if a.size > 0 && b.size > 0 {
+			return a.size > b.size
+		}
+		if a.size > 0 && b.size <= 0 {
+			return true
+		}
+		return false
 	}
 	byHeight := map[int]cand{}
 	var audioBest *cand
@@ -274,17 +308,23 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 		} else if f.FilesizeApprox != nil {
 			sz = *f.FilesizeApprox
 		}
+		var br float64
+		if f.TBR != nil {
+			br = *f.TBR
+		}
 		if f.VCodec != "none" && f.Height > 0 {
-			c := cand{id: f.FormatID, size: sz, note: f.FormatNote, url: f.URL}
-			if old, ok := byHeight[f.Height]; !ok || (sz > 0 && sz < old.size) || old.size == 0 {
+			c := cand{id: f.FormatID, size: sz, br: br, note: f.FormatNote, url: f.URL}
+			old, ok := byHeight[f.Height]
+			if !ok || betterB(c, old) {
 				byHeight[f.Height] = c
 			}
 			continue
 		}
 		if f.VCodec == "none" && f.ACodec != "none" {
-			c := cand{id: f.FormatID, size: sz, note: "audio", url: f.URL}
-			if audioBest == nil || (sz > 0 && (*audioBest).size == 0) || (sz > 0 && sz < (*audioBest).size) {
-				audioBest = &c
+			c := cand{id: f.FormatID, size: sz, br: br, note: "audio", url: f.URL}
+			if audioBest == nil || betterB(c, *audioBest) {
+				best := c
+				audioBest = &best
 			}
 		}
 	}
@@ -349,6 +389,8 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 		"-o", opts.NameTmpl,
 	}
 	args = append(args, y.impersonateArgs()...)
+	args = append(args, jsRuntimeArgs()...)
+	args = append(args, formatSortArgs()...)
 	if sel := formatSelector(opts.Format); sel != "" {
 		args = append(args, "-f", sel)
 	}
@@ -496,7 +538,7 @@ func parseMergedPaths(output string) []string {
 // Bilibili 专有 format id，只有 B 站认；其它站点（YouTube 的 137/398、
 // PornHub 的 hls-383）全匹配不上，只能靠末尾的 /b 兜底。
 //
-// 通用写法：`bv*[height<=N]+ba/b[height<=N]/b`
+// 通用写法：`bv*+ba/b[height<=N]+ba/b[height<=N]/b`
 //
 //	bv*+ba      → 优先取「视频流 + 音频流」合并（B 站/YouTube 等 DASH 站）
 //	b[height<=N] → 站点若直接提供 combined 流且高度达标，取它
@@ -506,6 +548,9 @@ func parseMergedPaths(output string) []string {
 // 格式列表可能变化（PornHub 实测：同一视频解析时列 240p/480p/720p 三档，
 // 下载那次只剩 720p 的 hls-383）。若用户选了此时已不存在的档位，
 // 严格的高度匹配会直接 FORMAT_UNAVAILABLE —— 宁可降档下载，也不能让任务失败。
+//
+// 表达式只管「选哪一档分辨率」，**同分辨率下选哪条流**由 formatSortArgs
+// 决定（见该函数注释）—— 两件事必须分开，否则没法单独调整排序策略。
 func formatSelector(q string) string {
 	switch q {
 	case "audio":
@@ -524,6 +569,36 @@ func formatSelector(q string) string {
 		// 已知 format id 透传（解析预览 Agent 回来具体 id 的场景）。
 		return q
 	}
+}
+
+// formatSortArgs 同分辨率下的格式排序参数（--format-sort）。
+//
+// 为什么需要它（2026-10-29 实测，B 站免登录）：
+//
+// 同一档 1080p，B 站同时提供三条流：
+//
+//	30080  avc1.640032   2629k   ≈66.58MiB
+//	100113 hev1.1.6.L150 749k    ≈18.97MiB
+//	100026 av01.0.08M.08 604k    ≈15.28MiB
+//
+// yt-dlp 自带的默认排序把 **vcodec 排在 br 前面**，且其 vcodec 偏好序是
+// av01 > vp9 > hevc > avc —— 于是「同分辨率下码率最高的那条」恰恰排在最后：
+// 默认 `-f bv*+ba/b` 实测选中 100026（AV1，21MB 成品），而不是 30080
+// （AVC，75MB 成品）。同一分辨率、同样的 1080P，用户拿到的画质差 3.5 倍。
+//
+// 这里显式指定排序：**先按分辨率/帧率，同档内按码率从高到低**，
+// 让「best」真的等于「同分辨率下画质最好的那条」。
+//
+// 为什么用 --format-sort 而不是改 -f 表达式：-f 只能按属性做**过滤**
+// （如 [vcodec^=avc1]），做不到「同属性下取码率最大」——那必须靠排序。
+// 而排序字段写成站点无关的形式（res/fps/br），对所有站点都成立，
+// 不像 [vcodec^=avc1] 那样只对某些站点有意义。
+//
+// 兼容性：--format-sort 是 yt-dlp 的稳定选项（2021 年起就有），
+// 老版本不认会直接报错退出的风险由引擎版本探测覆盖；
+// 且排序只影响「同档内挑哪条」，不会把不匹配的视频流选出来。
+func formatSortArgs() []string {
+	return []string{"--format-sort", "res,fps,br,size"}
 }
 
 // parseItemOf 解析播放列表条目行 "[download] Downloading item 3 of 25"
