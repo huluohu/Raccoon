@@ -5,8 +5,9 @@ package qb
 // 分工：api.go 只放协议契约（路径 + 线上结构体），本文件只放业务逻辑
 // （会话维护、参数拼装、结果归一化）。改协议只动 api.go。
 //
-// 会话模型：qB 用一个名为 SID 的 Cookie 维持登录态。客户端拿到 SID 后
-// 缓存在 Client 里，后续请求都带上它；业务接口返回 403 说明会话已失效
+// 会话模型：qB 用会话 Cookie 维持登录态（4.x 叫 SID，5.x 叫 QBT_SID_<端口>）。
+// 客户端拿到会话 Cookie 后
+// 缓存在 Client 里，后续请求都带上它；业务接口返回 403/401 说明会话已失效
 // （qB 重启或被踢下线都会这样），此时自动重登一次并重放请求——种子提交是
 // 幂等性要求不高的写操作，重放一次的代价远小于让用户手工重试。
 
@@ -38,8 +39,18 @@ const (
 	// maxResponseBytes 响应体读取上限，防止异常响应撑爆内存。
 	maxResponseBytes = 8 << 20
 
-	// sessionCookieName 会话 Cookie 名。
+	// sessionCookieName 会话 Cookie 名（qB 4.x 的写法）。
 	sessionCookieName = "SID"
+
+	// sessionCookiePrefix qB 5.x 的会话 Cookie 前缀。
+	//
+	// 2026-10-30 实测 qBittorrent v5.3.0：登录返回的会话 Cookie 叫
+	// **QBT_SID_<端口>**（如 QBT_SID_8080），不是 4.x 的 "SID"。
+	// 只认 "SID" 的话，5.x 上登录「成功」却拿不到会话 Cookie，客户端
+	// 当场报「登录成功但未返回会话 Cookie」——**整个 qB 通道对 5.x 用户
+	// 完全不可用**（连接测试失败、种子任务全挂）。
+	// 两种命名都认：4.x 按全名匹配，5.x 按前缀匹配（端口号随 WebUI 端口变）。
+	sessionCookiePrefix = "QBT_SID_"
 )
 
 // Config 客户端构造参数。
@@ -70,8 +81,9 @@ type Client struct {
 	userAgent string
 	timeout   time.Duration
 
-	mu  sync.Mutex
-	sid string
+	mu      sync.Mutex
+	sid     string
+	sidName string
 }
 
 // New 构造客户端。
@@ -98,8 +110,9 @@ func New(cfg Config) *Client {
 
 // Login 登录 qB 并保存会话 Cookie（SID）。
 //
-// qB 对「用户名或密码错误」统一返回 403（响应体固定是 "Fails."），没有更细
-// 的错误码，所以 403 直接翻译成 ErrAuthFailed 让上层能区分"凭据错"和
+// qB 对「用户名或密码错误」返回 403（4.6.x）或 401（5.x，响应体固定
+// "Fails."），没有更细的错误码，所以这两个码直接翻译成 ErrAuthFailed
+// 让上层能区分"凭据错"和
 // "网络不通"。
 func (c *Client) Login(ctx context.Context) error {
 	form := url.Values{}
@@ -118,24 +131,31 @@ func (c *Client) Login(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode == http.StatusForbidden {
+	// qB 对「用户名或密码错误」的返回码**版本相关**：
+	//   - 4.6.x：403（响应体固定 "Fails."）
+	//   - 5.x  ：401（实测 qBittorrent v5.3.0，容器端口映射访问亦然）
+	// 只认 403 的话，5.x 上密码填错会掉进下面的通用 APIError，
+	// 用户看到的是干巴巴的 "401"，而不是「用户名或密码错误」。
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf("%w: 用户名或密码错误", ErrAuthFailed)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &APIError{Endpoint: PathAuthLogin, Status: resp.StatusCode, Body: string(raw)}
 	}
-	sid := ""
+	sid, sidName := "", ""
 	for _, ck := range resp.Cookies() {
-		if ck.Name == sessionCookieName {
-			sid = ck.Value
+		// 4.x = "SID"；5.x = "QBT_SID_<端口>"。
+		if ck.Name == sessionCookieName || strings.HasPrefix(ck.Name, sessionCookiePrefix) {
+			sid, sidName = ck.Value, ck.Name
 			break
 		}
 	}
 	if sid == "" {
-		// 没有 SID 就无法复用登录态，后面每个接口都会 403，不如当场报错。
-		return fmt.Errorf("qb: %s 登录成功但未返回 %s 会话 Cookie", PathAuthLogin, sessionCookieName)
+		// 没有会话 Cookie 就无法复用登录态，后面每个接口都会 403/401，不如当场报错。
+		return fmt.Errorf("qb: %s 登录成功但未返回会话 Cookie（期望 %s 或 %s<端口>）",
+			PathAuthLogin, sessionCookieName, sessionCookiePrefix)
 	}
-	c.setSID(sid)
+	c.setSID(sidName, sid)
 	return nil
 }
 
@@ -155,10 +175,15 @@ func (c *Client) IsAvailable(ctx context.Context) error {
 	return nil
 }
 
-// setSID 记下会话 Cookie。
-func (c *Client) setSID(sid string) {
+// setSID 记下会话 Cookie（名 + 值）。
+//
+// 为什么记「名」而不只是「值」：qB 4.x 的会话 Cookie 叫 SID，5.x 叫
+// QBT_SID_<端口>（实测 v5.3.0）。qB 校验的是**完整的 Cookie 头**，
+// 光把值换个名字发回去会 403（会话无效）。所以原样记、原样发。
+func (c *Client) setSID(name, value string) {
 	c.mu.Lock()
-	c.sid = sid
+	c.sidName = name
+	c.sid = value
 	c.mu.Unlock()
 }
 
@@ -166,6 +191,7 @@ func (c *Client) setSID(sid string) {
 func (c *Client) clearSID() {
 	c.mu.Lock()
 	c.sid = ""
+	c.sidName = ""
 	c.mu.Unlock()
 }
 
@@ -174,6 +200,23 @@ func (c *Client) sessionID() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.sid
+}
+
+// sessionCookieHeader 取当前会话 Cookie 的完整头值（"名=值"）。
+//
+// qB 5.x 的会话 Cookie 名带端口号（QBT_SID_8080），qB 按**原名**校验，
+// 换名发送一律 403。没拿到名字时回落到 4.x 的 SID。
+func (c *Client) sessionCookieHeader() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sid == "" {
+		return ""
+	}
+	name := c.sidName
+	if name == "" {
+		name = sessionCookieName
+	}
+	return name + "=" + c.sid
 }
 
 // ---- 种子管理 ----
@@ -193,15 +236,33 @@ func (c *Client) AddMagnet(ctx context.Context, magnet string, opts AddOptions) 
 	if err != nil {
 		return "", err
 	}
-	if err := c.doAuth(ctx, apiCall{
+	err = c.doAuth(ctx, apiCall{
 		method:      http.MethodPost,
 		path:        PathTorrentsAdd,
 		contentType: contentType,
 		body:        body,
-	}, nil); err != nil {
+	}, nil)
+	if err != nil {
+		// 409 = qB 里已经有这个种子了（实测 v5.3.0 返回 409 Conflict）。
+		//
+		// 这**不是失败**：qB 已经在下载它了，任务应当继续走轮询。
+		// 早先当成错误 → 同一磁力重复提交（用户重试、两个任务撞车、
+		// 换通道再提交）一律失败，且提示是「提交失败 409」这种天书。
+		if isConflict(err) {
+			return hash, nil
+		}
 		return "", err
 	}
 	return hash, nil
+}
+
+// isConflict 判断错误是否为 HTTP 409（qB 的「种子已存在」）。
+func isConflict(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Status == http.StatusConflict
+	}
+	return false
 }
 
 // AddTorrentFile 以 multipart 方式上传 .torrent 文件。
@@ -425,9 +486,12 @@ func (c *Client) do(ctx context.Context, call apiCall, out any) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode == http.StatusForbidden {
-		// 业务接口的 403 只会是"会话没了"，与登录接口的 403 含义不同。
-		return fmt.Errorf("qb: %s 返回 403，会话已失效: %w", call.path, ErrNoSession)
+	// 业务接口的 403/401 都只表示"会话没了"（与登录接口的同码含义不同）：
+	// qB 4.6.x 返回 403，5.x 返回 401（实测 v5.3.0）。两种都要认，
+	// 否则 5.x 上会话一失效就不会触发「清 SID 重登再重放」，
+	// 任务直接失败——而它本可以自动恢复。
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("qb: %s 返回 %d，会话已失效: %w", call.path, resp.StatusCode, ErrNoSession)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &APIError{Endpoint: call.path, Status: resp.StatusCode, Body: string(raw)}
@@ -474,8 +538,8 @@ func (c *Client) send(ctx context.Context, call apiCall) (*http.Response, []byte
 		req.Header.Set("User-Agent", c.userAgent)
 	}
 	if !call.noCookie {
-		if sid := c.sessionID(); sid != "" {
-			req.Header.Set("Cookie", sessionCookieName+"="+sid)
+		if cookie := c.sessionCookieHeader(); cookie != "" {
+			req.Header.Set("Cookie", cookie)
 		}
 	}
 	resp, err := c.http.Do(req)

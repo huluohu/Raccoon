@@ -45,6 +45,15 @@ const chosenQuality = ref('')
 /** 产物格式：''=源格式（默认）/ mp4 / mp3；post 阶段由 ffmpeg remux 或转码。 */
 const chosenFormat = ref('')
 
+/** 是否磁力链接（只有磁力才能交给 qB / 115 通道）。 */
+function isMagnet(u: string): boolean {
+  return /^magnet:\?/i.test((u || '').trim())
+}
+/** 下载通道：''=自动（按存储策略）/ qb / n115。只对磁力链接有意义。 */
+const chosenKind = ref('')
+/** 批量面板的下载通道选择（整批生效）。 */
+const batchKind = ref('')
+
 async function onPreview(target?: string) {
   // 用 QuickSubmit 抛上来的链接（它已做过格式校验 + 分享文案提取），
   // 不要重新读 url.value —— 那是原始输入，可能还带着一整段分享文案。
@@ -71,7 +80,7 @@ async function onAddToDownload() {
   submitting.value = true
   parseErr.value = ''
   try {
-    await tasks.submit(preview.value.url, chosenQuality.value, chosenFormat.value)
+    await tasks.submit(preview.value.url, chosenQuality.value, chosenFormat.value, chosenKind.value)
     preview.value = null
     url.value = ''
     toast.success('已加入下载队列')
@@ -159,7 +168,12 @@ async function onBatchSubmit(mode: 'normal' | 'parent') {
   }
   batchSubmitting.value = true
   batchErr.value = ''
-  const payload = items.map((i) => ({ url: i.url, quality: i.quality || 'best' }))
+  // 通道选择对整批生效（batchKind 是批量面板上的单选）。
+  const payload = items.map((i) => ({
+    url: i.url,
+    quality: i.quality || 'best',
+    ...(batchKind.value ? { kind: batchKind.value } : {}),
+  }))
   try {
     if (mode === 'parent') {
       // 父任务创建走 POST /tasks/parent（docs/05 §5）：父卡聚合子进度。
@@ -608,6 +622,27 @@ onBeforeUnmount(() => {
         <p v-if="mediaHostPreview" class="pv-host-hint">
           媒体直链域名：<span class="pv-host-name">{{ mediaHostPreview }}</span>
         </p>
+        <!-- 下载通道：磁力/种子可以交给 qBittorrent 或 115 网盘离线下载，
+             不用本机跑下载。留空=自动（按「存储策略」设置走）。
+             只有磁力链接才有意义，普通直链走本地下载。 -->
+        <div v-if="isMagnet(preview.url)" class="fmt-row" role="radiogroup" aria-label="下载通道">
+          <span class="fmt-label">通道</span>
+          <button
+            v-for="opt in [
+              { v: '', label: '自动' },
+              { v: 'qb', label: 'qBittorrent' },
+              { v: 'n115', label: '115 网盘' },
+            ]"
+            :key="opt.v"
+            type="button"
+            class="q fmt"
+            :class="{ on: chosenKind === opt.v }"
+            :title="opt.v === 'qb' ? '交给 qBittorrent 下载（需在「连接」页配置 qB）' : opt.v === 'n115' ? '交给 115 网盘离线下载（需配置 115 凭据）' : '按「存储策略」设置自动选择'"
+            @click="chosenKind = opt.v"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <!-- 产物格式：默认源格式零开销；MP4 优先无损 remux（不兼容才转码）、MP3 提取音轨。 -->
         <div class="fmt-row" role="radiogroup" aria-label="产物格式">
           <span class="fmt-label">格式</span>
@@ -670,6 +705,25 @@ onBeforeUnmount(() => {
         </RButton>
       </div>
       <p v-if="batchErr" class="err">{{ batchErr }}</p>
+
+      <!-- 下载通道：整批生效。留空=自动（按「存储策略」设置走）。 -->
+      <div class="fmt-row" role="radiogroup" aria-label="下载通道">
+        <span class="fmt-label">通道</span>
+        <button
+          v-for="opt in [
+            { v: '', label: '自动' },
+            { v: 'qb', label: 'qBittorrent' },
+            { v: 'n115', label: '115 网盘' },
+          ]"
+          :key="opt.v"
+          type="button"
+          class="q fmt"
+          :class="{ on: batchKind === opt.v }"
+          @click="batchKind = opt.v"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
 
       <ul v-if="batchItems.length" class="batch-list">
         <li v-for="item in batchItems" :key="item.url" class="batch-item">

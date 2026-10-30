@@ -19,6 +19,7 @@ import (
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/live"
 	"github.com/huluohu/raccoon/internal/netguard"
+	"github.com/huluohu/raccoon/internal/qb"
 	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
 	"github.com/huluohu/raccoon/internal/subscription"
@@ -116,6 +117,33 @@ type submitItemJSON struct {
 	SavePath  string `json:"save_path"`
 	ConvertTo string `json:"convert_to"`      // ""=源格式 / mp4 / mp3
 	Proxy     string `json:"proxy,omitempty"` // 任务级指定代理
+	// Kind 任务通道：""=自动（磁力按存储策略，其余本地下载）/ download=本地 /
+	// qb=qBittorrent / n115=115 网盘离线。
+	//
+	// 2026-10-30 加：此前这条通道选择**只能靠全局存储策略**（storage.strategy）
+	// 决定——想给单个任务走 115，就得把全局策略翻成 n115_first，
+	// 于是**所有**任务都跟着变。用户问「下载时如何直接选择用 115 或 qB」，
+	// 答案是「做不到」。现在单任务可显式指定，全局策略仍是默认值。
+	Kind string `json:"kind,omitempty"`
+}
+
+// normalizeSubmitKind 归一任务通道取值；非法值返回错误。
+//
+// 只接受白名单里的三种显式通道 + 空串（自动）——通道值会进库并决定
+// 哪个执行器接管，非法值不能被静默当成「本地下载」。
+func normalizeSubmitKind(kind string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "":
+		return "", nil
+	case task.KindDownload:
+		return task.KindDownload, nil
+	case task.KindQB:
+		return task.KindQB, nil
+	case task.KindN115:
+		return task.KindN115, nil
+	default:
+		return "", httpx.Validation("任务通道只能是 download / qb / n115（留空=自动）")
+	}
 }
 
 func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error {
@@ -138,8 +166,11 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 		//
 		// 入口 URL 是公网地址，不代表链路终点也是——一个 302 就能把服务端
 		// 带到 169.254.169.254（云元数据）或本机管理端口去。
-		if err := netguard.CheckRedirectChain(r.Context(), it.URL, netguard.DefaultMaxRedirects); err != nil {
-			return httpx.Validation("链接重定向到不安全地址（防 SSRF）：" + err.Error())
+		// 磁力没有 HTTP 链路（真正去拉种子的是 qB/115），不查重定向。
+		if !engine.IsMagnet(it.URL) {
+			if err := netguard.CheckRedirectChain(r.Context(), it.URL, netguard.DefaultMaxRedirects); err != nil {
+				return httpx.Validation("链接重定向到不安全地址（防 SSRF）：" + err.Error())
+			}
 		}
 		// 任务级代理也要校验：此前零校验，认证用户可以把代理指向内网/云元数据地址，
 		// 让引擎替他把请求发过去（出站跳板）。私网代理是正当用法，所以只禁链路本地。
@@ -157,13 +188,35 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 		return nil
 	}
 	// 引擎可用性（任务入队前自检；缺失 503）。
-	if err := s.tasks.Engines().YTDLP.Available(); err != nil {
-		return &httpx.Error{HTTP: http.StatusServiceUnavailable, Code: httpx.CodeNoEngine, Message: err.Error()}
+	//
+	// 只有「本地下载」需要 yt-dlp：走 qB / 115 的任务由**它们**去下载，
+	// 本机不需要引擎。2026-10-30 修：此前无条件要求 yt-dlp 可用，
+	// 于是「种子交给 qB」这种部署（故意不装 yt-dlp 的省资源机器）也提交不了。
+	needEngine := true
+	for _, it := range req.Items {
+		if k, kerr := normalizeSubmitKind(it.Kind); kerr == nil && k != "" && k != task.KindDownload {
+			needEngine = false
+			break
+		}
+		if it.Kind == "" && engine.IsMagnet(it.URL) {
+			// 磁力按存储策略可能走 qB/115——但也可能走本地（qB 未配时失败）。
+			// 保守起见仍要求引擎可用。
+			continue
+		}
+	}
+	if needEngine {
+		if err := s.tasks.Engines().YTDLP.Available(); err != nil {
+			return &httpx.Error{HTTP: http.StatusServiceUnavailable, Code: httpx.CodeNoEngine, Message: err.Error()}
+		}
 	}
 	items := make([]task.SubmitItem, 0, len(req.Items))
 	for _, it := range req.Items {
 		if !task.ValidConvertTargets[strings.ToLower(strings.TrimSpace(it.ConvertTo))] && strings.TrimSpace(it.ConvertTo) != "" {
 			return httpx.Validation("convert_to 需为 mp4 / mp3")
+		}
+		kind, err := normalizeSubmitKind(it.Kind)
+		if err != nil {
+			return err
 		}
 		items = append(items, task.SubmitItem{
 			URL:       it.URL,
@@ -171,6 +224,7 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 			SavePath:  it.SavePath,
 			ConvertTo: it.ConvertTo,
 			Proxy:     it.Proxy,
+			Kind:      kind,
 		})
 	}
 	u := userFrom(r)
@@ -474,9 +528,24 @@ func validateOutboundURL(raw string) error {
 	if raw == "" {
 		return httpx.Validation("URL 不能为空")
 	}
+	// 磁力链接：qB / 115 通道的入口形态。
+	//
+	// 2026-10-30 修：此前这里只放行 http/https，**磁力链接在所有入口都被
+	// 拒掉**（Web 提交、批量、解析、Telegram、微信），于是
+	// 「磁力 → 按存储策略路由到 qB/115」这条链路（manager.Submit 里写着的
+	// 逻辑）**从用户侧永远走不到**——qB 配好了也收不到任何种子。
+	//
+	// 磁力链接没有主机名，SSRF 那套网段判定用不上（服务端不抓它，
+	// 真正去拉种子的是 qB/115）。这里只校验 info_hash 合法。
+	if engine.IsMagnet(raw) {
+		if _, err := qb.ParseInfoHash(raw); err != nil {
+			return httpx.Validation("磁力链接无效：缺少合法的 info_hash")
+		}
+		return nil
+	}
 	u := strings.ToLower(raw)
 	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
-		return httpx.Validation("仅支持 http/https 链接")
+		return httpx.Validation("仅支持 http/https 链接或 magnet 磁力链接")
 	}
 	host := hostOf(raw)
 	if host == "" {

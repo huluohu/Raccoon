@@ -144,6 +144,12 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 			return err
 		}
 	}
+	// 父任务的子任务同样支持显式指定通道（磁力批量走 115 / qB）。
+	for _, it := range req.Items {
+		if _, err := normalizeSubmitKind(it.Kind); err != nil {
+			return err
+		}
+	}
 	if err := s.tasks.Engines().YTDLP.Available(); err != nil {
 		return &httpx.Error{HTTP: http.StatusServiceUnavailable, Code: httpx.CodeNoEngine, Message: err.Error()}
 	}
@@ -182,15 +188,27 @@ func (s *Server) handleTaskParentCreate(w http.ResponseWriter, r *http.Request) 
 		// 否则同一链接走「单条提交」和「批量提交」两条路会算出不同 key，判重失效、
 		// 同一视频被重复下载。
 		childPlatform := engine.PlatformGuess(norm)
+		// 子任务通道：显式指定优先，否则按 URL 形态自动（磁力→按存储策略，其余本地）。
+		childKind := task.KindDownload
+		if k, kerr := normalizeSubmitKind(it.Kind); kerr == nil && k != "" {
+			childKind = k
+		} else if engine.IsMagnet(norm) {
+			childKind = task.SubmitKindFor(s.cfg.GetString("storage.strategy"))
+		}
+		if childKind == task.KindQB {
+			childPlatform = "qb"
+		} else if childKind == task.KindN115 {
+			childPlatform = "115"
+		}
 		child := &store.Task{
 			ID:        store.NewTaskID(), // 同上：CreateTask 不补 ID
 			ParentID:  &pid,
-			Kind:      task.KindDownload,
+			Kind:      childKind,
 			Source:    task.SourceWeb,
 			SourceRef: parent.ID,
 			Platform:  childPlatform,
 			URL:       norm,
-			DedupeKey: store.DedupeKey(task.KindDownload, childPlatform, norm),
+			DedupeKey: store.DedupeKey(childKind, childPlatform, norm),
 			Status:    task.StatusWaiting,
 			Quality:   it.Quality,
 			SavePath:  it.SavePath,

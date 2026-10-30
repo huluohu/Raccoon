@@ -91,14 +91,36 @@ func (s *Server) testConnection(target string, params map[string]any) connTestRe
 			res.Message = "Telegram 返回异常状态: " + resp.Status
 		}
 	case "n115":
-		cookie := str("cookie_uid")
-		if cookie == "" {
-			res.Message = "未配置 115 账号标识（cookie_uid）"
+		// 2026-10-30 修：这段此前要求一个名为 "cookie_uid" 的参数，
+		// 而配置里根本没有这个键（只有 n115.access_token / client_id /
+		// refresh_token），前端也不传——于是这个分支**永远**返回
+		// 「未配置 115 账号标识」，测不出任何东西。改为按真实配置判定：
+		// 有 access_token 就算「已配置」，再对配置里的网关做一次连通性探测。
+		token := str("access_token")
+		if token == "" && s.cfg != nil {
+			token = s.cfg.GetString("n115.access_token")
+		}
+		if token == "" {
+			res.Message = "未配置 115 Access Token（可在下方输入后点击测试）"
 			return res
 		}
-		// 115 开放接口需完整鉴权参数，这里只做连通性探测（如实说明限制）。
+		host := str("host")
+		if host == "" && s.cfg != nil {
+			host = s.cfg.GetString("n115.base_url")
+		}
+		if host == "" {
+			host = "https://proapi.115.com"
+		}
+		if !strings.Contains(host, "://") {
+			host = "https://" + host
+		}
+		u, err := url.Parse(host)
+		if err != nil || u.Host == "" {
+			res.Message = "115 网关地址非法：" + host
+			return res
+		}
 		start := time.Now()
-		conn, err := net.DialTimeout("tcp", "115.com:443", 8*time.Second)
+		conn, err := net.DialTimeout("tcp", u.Host+":443", 8*time.Second)
 		res.LatencyMS = time.Since(start).Milliseconds()
 		if err != nil {
 			res.Message = "无法连接 115: " + err.Error()
@@ -106,7 +128,7 @@ func (s *Server) testConnection(target string, params map[string]any) connTestRe
 		}
 		_ = conn.Close()
 		res.OK = true
-		res.Message = "网络可达（鉴权需在真实下载任务中验证）"
+		res.Message = fmt.Sprintf("凭据已配置、网络可达（延迟 %dms；鉴权需在真实下载任务中验证）", res.LatencyMS)
 	case "proxy":
 		raw := str("proxy")
 		if raw == "" && s.cfg != nil {

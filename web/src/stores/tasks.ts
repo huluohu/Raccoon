@@ -238,10 +238,10 @@ export const useTasksStore = defineStore('tasks', () => {
 
   // ---- 操作 ----
 
-  async function submit(url: string, quality?: string, convertTo?: string): Promise<void> {
+  async function submit(url: string, quality?: string, convertTo?: string, kind?: string): Promise<void> {
     error.value = ''
     try {
-      await api.createTasks([{ url, quality, convert_to: convertTo || undefined }])
+      await api.createTasks([{ url, quality, convert_to: convertTo || undefined, kind: kind || undefined }])
       await refresh()
     } catch (e) {
       error.value = e instanceof ApiError ? e.message : '提交失败'
@@ -251,7 +251,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** 提交父任务（批量）：父卡 + 子任务树（docs/05 §5）。 */
   async function submitParent(
-    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string; kind?: string }[],
     quality?: string,
   ): Promise<CreateParentTasksResponse> {
     error.value = ''
@@ -272,7 +272,7 @@ export const useTasksStore = defineStore('tasks', () => {
 
   /** 普通批量提交（POST /tasks，一次多条，冲突项单独报出）。 */
   async function submitBatch(
-    items: { url: string; quality?: string; save_path?: string; convert_to?: string }[],
+    items: { url: string; quality?: string; save_path?: string; convert_to?: string; kind?: string }[],
   ): Promise<CreateTasksResponse> {
     error.value = ''
     try {

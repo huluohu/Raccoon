@@ -464,9 +464,25 @@ func (s *Server) handleWeChatMessage(w http.ResponseWriter, r *http.Request) err
 		return nil
 	}
 
+	// SSRF 校验：微信转发的是**聊天内容**（外部输入），不能因为入口是
+	// webhook 就跳过校验——Telegram 路径是有的（validateOutboundURL）。
+	// 少这一步等于给微信通道开了个内网探测的口子（云元数据端点等）。
 	var items []task.SubmitItem
+	var rejected []string
 	for _, u := range urls {
+		if err := validateOutboundURL(u); err != nil {
+			rejected = append(rejected, u+"："+err.Error())
+			continue
+		}
 		items = append(items, task.SubmitItem{URL: u})
+	}
+	if len(items) == 0 {
+		reply, _ := wechat.FormatReplyXML(msg.FromUserName, msg.ToUserName,
+			"抱歉，链接不被允许（防 SSRF）：\n"+strings.Join(rejected, "\n"))
+		w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(reply)
+		return nil
 	}
 	results, err := s.tasks.Submit(items, task.SourceAPI, "wechat:"+msg.FromUserName)
 	if err != nil {

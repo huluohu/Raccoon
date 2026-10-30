@@ -71,7 +71,7 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | /tasks | 列表：status/platform/source/q/kind 过滤，游标分页；附 `counts` 各状态计数（总览页用） |
-| POST | /tasks | 创建：`{items:[{url,quality?,save_path?,convert_to?,options?}], preview:false, parent_id?}`；`preview:true` 不落库只返回解析结果。重复提交 409 + `existing_task_id`。`convert_to`：产物目标格式，缺省=源格式，可选 `mp4`（post 阶段优先无损 remux，编解码不兼容才 H.264 转码）/ `mp3`（提取音轨）；转换失败保留源格式并记 warn 事件，不推翻下载成功 |
+| POST | /tasks | 创建：`{items:[{url,quality?,save_path?,convert_to?,kind?,options?}], preview:false, parent_id?}`；`preview:true` 不落库只返回解析结果。重复提交 409 + `existing_task_id`。`convert_to`：产物目标格式，缺省=源格式，可选 `mp4`（post 阶段优先无损 remux，编解码不兼容才 H.264 转码）/ `mp3`（提取音轨）；转换失败保留源格式并记 warn 事件，不推翻下载成功。`kind`：**逐任务的下载通道**，缺省=自动（磁力按 `storage.strategy` 路由，其余本地下载），可显式指定 `download`（本地）/ `qb`（qBittorrent）/ `n115`（115 网盘离线）；非法值 400。**URL 支持 magnet 磁力链接**（info_hash 须合法；服务端不抓它，真正去拉种子的是 qB/115） |
 | GET | /tasks/{id} | 详情（含子任务计数、当前配置版本、尝试次数、失败修复提示）。另含 `media_url`/`media_host`：解析阶段拿到的**真实媒体直链**与它的主机名（如 googlevideo.com）——解析打的是站点 API、下载打的是媒体 CDN，两者常不是同一个域名，「解析成功却下载失败」十有八九出在后者上；直链带签名有时效，**仅用于排查与展示**，不做断点续传复用 |
 | GET | /tasks/{id}/events | 事件流（结构化 + 引擎日志 warn/error），游标分页 |
 | GET | /tasks/{id}/thumbnail | 缩略图代理：服务端下载平台封面 → 去黑边 → 缩放到 640 宽 → 缓存返回（`Cache-Control: public, max-age=86400`）。不直连平台 CDN 的原因：平台封面常把 2.35:1 画面垫在 16:9 画布里（黑边裁不掉）、部分平台防盗链/签名过期、每个客户端都要重复回源。服务端拉不到时 **302 回原始直链**（客户端可能有别的出口）。无缩略图 → 404 |
@@ -271,7 +271,7 @@ event: config.changed data: {"keys":["download.quality"],"effective":"next_task"
 
 ```
 rc login --server http://127.0.0.1:8530 --token <t>
-rc add <url> [--quality 1080p] [--path /media/xx] [--no-preview]
+rc add <url> [--quality 1080p] [--kind qb|n115|download] [--path /media/xx] [--no-preview]
 rc list [--status downloading] [--json]
 rc status <task-id> [--follow]          # --follow 走 SSE
 rc cancel <task-id> | rc retry <task-id>

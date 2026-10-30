@@ -131,6 +131,7 @@ func mcpTools() []mcpToolDesc {
 			InputSchema: obj(map[string]any{
 				"url":        str("要下载的链接"),
 				"quality":    str("清晰度：best/2160p/1440p/1080p/720p/480p/360p/audio（分辨率档位以解析预览给出的为准），留空用默认"),
+				"kind":       str("下载通道：qb（qBittorrent）/ n115（115 网盘离线）/ download（本地下载）；留空=自动（磁力按存储策略，其余本地）"),
 				"convert_to": str("产物格式：mp4 / mp3，留空保持源格式"),
 				"no_preview": map[string]any{"type": "boolean", "description": "跳过解析预览直接入队（默认 false）"},
 			}, "url"),
@@ -194,6 +195,9 @@ func mcpToolsCall(params json.RawMessage) (any, map[string]any) {
 		}
 		if c := argStr("convert_to"); c != "" {
 			item["convert_to"] = c
+		}
+		if k := argStr("kind"); k != "" {
+			item["kind"] = k
 		}
 		method, path, body = http.MethodPost, "/api/v1/tasks", map[string]any{
 			"items": []any{item}, "preview": false,

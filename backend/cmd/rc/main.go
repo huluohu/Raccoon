@@ -6,7 +6,7 @@
 // 用法：
 //
 //	rc login --server http://127.0.0.1:8530 --token <t>
-//	rc add <url> [--quality 1080p] [--path /media/xx] [--no-preview] [--json]
+//	rc add <url> [--quality 1080p] [--kind qb|n115] [--path /media/xx] [--no-preview] [--json]
 //	rc list [--status downloading] [--json]
 //	rc status <task-id> [--follow] [--json]
 //	rc cancel <task-id> | rc retry <task-id>
@@ -87,6 +87,7 @@ func usage() {
   rc login --server <url> --token <token>     保存服务地址与 API Token
   rc add <url>... [选项]                      提交下载任务（多链接 = 批量）
        --quality <档位>   清晰度（best/2160p/1440p/1080p/720p/480p/360p/audio）
+       --kind <通道>      下载通道：qb（qBittorrent）/ n115（115 网盘）/ download（本地下载）
        --path <目录>      保存目录（相对数据根）
        --no-preview       跳过解析预览直接入队
        --json             输出 JSON
@@ -267,7 +268,7 @@ func cmdLogin(args []string) error {
 
 func cmdAdd(args []string) error {
 	var urls []string
-	quality, path, convert := "", "", ""
+	quality, path, convert, kind := "", "", "", ""
 	preview, asJSON, asJSONL := true, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -280,6 +281,15 @@ func cmdAdd(args []string) error {
 				return fmt.Errorf("--quality 缺参数")
 			}
 			quality = args[i]
+		case a == "--kind" || a == "-k":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--kind 缺参数")
+			}
+			kind = strings.ToLower(args[i])
+			if kind != "qb" && kind != "n115" && kind != "download" {
+				return fmt.Errorf("--kind 仅支持 qb / n115 / download")
+			}
 		case a == "--convert":
 			i++
 			if i >= len(args) {
@@ -328,6 +338,9 @@ func cmdAdd(args []string) error {
 			}
 			if convert != "" {
 				it["convert_to"] = convert
+			}
+			if kind != "" {
+				it["kind"] = kind
 			}
 			items = append(items, it)
 		}
