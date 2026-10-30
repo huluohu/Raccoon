@@ -72,7 +72,7 @@
 | --- | --- | --- |
 | GET | /tasks | 列表：status/platform/source/q/kind 过滤，游标分页；附 `counts` 各状态计数（总览页用） |
 | POST | /tasks | 创建：`{items:[{url,quality?,save_path?,convert_to?,kind?,options?}], preview:false, parent_id?}`；`preview:true` 不落库只返回解析结果。重复提交 409 + `existing_task_id`。`convert_to`：产物目标格式，缺省=源格式，可选 `mp4`（post 阶段优先无损 remux，编解码不兼容才 H.264 转码）/ `mp3`（提取音轨）；转换失败保留源格式并记 warn 事件，不推翻下载成功。`kind`：**逐任务的下载通道**，缺省=自动（磁力按 `storage.strategy` 路由，其余本地下载），可显式指定 `download`（本地）/ `qb`（qBittorrent）/ `n115`（115 网盘离线）；非法值 400。**URL 支持 magnet 磁力链接**（info_hash 须合法；服务端不抓它，真正去拉种子的是 qB/115） |
-| GET | /tasks/{id} | 详情（含子任务计数、当前配置版本、尝试次数、失败修复提示）。另含 `media_url`/`media_host`：解析阶段拿到的**真实媒体直链**与它的主机名（如 googlevideo.com）——解析打的是站点 API、下载打的是媒体 CDN，两者常不是同一个域名，「解析成功却下载失败」十有八九出在后者上；直链带签名有时效，**仅用于排查与展示**，不做断点续传复用 |
+| GET | /tasks/{id} | 详情（含子任务计数、当前配置版本、尝试次数、失败修复提示、`exit_used` 本轮实际使用的出口）。另含 `media_url`/`media_host`：解析阶段拿到的**真实媒体直链**与它的主机名（如 googlevideo.com）——解析打的是站点 API、下载打的是媒体 CDN，两者常不是同一个域名，「解析成功却下载失败」十有八九出在后者上；直链带签名有时效，**仅用于排查与展示**，不做断点续传复用 |
 | GET | /tasks/{id}/events | 事件流（结构化 + 引擎日志 warn/error），游标分页 |
 | GET | /tasks/{id}/thumbnail | 缩略图代理：服务端下载平台封面 → 去黑边 → 缩放到 640 宽 → 缓存返回（`Cache-Control: public, max-age=86400`）。不直连平台 CDN 的原因：平台封面常把 2.35:1 画面垫在 16:9 画布里（黑边裁不掉）、部分平台防盗链/签名过期、每个客户端都要重复回源。服务端拉不到时 **302 回原始直链**（客户端可能有别的出口）。无缩略图 → 404 |
 | POST | /tasks/{id}/cancel | 取消（幂等：终态任务返回当前状态 200） |
@@ -256,6 +256,10 @@ event: config.changed data: {"keys":["download.quality"],"effective":"next_task"
 - `DELETE /tasks/{id}/files/{fileId}`：服务端重新解析文件真实路径并校验 `storage.SafeJoin` 前缀，不信前端传路径。
 - 导出/诊断包：脱敏器强制扫描（cookie/token/password/key 字段名 → `***`），预览接口先行。
 - 限流：登录 5 次/分钟/IP；API Token 120 次/分钟；解析端点 20 次/分钟（引擎子进程昂贵）。
+- **「配置的代理」与「本轮实际用的出口」分开记录**（docs/05 §7.4）：
+  - `tasks.proxy` = 用户**配置**的出口（""=跟随系统 net.proxy）；
+  - `tasks.exit_used` = **本轮实际使用**的出口（""=直连）。
+  - 两者必须分开：出口决策是「显式 > 任务级 > 全局 net.proxy > 直连」，任务没配 proxy 时**全局代理本来就在用**。此前重试分支只看 `tasks.proxy` 有没有值就断言「已自动切换代理」，于是把 proxy 回填成同一个全局代理（出口根本没变）却打印「已自动切换代理」——**误导排障**。现按 `exit_used`（事实）判定：本轮走直连且有全局代理才算真切换；本轮已走代理则如实说明「无其它代理可切换」，不动用户钉死的 proxy。
 - 全部外部输入走结构体校验（`encoding/json` + 手写 validate），错误信息定位到字段。
 
 ### 5.1 已知残留限制（显式声明，不隐瞒）

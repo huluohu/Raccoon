@@ -79,11 +79,15 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		_ = w.mgr.st.AppendEvent(t.ID, "info", "proxy_switched", switchNote, "")
 	}
 	if err != nil {
-		w.handleEngineErr(ctx, t, "parsing", err)
+		w.handleEngineErr(ctx, t, "parsing", err, usedProxy)
 		return
 	}
 	// 下载用解析实际成功的那条出口。
 	proxy := usedProxy
+	// 记录本轮实际使用的出口（与 tasks.proxy「用户配置的出口」分开记录）：
+	// 任务没配 proxy 时全局 net.proxy 照样在用，两者是不同的东西。
+	// 排障时需要知道「这一轮事实上走了哪条出口」，不能只看配置。
+	_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{"exit_used": proxy}, "parsing")
 	plat := res.Platform
 	if plat == "" {
 		plat = t.Platform
@@ -249,7 +253,7 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 			_ = w.mgr.st.AppendEvent(t.ID, "info", "orphan_cleaned",
 				fmt.Sprintf("已清理 %d 个下载中断产生的临时文件", n), "")
 		}
-		w.handleEngineErr(ctx, t, "downloading", err)
+		w.handleEngineErr(ctx, t, "downloading", err, proxy)
 		return
 	}
 	if len(files) == 0 {
@@ -420,7 +424,7 @@ func (w *Worker) transition(id, from, to string, extra map[string]any) error {
 var errAlreadyTerminal = errors.New("task already terminal")
 
 // handleEngineErr 引擎错误分类处理：取消 → cancelled；可重试 → 退避回 waiting；否则 failed。
-func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string, err error) {
+func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string, err error, exitUsed string) {
 	// 取消优先判定（进程被杀/用户取消）；以 DB 最新状态为准。
 	cur, curErr := w.mgr.st.GetTask(t.ID)
 	if errors.Is(err, context.Canceled) || (curErr == nil && cur.CancelRequested) {
@@ -479,16 +483,34 @@ func (w *Worker) handleEngineErr(ctx context.Context, t *store.Task, from string
 			"speed_bps": 0,
 		}
 		msgEvent := fmt.Sprintf("%s：%s；%s 后自动重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)
-		// 自动切换代理：若本次下载走的出口失败（网络类异常），而系统配置了
-		// net.proxy 且本次**没在用**代理，下次重试自动切到代理通道。
-		// 已经在用代理时不再切（切了还是同一个出口，等于白重试一次）。
+		// 自动切换代理：仅当「本轮确实走的是直连」且「系统配了全局代理」时，
+		// 下次重试才真的换一条出口。
+		//
+		// 2026-10-30 修（此前会误导排障）：判据用的是 tasks.proxy（**用户配置的**
+		// 代理），而不是**本轮实际走的出口**。出口决策是
+		// 「显式 > 任务级 > 全局 net.proxy > 直连」——任务没配 proxy 时，
+		// 全局代理**本来就在用**，于是：
+		//
+		//   · 「切换」把 proxy 字段写成同一个全局代理 = 出口根本没变；
+		//   · 却打印「已自动切换代理」——用户以为换了出口，转而去查代理规则
+		//     覆盖，方向完全错了。
+		//
+		// 现在按事实判定：exitUsed 是本轮实际用的出口（空串=直连）。
 		globalProxy := strings.TrimSpace(w.mgr.cfg.GetString("net.proxy"))
-		usingProxy := strings.TrimSpace(t.Proxy) != ""
-		if !usingProxy && globalProxy != "" && NetworkErrorCodes[code] {
-			fields["proxy"] = globalProxy
+		actualExit := strings.TrimSpace(exitUsed)
+		switchTo, switchMsg := decideProxySwitch(actualExit, strings.TrimSpace(t.Proxy), globalProxy, NetworkErrorCodes[code])
+		if switchTo != "" {
+			// 真切换：直连 → 全局代理。
+			fields["proxy"] = switchTo
 			fields["route_path"] = AppendRoutePath(t.RoutePath, "直连异常 → 自动切换代理重试")
-			msgEvent = fmt.Sprintf("%s：%s；已自动切换代理，%s 后重试（第 %d/%d 次）", code, msg, backoff, attempt+1, t.MaxAttempts)
 		}
+		if switchMsg != "" {
+			msgEvent = fmt.Sprintf("%s：%s；%s，%s 后重试（第 %d/%d 次）",
+				code, msg, switchMsg, backoff, attempt+1, t.MaxAttempts)
+		}
+		// 「本轮实际使用的出口」单独记录：与 tasks.proxy（用户配置的出口）
+		// 分开——配置 ≠ 实况。排障时看这一列才知道这一轮事实上走了哪条路。
+		fields["exit_used"] = actualExit
 		_ = w.mgr.st.UpdateTaskFields(t.ID, fields, from)
 		_ = w.mgr.st.AppendEvent(t.ID, "warn", "retry_scheduled", msgEvent, "")
 		// 广播带错误字段：前端在重试等待期就能显示「错误与建议」，
@@ -1103,4 +1125,38 @@ func engineErrCode(err error) string {
 		return ue.Code
 	}
 	return ""
+}
+
+// decideProxySwitch 判定「网络类失败后要不要换出口」以及给用户看的话术。
+//
+// 三个入参必须分清：
+//   - exitUsed    **本轮实际使用**的出口（空串=直连）——事实
+//   - pinnedProxy 用户为该任务**配置**的代理（空串=跟随系统）——配置
+//   - globalProxy 系统配置的 net.proxy
+//
+// 为什么不能拿 pinnedProxy 当判据（2026-10-30 修）：出口决策是
+// 「显式 > 任务级 > 全局 net.proxy > 直连」——任务没配 proxy 时，
+// 全局代理**本来就在用**。旧实现据此断言「已自动切换代理」，于是：
+//
+//	· 把 proxy 字段写成同一个全局代理 = 出口根本没变；
+//	· 日志却打印「已自动切换代理」——用户以为出口变了，转而去查
+//	  「代理规则没覆盖」，方向完全错了。
+//
+// 现在按事实判定：
+//   - 本轮走的是直连、任务没钉死代理、系统有全局代理 → **真切换**；
+//   - 本轮已经走了代理 → 没有第二条代理可切，如实说明，不动 proxy
+//     （换回直连是另一个决定：用户特意配的代理不该被系统悄悄抹掉）。
+//
+// 返回 switchTo 为空串表示不切换；message 为空串表示没有需要特别说明的事。
+func decideProxySwitch(exitUsed, pinnedProxy, globalProxy string, networkErr bool) (switchTo, message string) {
+	actual := strings.TrimSpace(exitUsed)
+	pinned := strings.TrimSpace(pinnedProxy)
+	global := strings.TrimSpace(globalProxy)
+	switch {
+	case actual == "" && pinned == "" && global != "" && networkErr:
+		return global, "已自动切换代理（直连 → 全局代理）"
+	case actual != "" && networkErr:
+		return "", "本次已走代理（无其它代理可切换）"
+	}
+	return "", ""
 }

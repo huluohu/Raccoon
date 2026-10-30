@@ -94,8 +94,15 @@ export interface Task {
    * 老数据 / 非磁力任务可能为空串——界面按「—」显示，不猜。
    */
   route_path?: string
-  /** 任务使用的代理（空=跟随系统策略/直连，有值=独立指定代理）。 */
+  /** 任务**配置**的代理（空=跟随系统策略/直连，有值=独立指定代理）。 */
   proxy?: string
+  /**
+   * 本轮**实际使用**的出口（空=直连，有值=代理地址）。
+   *
+   * 与 proxy 分开：proxy 是「用户配了什么」，exit_used 是「这一轮事实上走了哪条」。
+   * 任务没配 proxy 时全局 net.proxy 照样在用，两者不是一回事——排障要看得见实况。
+   */
+  exit_used?: string
   /** 领取顺序权重：0=普通（默认），>0=置顶插队（waiting 队列 priority DESC, created_at ASC）。 */
   priority?: number
   created_at: number

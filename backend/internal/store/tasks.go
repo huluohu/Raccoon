@@ -106,13 +106,13 @@ const taskSelect = `SELECT t.id, t.parent_id, t.kind, t.source, t.source_ref, t.
 	t.resume_supported, t.engine, t.engine_version, t.config_version, t.attempt, t.max_attempts,
 	t.error_code, t.error_message, t.fix_hint, t.cancel_requested, t.route_path, t.scheduled_at,
 	t.created_at, t.updated_at, t.started_at, t.finished_at, t.priority, t.convert_to, t.proxy, t.summary,
-	t.media_url, t.media_host FROM tasks t`
+	t.media_url, t.media_host, t.exit_used FROM tasks t`
 
 func scanTask(row *sql.Row) (*Task, error) {
 	var t Task
 	var parentID, sourceRef, platform, title, thumb, waitReason, quality, savePath, engine, engineVer sql.NullString
 	var errCode, errMsg, fixHint sql.NullString
-	var routePath, convertTo, proxy, summary, mediaURL, mediaHost sql.NullString
+	var routePath, convertTo, proxy, summary, mediaURL, mediaHost, exitUsed sql.NullString
 	var expectedSize, scheduledAt, startedAt, finishedAt sql.NullInt64
 	var resumeFlag, cancelFlag int64 // INTEGER 列经 int64 中转（database/sql 不支持直扫 bool）
 	err := row.Scan(&t.ID, &parentID, &t.Kind, &t.Source, &sourceRef, &platform, &t.URL, &title, &thumb,
@@ -120,7 +120,7 @@ func scanTask(row *sql.Row) (*Task, error) {
 		&resumeFlag, &engine, &engineVer, &t.ConfigVersion, &t.Attempt, &t.MaxAttempts,
 		&errCode, &errMsg, &fixHint, &cancelFlag, &routePath, &scheduledAt,
 		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt, &t.Priority, &convertTo, &proxy, &summary,
-		&mediaURL, &mediaHost)
+		&mediaURL, &mediaHost, &exitUsed)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +132,7 @@ func scanTask(row *sql.Row) (*Task, error) {
 	t.Summary = summary.String
 	t.MediaURL = mediaURL.String
 	t.MediaHost = mediaHost.String
+	t.ExitUsed = exitUsed.String
 	t.ErrorCode = errCode.String
 	t.ErrorMessage = errMsg.String
 	t.FixHint = fixHint.String
@@ -241,7 +242,7 @@ func scanTaskRows(rows *sql.Rows) (*Task, error) {
 	var t Task
 	var parentID, sourceRef, platform, title, thumb, waitReason, quality, savePath, engine, engineVer sql.NullString
 	var errCode, errMsg, fixHint sql.NullString
-	var routePath, convertTo, proxy, summary, mediaURL, mediaHost sql.NullString
+	var routePath, convertTo, proxy, summary, mediaURL, mediaHost, exitUsed sql.NullString
 	var expectedSize, scheduledAt, startedAt, finishedAt sql.NullInt64
 	var resumeFlag, cancelFlag int64 // INTEGER 列经 int64 中转（database/sql 不支持直扫 bool）
 	err := rows.Scan(&t.ID, &parentID, &t.Kind, &t.Source, &sourceRef, &platform, &t.URL, &title, &thumb,
@@ -249,7 +250,7 @@ func scanTaskRows(rows *sql.Rows) (*Task, error) {
 		&resumeFlag, &engine, &engineVer, &t.ConfigVersion, &t.Attempt, &t.MaxAttempts,
 		&errCode, &errMsg, &fixHint, &cancelFlag, &routePath, &scheduledAt,
 		&t.CreatedAt, &t.UpdatedAt, &startedAt, &finishedAt, &t.Priority, &convertTo, &proxy, &summary,
-		&mediaURL, &mediaHost)
+		&mediaURL, &mediaHost, &exitUsed)
 	if err != nil {
 		return nil, err
 	}
@@ -261,6 +262,7 @@ func scanTaskRows(rows *sql.Rows) (*Task, error) {
 	t.Summary = summary.String
 	t.MediaURL = mediaURL.String
 	t.MediaHost = mediaHost.String
+	t.ExitUsed = exitUsed.String
 	t.ErrorCode = errCode.String
 	t.ErrorMessage = errMsg.String
 	t.FixHint = fixHint.String
@@ -352,7 +354,8 @@ func (s *Store) UpdateTaskFields(id string, fields map[string]any, fromStatus st
 		"quality": true, "save_path": true, "started_at": true, "finished_at": true, "route_path": true,
 		"kind":      true,                     // 仅策略 failover（n115→qb）与手动换通道重试（RetryVia，download→n115）改写
 		"priority":  true,                     // 优先级（置顶/取消置顶）
-		"proxy":     true,                     // 任务级代理地址（自动/手动切换代理重试）
+		"proxy":     true,                     // 任务级代理地址（自动/手动切换代理重试）——用户「配置」的出口
+		"exit_used": true,                     // 本轮实际使用的出口（与 proxy 分开：配置 ≠ 实况）
 		"media_url": true, "media_host": true, // 媒体直链与域名（排查用）
 		"summary": true, // AI 智能总结
 	}

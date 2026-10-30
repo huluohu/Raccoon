@@ -19,6 +19,7 @@ type Task struct {
 	SavePath        string  `json:"save_path,omitempty"`
 	ConvertTo       string  `json:"convert_to,omitempty"` // 产物目标格式：""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
 	Proxy           string  `json:"proxy,omitempty"`      // 任务级代理配置（""=跟随系统，有值=独立走代理）
+	ExitUsed        string  `json:"exit_used,omitempty"`  // 本轮**实际使用**的出口（代理地址；""=直连）——与上面的「配置」分开记录
 	MediaURL        string  `json:"media_url,omitempty"`  // 真实媒体直链（CDN，带签名有时效；仅供排查）
 	MediaHost       string  `json:"media_host,omitempty"` // 媒体直链主机名（如 googlevideo.com）
 	ExpectedSize    *int64  `json:"expected_size"`        // NULL=未知，禁估算

@@ -122,20 +122,29 @@ func TestPreview_手动传参指定代理(t *testing.T) {
 	}
 }
 
-// TestWorker_直连下载超时自动切换代理重试
-func TestWorker_直连下载超时自动切换代理重试(t *testing.T) {
+// TestWorker_直连失败自动切换代理重试
+//
+// 真·直连场景：全局配了代理，但**解析时代理就失败了**（本地代理没启动是常态），
+// 于是解析回退到直连并成功 —— 下载因此真的走了直连。直连再失败时，
+// 切到全局代理是**真的换了一条出口**，日志说「已自动切换代理」名副其实。
+func TestWorker_直连失败自动切换代理重试(t *testing.T) {
 	m := newExtTestManager(t)
 	_ = m.cfg.Set("net.proxy", "http://127.0.0.1:7890")
 
 	eng := &proxyRecordEngine{
 		fakeWorkerEngine: fakeWorkerEngine{
+			// 下载（直连）失败 → 触发重试与切换判定
 			downloadErrs: []error{
 				&engine.EngineError{Code: "NET_TIMEOUT", Message: "连接超时"},
 			},
 		},
+		// 解析：第 1 次（走全局代理）失败 → 回退直连成功 → 下载走直连
+		resolveErrs: []error{
+			&engine.EngineError{Code: "NET_TIMEOUT", Message: "连接超时"},
+		},
 	}
 	w := &Worker{mgr: m, eng: eng}
-	task := newDownloadTask(t, m) // proxy 为空（直连）
+	task := newDownloadTask(t, m)
 
 	w.Run(context.Background(), task)
 
@@ -144,10 +153,14 @@ func TestWorker_直连下载超时自动切换代理重试(t *testing.T) {
 		t.Fatalf("直连失败应进入自动重试，实际状态 %s / %s", cur.Status, cur.WaitReason)
 	}
 	if cur.Proxy != "http://127.0.0.1:7890" {
-		t.Fatalf("任务 proxy 字段应自动回填全局代理，实际 %q", cur.Proxy)
+		t.Fatalf("本轮走的是直连，失败后应自动切到全局代理，实际 proxy=%q", cur.Proxy)
 	}
 	if !strings.Contains(cur.RoutePath, "自动切换代理重试") {
 		t.Fatalf("route_path 应记录切换代理痕迹，实际 %q", cur.RoutePath)
+	}
+	// 本轮实际用的出口是直连（空串），要如实记下来。
+	if cur.ExitUsed != "" {
+		t.Fatalf("本轮实际走的是直连，exit_used 应为空串，实际 %q", cur.ExitUsed)
 	}
 
 	events, _, err := m.st.ListEvents(task.ID, 0, 50)
@@ -156,13 +169,72 @@ func TestWorker_直连下载超时自动切换代理重试(t *testing.T) {
 	}
 	foundRetry := false
 	for _, e := range events {
-		if e.Event == "retry_scheduled" && strings.Contains(e.Message, "自动切换代理") {
+		if e.Event == "retry_scheduled" && strings.Contains(e.Message, "已自动切换代理") {
 			foundRetry = true
 			break
 		}
 	}
 	if !foundRetry {
-		t.Fatalf("未找到包含「自动切换代理」的 retry_scheduled 事件: %+v", events)
+		t.Fatalf("未找到包含「已自动切换代理」的 retry_scheduled 事件: %+v", events)
+	}
+}
+
+// TestWorker_本轮已在走全局代理时不得谎报切换
+//
+// 2026-10-30 修的关键回归：解析走全局代理成功 → 下载也走全局代理 → 下载失败。
+// 旧实现的判据是「任务字段 proxy 为空」（=没配），于是：
+//
+//	· 把 proxy 字段回填成**同一个**全局代理（出口根本没变）；
+//	· 却打印「已自动切换代理」——误导排障：用户以为出口变了，
+//	  转而去查「代理规则没覆盖」，方向完全错了。
+//
+// 现在按事实判定：本轮实际用的就是全局代理 → 没有第二条代理可切 → 如实说明。
+func TestWorker_本轮已在走全局代理时不得谎报切换(t *testing.T) {
+	m := newExtTestManager(t)
+	_ = m.cfg.Set("net.proxy", "http://127.0.0.1:7890")
+
+	eng := &proxyRecordEngine{
+		fakeWorkerEngine: fakeWorkerEngine{
+			// 解析成功（走全局代理）→ 下载也走全局代理
+			downloadErrs: []error{
+				&engine.EngineError{Code: "NET_TIMEOUT", Message: "连接超时"},
+			},
+		},
+	}
+	w := &Worker{mgr: m, eng: eng}
+	task := newDownloadTask(t, m)
+
+	w.Run(context.Background(), task)
+
+	cur := mustTask(t, m, task.ID)
+	if cur.Status != StatusWaiting || cur.WaitReason != "auto_retry" {
+		t.Fatalf("网络失败应进入自动重试，实际状态 %s / %s", cur.Status, cur.WaitReason)
+	}
+	if cur.Proxy != "" {
+		t.Fatalf("本轮已在走全局代理，不应回填 proxy（出口没变），实际 %q", cur.Proxy)
+	}
+	if strings.Contains(cur.RoutePath, "自动切换代理重试") {
+		t.Fatalf("没有真切换，route_path 不该记「自动切换代理重试」，实际 %q", cur.RoutePath)
+	}
+	// 本轮实际用的出口 = 全局代理，要如实记录。
+	if cur.ExitUsed != "http://127.0.0.1:7890" {
+		t.Fatalf("本轮实际走的是全局代理，exit_used 应如实记录，实际 %q", cur.ExitUsed)
+	}
+
+	events, _, err := m.st.ListEvents(task.ID, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Event != "retry_scheduled" {
+			continue
+		}
+		if strings.Contains(e.Message, "已自动切换代理") {
+			t.Fatalf("出口没变却声称「已自动切换代理」，误导排障：%q", e.Message)
+		}
+		if !strings.Contains(e.Message, "已走代理") {
+			t.Fatalf("话术应如实说明本轮已走代理，实际 %q", e.Message)
+		}
 	}
 }
 

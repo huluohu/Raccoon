@@ -73,7 +73,15 @@ func (m *Manager) resolveWithProxy(
 
 	var lastErr error
 	usedProxy := primary
+	// attempted 记录**本轮实际尝试过**的出口（最后一次尝试的那个）。
+	//
+	// 为什么与 usedProxy 分开：usedProxy 语义是「成功用哪个出口」，
+	// 失败时它没有意义（没有成功）。而失败时我们恰恰需要知道
+	// 「这一轮到底试的是哪条出口」——否则重试分支只能靠任务字段
+	// 猜（而任务字段是「配置」，不是「实况」）。
+	attempted := primary
 	for i, p := range chain {
+		attempted = p
 		// 每次尝试一个全新 ctx：上一次尝试的 deadline 可能已耗尽。
 		attemptCtx := parent
 		var cancel context.CancelFunc
@@ -99,7 +107,9 @@ func (m *Manager) resolveWithProxy(
 			break
 		}
 	}
-	return nil, usedProxy, "", lastErr
+	// 失败时把「实际尝试过的出口」带出去（usedProxy 在这里没有意义：
+	// 没有成功可言，留着 primary 会让调用方误以为失败发生在 primary 上）。
+	return nil, attempted, "", lastErr
 }
 
 // switchNote 生成出口切换说明（给界面看的实话）。

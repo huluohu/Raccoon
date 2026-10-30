@@ -274,6 +274,19 @@ const engineText = computed(() => {
   return props.task.engine_version ? `${engine} ${props.task.engine_version}` : engine
 })
 
+/**
+ * 本轮实际走的出口。
+ *
+ * 与「网络代理」（配置的）分开显示：任务没配代理时全局 net.proxy 照样在用，
+ * 只看配置会误以为走的是直连——排障方向就错了。
+ * exit_used 为空串有两种可能：直连，或该任务还没跑过（没有实况记录）。
+ */
+const exitUsedText = computed(() => {
+  const used = props.task.exit_used
+  if (used) return `代理 ${used}`
+  return props.task.status === 'waiting' && !props.task.started_at ? '尚未运行' : '直连'
+})
+
 /** 已下载 / 预期大小（预期未知时只显示已下载，不猜）。 */
 const sizeText = computed(() => {
   const exp = props.task.expected_size
@@ -335,6 +348,10 @@ async function onGenerateTaskSummary() {
           <dt>网络代理</dt>
           <dd class="td-path">{{ task.proxy }}</dd>
         </template>
+        <!-- 本轮实际走的出口：与上面「配置的代理」分开。
+             任务没配代理时全局 net.proxy 照样在用，只看配置会以为走的是直连。 -->
+        <dt>本轮出口</dt>
+        <dd class="td-path">{{ exitUsedText }}</dd>
         <!-- 媒体直链域名：解析打的是站点 API，下载打的是媒体 CDN（两者常不是同一个域名）。
              把域名摊开，「解析成功却下载超时」才看得见该查哪一段路。 -->
         <template v-if="task.media_host">
