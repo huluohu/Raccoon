@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/huluohu/raccoon/internal/engine"
+	"github.com/huluohu/raccoon/internal/netguard"
 	"github.com/huluohu/raccoon/internal/store"
 )
 
@@ -131,6 +133,7 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		Cookies:        cookieFile,
 		HTTPProxy:      proxy,
 		RateLimit:      int64(w.mgr.cfg.GetInt("download.rate_limit_bps")),
+		MaxFilesize:    int64(w.mgr.cfg.GetInt("download.max_filesize_mb")) * 1024 * 1024,
 		WriteThumbnail: w.mgr.cfg.GetBool("download.save_thumbnail"),
 		EmbedMetadata:  w.mgr.cfg.GetBool("download.embed_metadata"),
 	}
@@ -982,6 +985,24 @@ func (w *Worker) fetchMediaDirect(ctx context.Context, t *store.Task, res *engin
 	if video == "" {
 		return nil, false
 	}
+	// 直链来源是**远端站点给的**（页面/清单里的地址），攻击者可控。
+	// 入口 URL 早就过了 SSRF 校验，但这些直链没有——不校验就等于让站点
+	// 指挥浣熊去读它想读的内网地址（云元数据 169.254.169.254、本机管理端口…），
+	// 而且读到的内容会落盘并进媒体库。
+	// 这里按「内容类出站」的严格标准复核：协议白名单 + 域名解析后逐个 IP 判定。
+	for _, u := range []string{video, audio} {
+		if u == "" {
+			continue
+		}
+		if err := netguard.ValidateMedia(u); err != nil {
+			_ = w.mgr.st.AppendEvent(t.ID, "warn", "media_direct_blocked",
+				"媒体直链指向内网地址，已拒绝直取："+err.Error(), "")
+			w.mgr.log.Warn("媒体直链 SSRF 拦截", map[string]any{
+				"task_id": t.ID, "url_host": mediaHostOnly(u), "err": err.Error(),
+			})
+			return nil, false
+		}
+	}
 	base := strings.TrimSuffix(filepath.Base(t.URL), filepath.Ext(t.URL))
 	name := fmt.Sprintf("%s [%s].mp4", sanitizeFileName(res.Title, 120), base)
 	dst := filepath.Join(saveDir, name)
@@ -1018,6 +1039,16 @@ func (w *Worker) fetchMediaDirect(ctx context.Context, t *store.Task, res *engin
 		return nil, false
 	}
 	return []engine.DownloadedFile{{Path: dst, Size: st.Size()}}, true
+}
+
+// mediaHostOnly 取 URL 的主机部分（只用于日志，不含路径与查询串——
+// 日志里可能带签名，不该整条落盘）。
+func mediaHostOnly(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // manifestSources 从解析出的格式里挑出「清单型」媒体直链（视频流 + 音轨）。

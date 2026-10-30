@@ -60,9 +60,16 @@ type (
 		SaveDir   string
 		NameTmpl  string // -o 模板
 		RateLimit int64  // 0=不限
-		WriteDesc bool
-		EmbedSubs bool
-		HTTPProxy string
+		// MaxFilesize 单文件体积上限（字节）；0=不限。
+		//
+		// 为什么需要（2026-10-30 加固）：此前没有任何体积上限，一个
+		// 指向超大文件（或无限流）的 URL 能把磁盘写满——自托管场景下
+		// 这会连带把数据库和凭据一起写坏。映射到 yt-dlp 的 --max-filesize，
+		// 超限时引擎直接失败（可重试/可提示），而不是悄悄写满盘。
+		MaxFilesize int64
+		WriteDesc   bool
+		EmbedSubs   bool
+		HTTPProxy   string
 		// WriteThumbnail 封面图落盘（--write-thumbnail；有 ffmpeg 时转 jpg）。
 		WriteThumbnail bool
 		// EmbedMetadata 标题/作者写入媒体文件（--embed-metadata）。

@@ -1,9 +1,13 @@
 package server
 
-// ssrf.go：出站 URL 校验（防 SSRF）。
+// ssrf.go：出站 URL 校验（防 SSRF）——HTTP 入口层的薄封装。
+//
+// 校验逻辑本体在 internal/netguard（叶子包）：它必须能被 internal/task
+// 也用上，因为**远端站点给的媒体直链**同样需要校验（入口 URL 校验过了，
+// 不代表引擎返回的直链也安全）。
 //
 // 为什么需要：连接测试（testConnection）会按用户填的地址发起服务端请求，
-// 订阅/通知等未来出站点同理。若不校验，用户（或能接触到设置页的 XSS）
+// 订阅/通知等出站点同理。若不校验，用户（或能接触到设置页的 XSS）
 // 可让服务端请求回环地址与云元数据端点：
 //   - 127.0.0.1 / ::1：探测本机管理端口（含本应用自身 admin 面）
 //   - 169.254.169.254：云厂商元数据端点，可窃取临时凭据
@@ -18,118 +22,61 @@ package server
 //     （元数据端点），内网地址放行。
 //
 // 已知限制（显式声明，不隐瞒）：
-//   - 不做 DNS 解析后的复核，DNS Rebinding（解析到内网的域名）不在
-//     本函数防护范围内；对自托管单用户工具，该风险由部署网络边界兜底。
+//   - DNS 解析后的结果可能在真正发请求时被换掉（DNS rebinding）；
+//     ResolveDNS=true 是纵深防御，彻底解决需要接管引擎的 HTTP 传输层。
 //   - 只校验「当前这一次」URL，不跟踪重定向后的落点。
 
 import (
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
+
+	"github.com/huluohu/raccoon/internal/netguard"
 )
 
 // OutboundPolicy 出站 URL 校验策略。
 type OutboundPolicy struct {
 	// AllowPrivate 允许内网地址（连接测试等自配基础设施场景）。
 	AllowPrivate bool
+
+	// ResolveDNS 解析域名并逐条校验解析结果（防「域名指向内网」型 SSRF）。
+	// 内容类出站（订阅源、直播源）应开启。
+	ResolveDNS bool
 }
 
 // ValidateOutboundURL 校验出站 URL，合法时返回解析后的 *url.URL。
 //
 // 一律拒绝（与策略无关）：
-//   - 非 http/https 协议（file://、javascript:、gopher: 等）
+//   - 非 http/https 协议（file://、javascript://、gopher:// 等）
 //   - 回环地址（127.0.0.0/8、::1）与 localhost 域名
 //   - 链路本地地址（169.254.0.0/16，含云元数据端点）与 fe80::/10
 //   - 未指定地址（0.0.0.0、::）
 //
 // AllowPrivate=false 时额外拒绝：
 //   - 私网（10/8、172.16/12、192.168/16）、CGNAT（100.64/10）、
-//     IPv6 ULA（fc00::/7）、IPv4-mapped IPv6
+//     IPv6 ULA（fc00::/7）、IPv4-mapped IPv6、组播与保留段
+//
+// ResolveDNS=true 时：域名会被解析，逐条 A/AAAA 记录都要通过上述判定。
 func ValidateOutboundURL(raw string, p OutboundPolicy) (*url.URL, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, fmt.Errorf("URL 为空")
+	if err := netguard.Validate(raw, netguard.Options{
+		AllowPrivate: p.AllowPrivate,
+		ResolveDNS:   p.ResolveDNS,
+	}); err != nil {
+		return nil, err
 	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("URL 解析失败: %v", err)
-	}
-	scheme := strings.ToLower(u.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return nil, fmt.Errorf("仅支持 http/https 协议，收到 %q", u.Scheme)
-	}
-	host := u.Hostname()
-	if host == "" {
-		return nil, fmt.Errorf("URL 缺少主机名")
-	}
-	// 域名黑名单：localhost 及其常见变体（大小写不敏感）。
-	lower := strings.ToLower(strings.TrimSuffix(host, "."))
-	if lower == "localhost" || strings.HasSuffix(lower, ".localhost") {
-		return nil, fmt.Errorf("不允许请求本机回环地址")
-	}
-
-	// 能解析成 IP 字面量的才做网段判定；域名交给上面的黑名单 + 部署边界。
-	if ip := net.ParseIP(host); ip != nil {
-		if err := checkIP(ip, p); err != nil {
-			return nil, err
-		}
-	} else if !p.AllowPrivate {
-		// 内容类出站：域名也要过一遍常见内网后缀黑名单（.internal/.lan 等）。
-		if hasInternalSuffix(lower) {
-			return nil, fmt.Errorf("不允许请求内网域名 %q", host)
-		}
-	}
-	return u, nil
+	return url.Parse(strings.TrimSpace(raw))
 }
 
-// checkIP 对 IP 字面量做网段判定。
-func checkIP(ip net.IP, p OutboundPolicy) error {
-	// IPv4-mapped IPv6（::ffff:127.0.0.1）还原成 v4 再判，防止绕过。
-	if v4 := ip.To4(); v4 != nil {
-		ip = v4
-	}
-	if ip.IsLoopback() {
-		return fmt.Errorf("不允许请求回环地址 %s", ip)
-	}
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		// 169.254.169.254（云元数据）与 fe80::/10 都在这里被拒。
-		return fmt.Errorf("不允许请求链路本地地址 %s（含云元数据端点）", ip)
-	}
-	if ip.IsUnspecified() {
-		return fmt.Errorf("不允许请求未指定地址 %s", ip)
-	}
-	if !p.AllowPrivate {
-		if ip.IsPrivate() || isCGNAT(ip) || isIPv6ULA(ip) {
-			return fmt.Errorf("不允许请求内网地址 %s", ip)
-		}
-	}
-	return nil
+// validateOutboundURLStrict 内容类出站的严格校验（含 DNS 复核）。
+func validateOutboundURLStrict(raw string) error {
+	_, err := ValidateOutboundURL(raw, OutboundPolicy{ResolveDNS: true})
+	return err
 }
 
-// isCGNAT 100.64.0.0/10（运营商级 NAT，RFC 6598）。
-func isCGNAT(ip net.IP) bool {
-	v4 := ip.To4()
-	if v4 == nil {
-		return false
+// wrapSSRFError 把 netguard 的错误包装成对外可读的校验错误。
+func wrapSSRFError(err error) error {
+	if err == nil {
+		return nil
 	}
-	return v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
-}
-
-// isIPv6ULA fc00::/7（IPv6 唯一本地地址）。
-func isIPv6ULA(ip net.IP) bool {
-	if ip.To4() != nil {
-		return false
-	}
-	return len(ip) == net.IPv6len && (ip[0]&0xfe) == 0xfc
-}
-
-// hasInternalSuffix 常见内网域名后缀（内容类出站场景的域名黑名单）。
-func hasInternalSuffix(host string) bool {
-	for _, suf := range []string{".internal", ".lan", ".local", ".intranet", ".corp"} {
-		if strings.HasSuffix(host, suf) {
-			return true
-		}
-	}
-	return false
+	return fmt.Errorf("出站 URL 校验失败: %w", err)
 }

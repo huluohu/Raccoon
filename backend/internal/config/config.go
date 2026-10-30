@@ -56,6 +56,7 @@ var Registry = []Setting{
 	{Key: "download.platform_cap", Label: "单平台并发上限", Desc: "单平台并发上限", Default: 2, Effective: NextTask},
 	{Key: "download.default_quality", Label: "默认画质", Desc: "默认下载质量", Default: "best", Effective: NextTask},
 	{Key: "download.rate_limit_bps", Label: "下载限速", Desc: "下载限速（字节/秒，0=不限）", Default: 0, Effective: NextTask},
+	{Key: "download.max_filesize_mb", Label: "单文件体积上限", Desc: "单个下载文件的体积上限（MB，0=不限）——防止超大文件把磁盘写满", Default: 0, Effective: NextTask},
 	{Key: "download.skip_preview", Label: "跳过预览", Desc: "添加任务跳过预览直接入队", Default: false, Effective: NextTask},
 	{Key: "download.max_attempts", Label: "自动重试次数", Desc: "失败自动重试次数", Default: 3, Effective: NextTask},
 	// 产物增强（docs/04 §2.2 items 说明）：封面落盘是纯下载动作无额外依赖；

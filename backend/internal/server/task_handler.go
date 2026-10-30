@@ -18,6 +18,7 @@ import (
 	"github.com/huluohu/raccoon/internal/engine"
 	"github.com/huluohu/raccoon/internal/httpx"
 	"github.com/huluohu/raccoon/internal/live"
+	"github.com/huluohu/raccoon/internal/netguard"
 	"github.com/huluohu/raccoon/internal/sse"
 	"github.com/huluohu/raccoon/internal/store"
 	"github.com/huluohu/raccoon/internal/subscription"
@@ -128,10 +129,17 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 	if len(req.Items) > 50 {
 		return httpx.Validation("单次最多提交 50 个任务")
 	}
-	// SSRF 防护第一层（docs/04 §5）：协议白名单 + 私网/环回拒绝。
+	// SSRF 防护第一层（docs/04 §5）：协议白名单 + 私网/环回拒绝 + 域名解析后复核。
 	for _, it := range req.Items {
 		if err := validateOutboundURL(it.URL); err != nil {
 			return err
+		}
+		// SSRF 防护第二层：重定向逐跳复查（≤5 跳）。
+		//
+		// 入口 URL 是公网地址，不代表链路终点也是——一个 302 就能把服务端
+		// 带到 169.254.169.254（云元数据）或本机管理端口去。
+		if err := netguard.CheckRedirectChain(r.Context(), it.URL, netguard.DefaultMaxRedirects); err != nil {
+			return httpx.Validation("链接重定向到不安全地址（防 SSRF）：" + err.Error())
 		}
 		// 任务级代理也要校验：此前零校验，认证用户可以把代理指向内网/云元数据地址，
 		// 让引擎替他把请求发过去（出站跳板）。私网代理是正当用法，所以只禁链路本地。
@@ -366,6 +374,13 @@ func (s *Server) handleParse(w http.ResponseWriter, r *http.Request) error {
 	if err := validateOutboundURL(req.URL); err != nil {
 		return err
 	}
+	// SSRF 防护第二层：重定向逐跳复查（≤5 跳）。
+	//
+	// 解析端点同样会发起实际请求（引擎去抓页面），所以这里也要查——
+	// 入口地址是公网地址，不代表链路终点也是。
+	if err := netguard.CheckRedirectChain(r.Context(), req.URL, netguard.DefaultMaxRedirects); err != nil {
+		return httpx.Validation("链接重定向到不安全地址（防 SSRF）：" + err.Error())
+	}
 	// 可用性检查与 Preview 同引擎口径：图片站走 gallery-dl，
 	// 只检 yt-dlp 会让「gallery-dl 缺失」的预览一路跑进 PARSE_FAILED 才暴露。
 	eng := s.tasks.Engines().EngineFor(strings.TrimSpace(req.URL))
@@ -449,8 +464,11 @@ func taskErrToHTTP(err error) error {
 }
 
 // validateOutboundURL SSRF 第一层（docs/04 §5）：协议白名单 + 主机名不得为
-// 私网/环回/链路本地 IPv4/IPv6 字面量。DNS 解析后的重定向逐跳复查由 yt-dlp
-// 内部处理；本服务极限是入口 URL 校验（已知限制：DNS rebinding 纵深防护留待 v0.2）。
+// 私网/环回/链路本地 IPv4/IPv6 字面量，域名则**解析后逐条 IP 复核**
+// （防「域名指向内网」型绕过）。
+//
+// 第二层（重定向逐跳复查）在提交入口做：入口 URL 是公网地址不代表它只会
+// 停在公网——一个 302 就能把服务端带到 169.254.169.254 去。
 func validateOutboundURL(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -505,19 +523,19 @@ func validateYouTubeID(raw string) error {
 }
 
 // isPrivateHost 主机名（IP 字面量或常见保留名）私网判定。
+//
+// 2026-10-30：这一层原先只判「字面量」，域名一律放行（注释里写着「交给
+// yt-dlp 解析」）——于是 `http://evil.example/` 只要把 DNS 指向 127.0.0.1
+// 就能让服务端去读内网，属于典型的 DNS 型 SSRF 绕过。
+//
+// 现在改为交给 netguard 统一判定：域名会被解析出来，逐条 A/AAAA 记录都要
+// 是公网地址（任一条落在内网即拒——攻击者可以配「公网 IP + 127.0.0.1」
+// 两条记录，只查第一条会漏）。
+//
+// 已知残留限制（诚实声明）：解析结果可能在真正发请求时被换掉
+// （DNS rebinding）；本层是纵深防御，彻底解决需要能接管引擎的 HTTP 传输层。
 func isPrivateHost(host string) bool {
-	h := strings.ToLower(strings.TrimSuffix(host, "."))
-	switch h {
-	case "localhost", "ip6-localhost", "ip6-loopback":
-		return true
-	}
-	if strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") || strings.HasSuffix(h, ".lan") {
-		return true
-	}
-	if ip := net.ParseIP(h); ip != nil {
-		return ipIsPrivate(ip)
-	}
-	return false // 域名交给 yt-dlp 解析（已知限制见函数注释）
+	return netguard.Validate("http://"+host, netguard.Options{ResolveDNS: true}) != nil
 }
 
 // ipIsPrivate 私网/环回/链路本地/未指定/组播/保留段。

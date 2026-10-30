@@ -398,6 +398,9 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 	if opts.RateLimit > 0 {
 		args = append(args, "-r", strconv.FormatInt(opts.RateLimit/1024, 10)+"K")
 	}
+	if opts.MaxFilesize > 0 {
+		args = append(args, "--max-filesize", strconv.FormatInt(opts.MaxFilesize, 10))
+	}
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}
