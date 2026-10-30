@@ -881,14 +881,13 @@ func mediaTargetsFor(quality string, formats []engine.FormatInfo) (url string, h
 			chosen = append(chosen, f)
 		}
 	default:
+		// 档位上限：与引擎的 formatSelector 同一套解析（engine.ParseHeightQuality），
+		// 不能在这里再抄一份硬编码表——抄一份就会漏（漏了 4K/2K/8K 时，
+		// limit 退化为 0 = 不设限，任务选了 1440p 却把媒体域名记成 2160p 那档，
+		// 失败提示会点名错的域名）。
 		limit := 0
-		switch quality {
-		case "1080p":
-			limit = 1080
-		case "720p":
-			limit = 720
-		case "480p":
-			limit = 480
+		if h, ok := engine.ParseHeightQuality(quality); ok {
+			limit = h
 		}
 		// 视频档：取不超过上限的最高档；best/空 → 最高档
 		best := engine.FormatInfo{}

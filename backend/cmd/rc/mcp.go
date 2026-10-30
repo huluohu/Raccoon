@@ -130,7 +130,7 @@ func mcpTools() []mcpToolDesc {
 			Description: "提交下载任务（支持 B站/YouTube/抖音/X 等站点的链接；会员内容需已在「连接」页配置凭据）",
 			InputSchema: obj(map[string]any{
 				"url":        str("要下载的链接"),
-				"quality":    str("清晰度：best/1080p/720p/480p/360p/audio，留空用默认"),
+				"quality":    str("清晰度：best/2160p/1440p/1080p/720p/480p/360p/audio（分辨率档位以解析预览给出的为准），留空用默认"),
 				"convert_to": str("产物格式：mp4 / mp3，留空保持源格式"),
 				"no_preview": map[string]any{"type": "boolean", "description": "跳过解析预览直接入队（默认 false）"},
 			}, "url"),

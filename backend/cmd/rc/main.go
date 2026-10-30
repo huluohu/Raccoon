@@ -86,7 +86,7 @@ func usage() {
 用法:
   rc login --server <url> --token <token>     保存服务地址与 API Token
   rc add <url>... [选项]                      提交下载任务（多链接 = 批量）
-       --quality <档位>   清晰度（best/1080p/720p/480p/360p/audio）
+       --quality <档位>   清晰度（best/2160p/1440p/1080p/720p/480p/360p/audio）
        --path <目录>      保存目录（相对数据根）
        --no-preview       跳过解析预览直接入队
        --json             输出 JSON

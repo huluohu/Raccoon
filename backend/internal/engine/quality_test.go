@@ -361,14 +361,14 @@ func TestFormatSelector_特殊档位语义不变(t *testing.T) {
 
 // TestParseHeightQuality_识别与拒绝 覆盖解析函数的边界。
 func TestParseHeightQuality_识别与拒绝(t *testing.T) {
-	if h, ok := parseHeightQuality("2160p"); !ok || h != 2160 {
+	if h, ok := ParseHeightQuality("2160p"); !ok || h != 2160 {
 		t.Errorf("2160p 应解析为 2160，实际 %d ok=%v", h, ok)
 	}
-	if h, ok := parseHeightQuality("1080p60"); !ok || h != 1080 {
+	if h, ok := ParseHeightQuality("1080p60"); !ok || h != 1080 {
 		t.Errorf("1080p60 应解析为 1080，实际 %d ok=%v", h, ok)
 	}
 	for _, bad := range []string{"137", "hls-383", "audio", "best", "p", "2160", "2160px"} {
-		if _, ok := parseHeightQuality(bad); ok {
+		if _, ok := ParseHeightQuality(bad); ok {
 			t.Errorf("%q 不应被当作分辨率档位", bad)
 		}
 	}

@@ -577,7 +577,7 @@ func formatSelector(q string) string {
 	// 顺带说明：Vimeo 的 format id 恰好就叫 "2160p"/"1080p"，改动后它走
 	// 高度过滤而非 id 匹配，选中的仍是 1080p 那档，且与既有的 1080p/720p
 	// 硬编码分支口径一致（都是高度上限 + 最高码率）。
-	if h, ok := parseHeightQuality(q); ok {
+	if h, ok := ParseHeightQuality(q); ok {
 		return fmt.Sprintf("bv*[height<=%d]+ba/b[height<=%d]/b", h, h)
 	}
 	// 已知 format id 透传（解析预览 Agent 回来具体 id 的场景：137、hls-383…）。
@@ -590,14 +590,14 @@ func formatSelector(q string) string {
 // 免得把真正的 format id 误当成分辨率。
 var heightQualityRe = regexp.MustCompile(`^(\d{2,5})p(\d{1,3})?$`)
 
-// parseHeightQuality 解析分辨率档位字符串，返回高度上限。
+// ParseHeightQuality 解析分辨率档位字符串，返回高度上限。
 //
 //	"2160p"   → 2160
 //	"1440p"   → 1440
 //	"1080p60" → 1080（帧率只作提示，高度上限仍按 1080）
 //
 // 不是分辨率档位（如 "137"、"hls-383"、"audio"）时返回 ok=false。
-func parseHeightQuality(q string) (int, bool) {
+func ParseHeightQuality(q string) (int, bool) {
 	m := heightQualityRe.FindStringSubmatch(strings.TrimSpace(q))
 	if m == nil {
 		return 0, false
