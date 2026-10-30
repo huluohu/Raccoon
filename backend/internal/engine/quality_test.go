@@ -12,6 +12,7 @@ package engine
 //	3) 缺 curl_cffi 时**绝不能**加 --impersonate（否则全部站点全挂）。
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -296,5 +297,98 @@ func TestJsRuntimeCandidates_含quickjs(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("候选表应含 quickjs/qjs，实际 %+v", jsRuntimeCandidates)
+	}
+}
+
+// ---- 分辨率档位（4K/2K/8K）------
+
+// TestFormatSelector_任意分辨率档位都走高度过滤
+//
+// 2026-10-30 修的真 bug：预览下拉的档位来自 collectFormats 的
+// `fmt.Sprintf("%dp", height)`——平台给什么高度就出现什么档位。旧代码只硬编码
+// 360p/480p/720p/1080p，4K（2160p）、2K（1440p）、8K（4320p）落到 default
+// 分支被**当 format id 透传**，yt-dlp 收到 `-f 2160p` 找不到该 id 就报
+// "Requested format is not available" —— 用户在下拉里选 4K，任务必失败。
+func TestFormatSelector_任意分辨率档位都走高度过滤(t *testing.T) {
+	cases := []struct {
+		q     string
+		wantH int
+	}{
+		{"360p", 360},
+		{"480p", 480},
+		{"720p", 720},
+		{"1080p", 1080},
+		{"1440p", 1440},
+		{"2160p", 2160},
+		{"4320p", 4320},
+		{"1080p60", 1080},
+	}
+	for _, c := range cases {
+		got := formatSelector(c.q)
+		want := fmt.Sprintf("bv*[height<=%d]+ba/b[height<=%d]/b", c.wantH, c.wantH)
+		if got != want {
+			t.Errorf("formatSelector(%q) = %q，期望 %q", c.q, got, want)
+		}
+		// 关键：绝不能把档位原样透传（那是 format id 语义）。
+		if got == c.q {
+			t.Errorf("formatSelector(%q) 把档位当 format id 透传了，会导致任务失败", c.q)
+		}
+	}
+}
+
+// TestFormatSelector_真正的formatid仍透传 format id 不能被误当成分辨率：
+// 数字 id（137）、带前缀 id（hls-383）、长数字 id（100026）都要原样透传。
+func TestFormatSelector_真正的formatid仍透传(t *testing.T) {
+	for _, id := range []string{"137", "hls-383", "100026", "616", "abc", "22"} {
+		if got := formatSelector(id); got != id {
+			t.Errorf("formatSelector(%q) = %q，应原样透传", id, got)
+		}
+	}
+}
+
+// TestFormatSelector_特殊档位语义不变 best / audio 不受影响。
+func TestFormatSelector_特殊档位语义不变(t *testing.T) {
+	if got := formatSelector("best"); got != "bv*+ba/b" {
+		t.Errorf("best 应为 bv*+ba/b，实际 %q", got)
+	}
+	if got := formatSelector(""); got != "bv*+ba/b" {
+		t.Errorf("空值应按 best 处理，实际 %q", got)
+	}
+	if got := formatSelector("audio"); got != "bestaudio/best" {
+		t.Errorf("audio 应为 bestaudio/best，实际 %q", got)
+	}
+}
+
+// TestParseHeightQuality_识别与拒绝 覆盖解析函数的边界。
+func TestParseHeightQuality_识别与拒绝(t *testing.T) {
+	if h, ok := parseHeightQuality("2160p"); !ok || h != 2160 {
+		t.Errorf("2160p 应解析为 2160，实际 %d ok=%v", h, ok)
+	}
+	if h, ok := parseHeightQuality("1080p60"); !ok || h != 1080 {
+		t.Errorf("1080p60 应解析为 1080，实际 %d ok=%v", h, ok)
+	}
+	for _, bad := range []string{"137", "hls-383", "audio", "best", "p", "2160", "2160px"} {
+		if _, ok := parseHeightQuality(bad); ok {
+			t.Errorf("%q 不应被当作分辨率档位", bad)
+		}
+	}
+}
+
+// TestCollectFormats_4K档位出现在预览里 平台给 2160p 时，预览必须列出这一档，
+// 用户才能选到它（选不到就谈不上 4K）。
+func TestCollectFormats_4K档位出现在预览里(t *testing.T) {
+	fs := []ytdlpFormat{
+		{FormatID: "2160p_h264", Height: 2160, VCodec: "avc1.640033", FilesizeApprox: i64(400000000), TBR: f64(18000.0)},
+		{FormatID: "1080p_h264", Height: 1080, VCodec: "avc1.640032", FilesizeApprox: i64(80000000), TBR: f64(6000.0)},
+	}
+	got := collectFormats(fs)
+	if len(got) != 2 {
+		t.Fatalf("应出两档，得到 %d：%+v", len(got), got)
+	}
+	if got[0].Quality != "2160p" {
+		t.Errorf("最高档应为 2160p，实际 %q", got[0].Quality)
+	}
+	if got[0].Size == nil || *got[0].Size != 400000000 {
+		t.Errorf("2160p 应取码率最高的那条（400000000），实际 %v", got[0].Size)
 	}
 }

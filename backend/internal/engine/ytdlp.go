@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -557,18 +558,55 @@ func formatSelector(q string) string {
 		return "bestaudio/best"
 	case "best", "":
 		return "bv*+ba/b"
-	case "1080p":
-		return "bv*[height<=1080]+ba/b[height<=1080]/b"
-	case "720p":
-		return "bv*[height<=720]+ba/b[height<=720]/b"
-	case "480p":
-		return "bv*[height<=480]+ba/b[height<=480]/b"
-	case "360p":
-		return "bv*[height<=360]+ba/b[height<=360]/b"
-	default:
-		// 已知 format id 透传（解析预览 Agent 回来具体 id 的场景）。
-		return q
 	}
+	// "<N>p" / "<N>p<M>"：分辨率档位 → 按高度上限选。
+	//
+	// 为什么不能只硬编码 360p/480p/720p/1080p（2026-10-30 修）：预览下拉的
+	// 档位来自 collectFormats 的 `fmt.Sprintf("%dp", height)`——**平台给什么
+	// 高度就出现什么档位**。YouTube/Vimeo 的 4K（2160p）、2K（1440p）、
+	// 8K（4320p）因此都会出现在下拉里，但旧代码只认那四个硬编码值，
+	// 其余一律落到 default 分支被**当 format id 透传**：
+	//
+	//	formatSelector("2160p") == "2160p"   ← 不是分辨率表达式，是 format id！
+	//
+	// yt-dlp 收到 `-f 2160p` 会去找名叫 "2160p" 的 format，找不到就报
+	// "Requested format is not available"（实测）——**用户在下拉里选 4K，
+	// 任务必失败**。也就是说浣熊此前根本下不了 4K，哪怕平台公开提供 4K。
+	//
+	// 改成按模式解析出高度上限，任意档位（2K/4K/8K）都走同一条高度过滤。
+	// 顺带说明：Vimeo 的 format id 恰好就叫 "2160p"/"1080p"，改动后它走
+	// 高度过滤而非 id 匹配，选中的仍是 1080p 那档，且与既有的 1080p/720p
+	// 硬编码分支口径一致（都是高度上限 + 最高码率）。
+	if h, ok := parseHeightQuality(q); ok {
+		return fmt.Sprintf("bv*[height<=%d]+ba/b[height<=%d]/b", h, h)
+	}
+	// 已知 format id 透传（解析预览 Agent 回来具体 id 的场景：137、hls-383…）。
+	return q
+}
+
+// heightQualityRe 匹配「分辨率档位」：2160p、1440p、1080p60。
+//
+// 只认纯数字高度 + 可选帧率，不认含字母的 format id（hls-383、100026…），
+// 免得把真正的 format id 误当成分辨率。
+var heightQualityRe = regexp.MustCompile(`^(\d{2,5})p(\d{1,3})?$`)
+
+// parseHeightQuality 解析分辨率档位字符串，返回高度上限。
+//
+//	"2160p"   → 2160
+//	"1440p"   → 1440
+//	"1080p60" → 1080（帧率只作提示，高度上限仍按 1080）
+//
+// 不是分辨率档位（如 "137"、"hls-383"、"audio"）时返回 ok=false。
+func parseHeightQuality(q string) (int, bool) {
+	m := heightQualityRe.FindStringSubmatch(strings.TrimSpace(q))
+	if m == nil {
+		return 0, false
+	}
+	h, err := strconv.Atoi(m[1])
+	if err != nil || h <= 0 {
+		return 0, false
+	}
+	return h, true
 }
 
 // formatSortArgs 同分辨率下的格式排序参数（--format-sort）。

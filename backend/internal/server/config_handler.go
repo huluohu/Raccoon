@@ -171,7 +171,10 @@ func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request, values map[s
 //
 // 缺省项（未列出的 key）没有枚举，自由文本 + 后端类型校验。
 var settingChoices = map[string][]string{
-	"download.default_quality": {"best", "audio", "360p", "480p", "720p", "1080p"},
+	// 画质档位与预览下拉同源（collectFormats 的 "<高度>p"）。
+	// 高档位（1440p/2160p/4320p）必须列进来：平台公开提供 4K 时
+	// 预览下拉会出现「2160p」，不在枚举里就存不进去（2026-10-30 修）。
+	"download.default_quality": {"best", "audio", "360p", "480p", "720p", "1080p", "1440p", "2160p", "4320p"},
 	"log.level":                {"debug", "info", "warn", "error"},
 	"storage.strategy":         {"local", "n115_first", "qb_fallback"},
 }
