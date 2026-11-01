@@ -7,6 +7,7 @@
 // 「重试失败项」一次调用 POST /tasks/batch（action=retry），只传失败的子任务 ID。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { api } from '@/api/client'
 import { useShortcuts } from '@/composables/useShortcuts'
 import { useTaskTree, type FilterKey } from '@/composables/useTaskTree'
 import { useTasksStore } from '@/stores/tasks'
@@ -56,6 +57,30 @@ const batchKind = ref('')
 /** 批量面板的产物格式选择（整批生效）。 */
 const batchFormat = ref('')
 
+/**
+ * 「跳过预览」配置（download.skip_preview）。
+ *
+ * 2026-10-30 修死开关：这项配置此前**只有注册表定义，没有任何代码读它**——
+ * 设置页摆着一个开关，拨了不起任何作用（用户以为坏了）。
+ * 现在真正生效：开启后提交链接直接入队，不弹解析预览卡。
+ */
+const skipPreview = ref(false)
+
+/** 读取与本视图相关的配置项（失败不阻断——拿不到就用默认值）。 */
+async function loadViewConfig(): Promise<void> {
+  try {
+    const res = await api.getConfig()
+    const v = (res.items ?? []).find((it: { key: string; value?: unknown }) => it.key === 'download.skip_preview')?.value
+    skipPreview.value = v === true || v === 'true'
+  } catch {
+    /* 配置读不到不影响主流程 */
+  }
+}
+
+onMounted(() => {
+  void loadViewConfig()
+})
+
 async function onPreview(target?: string) {
   // 用 QuickSubmit 抛上来的链接（它已做过格式校验 + 分享文案提取），
   // 不要重新读 url.value —— 那是原始输入，可能还带着一整段分享文案。
@@ -64,6 +89,19 @@ async function onPreview(target?: string) {
   submitting.value = true
   parseErr.value = ''
   preview.value = null
+  // 跳过预览：直接入队（用默认画质），不弹预览卡。
+  if (skipPreview.value) {
+    try {
+      await tasks.submit(link)
+      url.value = ''
+      toast.success('已加入下载队列')
+    } catch (e) {
+      parseErr.value = errorText(e, '加入下载失败')
+    } finally {
+      submitting.value = false
+    }
+    return
+  }
   try {
     const res = await tasks.preview(link)
     preview.value = res.data

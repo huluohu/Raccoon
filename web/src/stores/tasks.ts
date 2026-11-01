@@ -128,21 +128,48 @@ export const useTasksStore = defineStore('tasks', () => {
     warning.value = ''
   }
 
+
+  /**
+   * 解析 SSE 帧的 JSON。
+   *
+   * 2026-10-30：原先各 handler 直接 JSON.parse(ev.data)，畸形帧会抛异常——
+   * 异常发生在 EventSource 的 onmessage 里不会断开连接，但**该帧丢失且没有
+   * 任何日志**，表现为「任务状态偶尔不更新」这类幽灵问题。现在解析失败
+   * 记警告并跳过该帧，不影响后续帧。
+   */
+  function parseFrame<T>(ev: MessageEvent): T | null {
+    try {
+      return JSON.parse(ev.data) as T
+    } catch (e) {
+      console.warn('SSE 帧解析失败，已跳过', e)
+      return null
+    }
+  }
+
+  /** 是否是「有意断开」——断开后不再自动重连（否则离开页面后又连回来）。 */
+  let intentionalClose = false
+
   function connect(): void {
     // 自愈：已存在的连接若已 CLOSED（被误断开 / 网络断过），重建一条。
     // 否则 source 非空就直接 return，连接死了也没人管——侧栏会永远停在「重连中」。
     //
     // CLOSED = 2（EventSource.readyState 的标准值）。这里写字面量而不是
     // EventSource.CLOSED：部分运行环境（如测试桩）没有这个静态常量。
+    intentionalClose = false
     if (source) {
       if (source.readyState !== 2) return
       source.close()
       source = null
     }
     // EventSource 无法带自定义头，会话 cookie 同源自动携带（后端 /events 允许 cookie 会话）。
-    source = new EventSource('/api/v1/events', { withCredentials: true })
+    //
+    // 捕获到局部变量 es：事件回调是**异步**投递的，旧连接的 onerror 可能在
+    // 新连接建好之后才到达。若回调里直接用外层 `source`，就会把**新连接**
+    // 关掉（旧连接的错误关掉了新连接 → 表现为「一直重连中」）。
+    const es = new EventSource('/api/v1/events', { withCredentials: true })
+    source = es
 
-    source.onopen = () => {
+    es.onopen = () => {
       if (graceTimer) {
         window.clearTimeout(graceTimer)
         graceTimer = undefined
@@ -153,9 +180,11 @@ export const useTasksStore = defineStore('tasks', () => {
       void refresh()
     }
 
-    source.onerror = () => {
-      source?.close()
-      source = null
+    es.onerror = () => {
+      // 有意断开后不再重连（也只关自己这一条，别误伤新连接）。
+      if (intentionalClose) return
+      es.close()
+      if (source === es) source = null
       // 宽限：8s 内暂不翻「重连中」（短暂断流重连很快，闪烁只是噪音）；
       // 持续失败才如实显示离线。
       if (graceTimer === undefined) {
@@ -170,7 +199,7 @@ export const useTasksStore = defineStore('tasks', () => {
     }
 
     const onStatus = (ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as {
+      const d = parseFrame<{
         task_id: string
         status: TaskStatus
         wait_reason?: string
@@ -182,7 +211,8 @@ export const useTasksStore = defineStore('tasks', () => {
         error_code?: string
         error_message?: string
         scheduled_at?: number
-      }
+      }>(ev)
+      if (!d) return
       const row = items.value.find((t) => t.id === d.task_id)
       bumpCounts(row?.status, d.status, d.task_id)
       const fields: Partial<Task> = { status: d.status, wait_reason: d.wait_reason }
@@ -205,10 +235,11 @@ export const useTasksStore = defineStore('tasks', () => {
       if (d.status === 'done' || d.status === 'failed') void refresh()
     }
 
-    source.addEventListener('task.status', onStatus as EventListener)
+    es.addEventListener('task.status', onStatus as EventListener)
 
-    source.addEventListener('task.progress', ((ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as TaskProgressPayload
+    es.addEventListener('task.progress', ((ev: MessageEvent) => {
+      const d = parseFrame<TaskProgressPayload>(ev)
+      if (!d) return
       // 父任务聚合帧只有 progress/downloaded_size + 子项计数，没有 speed/expected_size；
       // 绝不能拿它覆盖父任务自身的状态与速度（父任务没有自己的下载过程）。
       if (d.child_total !== undefined) {
@@ -233,14 +264,16 @@ export const useTasksStore = defineStore('tasks', () => {
       })
     }) as EventListener)
 
-    source.addEventListener('task.done', ((ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as { task_id: string; size: number }
+    es.addEventListener('task.done', ((ev: MessageEvent) => {
+      const d = parseFrame<{ task_id: string; size: number }>(ev)
+      if (!d) return
       patch(d.task_id, { status: 'done', progress: 100, speed_bps: 0, downloaded_size: d.size })
       void refresh()
     }) as EventListener)
 
-    source.addEventListener('task.failed', ((ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as { task_id: string; error_code?: string; error_message?: string; wait_reason?: string; fix_hint?: string }
+    es.addEventListener('task.failed', ((ev: MessageEvent) => {
+      const d = parseFrame<{ task_id: string; error_code?: string; error_message?: string; wait_reason?: string; fix_hint?: string }>(ev)
+      if (!d) return
       // 2026-10-30 修（错误文案被覆盖成空）：后端 task.failed 帧**不带**
       // error_message（只有 error_code 与 fix_hint），而这里无条件写
       // error_message: d.error_message → 把已有文案覆盖成 undefined，
@@ -255,20 +288,24 @@ export const useTasksStore = defineStore('tasks', () => {
       void refresh()
     }) as EventListener)
 
-    source.addEventListener('system.warn', ((ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as { code: string; message: string }
+    es.addEventListener('system.warn', ((ev: MessageEvent) => {
+      const d = parseFrame<{ code: string; message: string }>(ev)
+      if (!d) return
       warning.value = d.message
     }) as EventListener)
 
 
     // 通知中心复用这条连接：后端 notification_handler 在 notify() 里广播 notif.new。
     // 这里只置个时间戳，由 notifications store 的 watch 触发拉取（保持单一数据源，不在前端拼通知对象）。
-    source.addEventListener('notif.new', (() => {
+    es.addEventListener('notif.new', (() => {
       notifTick.value++
     }) as EventListener)
   }
 
   function disconnect(): void {
+    // 标记「有意断开」：否则 EventSource 排队中的 error 事件会在断开后
+    // 触发 onerror → 又排一个重连定时器 → 连接自己活回来（离开页面还在连）。
+    intentionalClose = true
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
     if (graceTimer) {
       window.clearTimeout(graceTimer)
