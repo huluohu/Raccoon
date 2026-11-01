@@ -19,11 +19,12 @@ onUnmounted(() => document.removeEventListener('keydown', onKey))
 <template>
   <Teleport to="body">
     <Transition name="drawer">
-      <div v-if="open" class="dd-root" role="dialog" aria-modal="true">
+      <!-- aria-labelledby 指向标题：读屏打开抽屉时必须播报标题。 -->
+      <div v-if="open" class="dd-root" role="dialog" aria-modal="true" aria-labelledby="dd-title">
         <div class="dd-mask" @click="emit('close')" />
         <aside class="dd-panel" :style="{ width: width + 'px' }">
           <header class="dd-head">
-            <h3 class="dd-title">{{ title }}</h3>
+            <h3 id="dd-title" class="dd-title">{{ title }}</h3>
             <button class="dd-close" type="button" aria-label="关闭" @click="emit('close')">✕</button>
           </header>
           <div class="dd-body">

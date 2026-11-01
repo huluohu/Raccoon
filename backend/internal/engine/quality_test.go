@@ -392,3 +392,40 @@ func TestCollectFormats_4K档位出现在预览里(t *testing.T) {
 		t.Errorf("2160p 应取码率最高的那条（400000000），实际 %v", got[0].Size)
 	}
 }
+
+// TestCollectFormats_体积含音轨 DASH 站点的成品是「视频流 + 音轨」合并，
+// 预览只报视频流体积会与最终产物对不上。
+func TestCollectFormats_体积含音轨(t *testing.T) {
+	fs := []ytdlpFormat{
+		{FormatID: "v", Height: 1080, VCodec: "avc1.640032", ACodec: "none", FilesizeApprox: i64(69793285), TBR: f64(2629)},
+		{FormatID: "a", VCodec: "none", ACodec: "mp4a.40.2", FilesizeApprox: i64(5410339), TBR: f64(204)},
+	}
+	got := collectFormats(fs)
+	if len(got) != 2 {
+		t.Fatalf("应有 1 个视频档 + 1 个音频档，实际 %d", len(got))
+	}
+	var videoSize int64
+	for _, f := range got {
+		if f.Quality == "1080p" && f.Size != nil {
+			videoSize = *f.Size
+		}
+	}
+	want := int64(69793285 + 5410339)
+	if videoSize != want {
+		t.Errorf("1080p 体积应为成品口径（视频+音轨=%d），实际 %d", want, videoSize)
+	}
+}
+
+// TestCollectFormats_合并流不加音轨 combined 站点（音视频同一条流）不能重复加。
+func TestCollectFormats_合并流不加音轨(t *testing.T) {
+	fs := []ytdlpFormat{
+		{FormatID: "c", Height: 720, VCodec: "avc1.640028", ACodec: "mp4a.40.2", FilesizeApprox: i64(1000000), TBR: f64(800)},
+	}
+	got := collectFormats(fs)
+	if len(got) != 1 {
+		t.Fatalf("应有 1 档，实际 %d", len(got))
+	}
+	if got[0].Size == nil || *got[0].Size != 1000000 {
+		t.Errorf("合并流体积不应加音轨，实际 %v", got[0].Size)
+	}
+}

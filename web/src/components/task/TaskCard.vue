@@ -127,6 +127,7 @@ const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.va
         tabindex="0"
         @click="emit('open', task)"
         @keydown.enter="emit('open', task)"
+      @keydown.space.prevent="emit('open', task)"
       >
         <div class="tcard-head">
           <StatusDot :status="task.status" />

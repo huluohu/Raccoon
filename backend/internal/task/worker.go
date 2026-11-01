@@ -98,6 +98,13 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	if plat == "" {
 		plat = t.Platform
 	}
+	// 清晰度降档告知（2026-10-30）：解析与下载是两次独立的引擎调用，
+	// 站点的格式列表会变（PornHub 实测：解析时三档，下载那次只剩一档）。
+	// formatSelector 末尾的 /b 兜底保证「宁可降档也别失败」，但用户
+	// 不知道自己选的档位没了——这里如实告知，避免「我要的 4K 怎么变 1080p」。
+	if note := qualityFallbackNote(t.Quality, res.Formats); note != "" {
+		_ = w.mgr.st.AppendEvent(t.ID, "warn", "quality_fallback", note, "")
+	}
 	ver := w.eng.Version()
 	if err := w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
 		"title":          res.Title,
@@ -1230,4 +1237,52 @@ func decideProxySwitch(exitUsed, pinnedProxy, globalProxy string, networkErr boo
 		return "", "本次已走代理（无其它代理可切换）"
 	}
 	return "", ""
+}
+
+// qualityFallbackNote 判断「用户选的清晰度这轮拿不到」，返回给用户看的话术。
+//
+// 何时需要：解析与下载是两次独立的引擎调用，站点的格式列表在两次之间可能变化
+// （PornHub 实测：解析时列 240p/480p/720p 三档，下载那次只剩 720p 的 hls-383）。
+// formatSelector 末尾的 /b 兜底保证「宁可降档也别失败」，代价是用户
+// 不知道自己选的档位已经没有了——这里如实告知。
+//
+// 什么时候**不**提示：
+//   - 选的是 best / audio（本来就没有固定高度）；
+//   - 站点确实提供了该档（正常路径）；
+//   - 只提供更**高**的档位（用户选的档位被更高档取代是好事，不必提醒）。
+func qualityFallbackNote(quality string, formats []engine.FormatInfo) string {
+	q := strings.TrimSpace(quality)
+	if q == "" || q == "best" || q == "audio" {
+		return ""
+	}
+	want, ok := engine.ParseHeightQuality(q)
+	if !ok {
+		return ""
+	}
+	best := 0
+	found := false
+	for _, f := range formats {
+		h, ok := engine.ParseHeightQuality(f.Quality)
+		if !ok {
+			continue
+		}
+		if h > best {
+			best = h
+		}
+		if h == want {
+			found = true
+			break
+		}
+	}
+	if found {
+		return ""
+	}
+	if best <= 0 {
+		return "" // 站点没给任何档位信息，不猜
+	}
+	if best > want {
+		// 有更高的档位可用，用户会拿到更好的——不必提醒。
+		return ""
+	}
+	return fmt.Sprintf("所选清晰度 %s 当前不可得，将按可得的最高档 %dp 下载", q, best)
 }

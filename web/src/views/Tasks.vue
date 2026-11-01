@@ -53,6 +53,8 @@ function isMagnet(u: string): boolean {
 const chosenKind = ref('')
 /** 批量面板的下载通道选择（整批生效）。 */
 const batchKind = ref('')
+/** 批量面板的产物格式选择（整批生效）。 */
+const batchFormat = ref('')
 
 async function onPreview(target?: string) {
   // 用 QuickSubmit 抛上来的链接（它已做过格式校验 + 分享文案提取），
@@ -168,11 +170,16 @@ async function onBatchSubmit(mode: 'normal' | 'parent') {
   }
   batchSubmitting.value = true
   batchErr.value = ''
-  // 通道选择对整批生效（batchKind 是批量面板上的单选）。
+  // 通道与产物格式对整批生效（批量面板上的单选）。
+  //
+  // 2026-10-30 修：批量此前**只带 quality**，convert_to 与 kind 全丢——
+  // 于是批量提交的任务永远拿不到 mp4/mp3（单条预览有这两项，批量没有），
+  // 用户在批量面板里根本选不到产物格式。
   const payload = items.map((i) => ({
     url: i.url,
     quality: i.quality || 'best',
     ...(batchKind.value ? { kind: batchKind.value } : {}),
+    ...(batchFormat.value ? { convert_to: batchFormat.value } : {}),
   }))
   try {
     if (mode === 'parent') {
@@ -601,6 +608,11 @@ onBeforeUnmount(() => {
           <span v-if="preview.uploader">{{ preview.uploader }}</span>
           <span class="tnum">时长 {{ formatDuration(preview.duration) }}</span>
           <span v-if="preview.is_playlist" class="pill pill--warn">合集</span>
+          <!-- 列表条目数：预览只解析第一条，下载阶段会拉整个列表——
+               如实告知，避免「预览说 1 个、实际下了 25 个」。 -->
+          <span v-if="preview.playlist_count && preview.playlist_count > 1" class="pill pill--muted">
+            共 {{ preview.playlist_count }} 项，将全部下载
+          </span>
         </p>
         <!-- 出口说明：解析实际走了哪条路（代理/直连）、中途是否切换过——
              界面如实告知，用户才知道「为什么这次能下、下次会不会又超时」。 -->
@@ -609,17 +621,25 @@ onBeforeUnmount(() => {
           <span v-else class="pill pill--muted">直连</span>
           <span v-if="preview.route_note">{{ preview.route_note }}</span>
         </p>
-        <div class="qualities">
+        <!-- 清晰度选择：radiogroup 模式（docs/07 §4 组件验收点）。
+             子按钮必须有 role="radio" + aria-checked，否则读屏只会念出一排无名按钮。 -->
+        <div class="qualities" role="radiogroup" aria-label="清晰度">
           <button
             v-for="f in preview.formats"
             :key="f.quality"
             type="button"
             class="q"
+            role="radio"
             :class="{ on: chosenQuality === f.quality }"
+            :aria-checked="chosenQuality === f.quality"
             :title="f.host ? `媒体直链域名：${f.host}` : ''"
             @click="chosenQuality = f.quality"
           >
             {{ f.quality }}<em v-if="f.size">{{ formatBytes(f.size) }}</em>
+            <!-- format_note：帧率/编码等补充信息（如「1080p60」）。
+                 后端一直在给，前端此前从不渲染 —— 用户因此看不到同分辨率下的
+                 帧率差异，选不了 60fps。 -->
+            <em v-if="f.note && f.note !== f.quality" class="q-note">{{ f.note }}</em>
           </button>
         </div>
         <!-- 媒体域名预告：解析打的是站点 API，下载打的是媒体 CDN（两者常不是同一个域名）。
@@ -640,8 +660,10 @@ onBeforeUnmount(() => {
             ]"
             :key="opt.v"
             type="button"
+            role="radio"
             class="q fmt"
             :class="{ on: chosenKind === opt.v }"
+            :aria-checked="chosenKind === opt.v"
             :title="opt.v === 'qb' ? '交给 qBittorrent 下载（需在「连接」页配置 qB）' : opt.v === 'n115' ? '交给 115 网盘离线下载（需配置 115 凭据）' : '按「存储策略」设置自动选择'"
             @click="chosenKind = opt.v"
           >
@@ -659,8 +681,10 @@ onBeforeUnmount(() => {
             ]"
             :key="opt.v"
             type="button"
+            role="radio"
             class="q fmt"
             :class="{ on: chosenFormat === opt.v }"
+            :aria-checked="chosenFormat === opt.v"
             @click="chosenFormat = opt.v"
           >
             {{ opt.label }}
@@ -722,9 +746,33 @@ onBeforeUnmount(() => {
           ]"
           :key="opt.v"
           type="button"
+          role="radio"
           class="q fmt"
           :class="{ on: batchKind === opt.v }"
+            :aria-checked="batchKind === opt.v"
           @click="batchKind = opt.v"
+        >
+          {{ opt.label }}
+        </button>
+      </div>
+
+      <!-- 产物格式：整批生效。缺省=源格式零开销；MP4 优先无损 remux、
+           MP3 提取音轨。此前批量面板没有这个控件，批量任务也永远拿不到 mp4/mp3。 -->
+      <div class="fmt-row" role="radiogroup" aria-label="产物格式">
+        <span class="fmt-label">格式</span>
+        <button
+          v-for="opt in [
+            { v: '', label: '源格式' },
+            { v: 'mp4', label: 'MP4' },
+            { v: 'mp3', label: 'MP3' },
+          ]"
+          :key="opt.v"
+          type="button"
+          role="radio"
+          class="q fmt"
+          :class="{ on: batchFormat === opt.v }"
+            :aria-checked="batchFormat === opt.v"
+          @click="batchFormat = opt.v"
         >
           {{ opt.label }}
         </button>
@@ -752,16 +800,20 @@ onBeforeUnmount(() => {
               <span v-if="item.error" class="bi-err">{{ item.error }}</span>
               <span v-else-if="!item.preview" class="muted">待解析</span>
             </p>
-            <div v-if="item.preview" class="qualities">
+            <div v-if="item.preview" class="qualities" role="radiogroup" aria-label="清晰度">
               <button
                 v-for="f in item.preview.formats"
                 :key="f.quality"
                 type="button"
                 class="q"
+                role="radio"
                 :class="{ on: item.quality === f.quality }"
+            :aria-checked="item.quality === f.quality"
+                :click="item.quality = f.quality"
                 @click="item.quality = f.quality"
               >
                 {{ f.quality }}<em v-if="f.size">{{ formatBytes(f.size) }}</em>
+                <em v-if="f.note && f.note !== f.quality" class="q-note">{{ f.note }}</em>
               </button>
             </div>
           </div>
@@ -978,5 +1030,11 @@ onBeforeUnmount(() => {
 .alert-close:focus-visible {
   outline: 2px solid var(--warning);
   outline-offset: 2px;
+}
+
+.q-note {
+  color: var(--text-3);
+  font-size: var(--font-aux);
+  font-style: normal;
 }
 </style>

@@ -83,6 +83,11 @@ type ParsePreview struct {
 	Formats    []FormatOption `json:"formats"`
 	ProxyUsed  string         `json:"proxy_used,omitempty"`
 	RouteNote  string         `json:"route_note,omitempty"` // 如「直连异常，已自动切换代理」
+	// PlaylistCount 播放列表/合集的总条目数（0 = 单个视频或未知）。
+	//
+	// 预览只解析第一条（快），但下载阶段会拉**整个列表**——界面据此如实告知，
+	// 避免「预览说 1 个、实际下了 25 个」。
+	PlaylistCount int `json:"playlist_count,omitempty"`
 }
 
 // FormatOption 一个可选质量；Size 为 nil 时前端显示「未知」（禁估算）。

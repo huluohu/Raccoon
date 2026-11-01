@@ -643,6 +643,8 @@ func (m *Manager) Preview(ctx context.Context, url string, proxyOpt ...string) (
 		Formats:    make([]store.FormatOption, 0, len(res.Formats)),
 		ProxyUsed:  usedProxy,
 		RouteNote:  routeNote,
+		// 列表条目数：预览只解析第一条，但要告诉用户下载时是整个列表。
+		PlaylistCount: res.PlaylistCount,
 	}
 	for _, f := range res.Formats {
 		pv.Formats = append(pv.Formats, store.FormatOption{Quality: f.Quality, Size: f.Size, Note: f.Note, Host: f.Host})

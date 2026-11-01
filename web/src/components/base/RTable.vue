@@ -116,7 +116,8 @@ function onRowClick(row: T, index: number) {
       </colgroup>
       <thead>
         <tr>
-          <th v-for="c in columns" :key="c.key" :class="c.align ? `rtable-cell--${c.align}` : undefined">
+          <!-- scope="col"：读屏需要知道这一格是列头（此前只有操作列有）。 -->
+          <th v-for="c in columns" :key="c.key" scope="col" :class="c.align ? `rtable-cell--${c.align}` : undefined">
             {{ c.title }}
           </th>
           <th class="rtable-cell rtable-cell--actions" scope="col">

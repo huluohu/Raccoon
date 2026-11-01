@@ -187,8 +187,38 @@ func (y *YTDLP) Resolve(ctx context.Context, url string, opts ResolveOpts) (*Res
 		Platform:   platformOf(d.ExtractorKey, url),
 		IsPlaylist: d.Type == "playlist",
 	}
+	// 播放列表条目数：预览只解析第一条，但下载阶段会拉整个列表，
+	// 界面要据此如实告知（否则「预览说 1 个、实际下 25 个」）。
+	res.PlaylistCount = d.PlaylistCount
+	if res.PlaylistCount == 0 {
+		res.PlaylistCount = d.NEntries
+	}
 	res.Formats = collectFormats(d.Formats)
+	res.AudioSize = bestAudioSize(d.Formats)
 	return res, nil
+}
+
+// bestAudioSize 取最佳独立音轨的体积（0 = 没有独立音轨）。
+//
+// DASH 站点的成品是「视频流 + 音轨」合并，只报视频流体积会让预览数字
+// 与最终产物对不上（B 站 1080p：视频 66.58MB + 音频 5.16MB = 71.74MB）。
+func bestAudioSize(fs []ytdlpFormat) int64 {
+	var best int64
+	for _, f := range fs {
+		if f.VCodec != "none" || f.ACodec == "none" {
+			continue // 只认「纯音频流」
+		}
+		var sz int64
+		if f.Filesize != nil {
+			sz = *f.Filesize
+		} else if f.FilesizeApprox != nil {
+			sz = *f.FilesizeApprox
+		}
+		if sz > best {
+			best = sz
+		}
+	}
+	return best
 }
 
 // ytdlpFormat yt-dlp formats[] 中 adapter 关心的字段（不建全量模型）。
@@ -229,6 +259,16 @@ type ytdlpJSON struct {
 	Extractor    string        `json:"extractor"`
 	Type         string        `json:"_type"`
 	Formats      []ytdlpFormat `json:"formats"`
+	// PlaylistCount 播放列表/合集的总条目数。
+	//
+	// 为什么需要（2026-10-30）：预览用 --playlist-items 1 只解析第一条，
+	// 但**下载阶段会把整个列表都拉下来**——于是用户在预览卡上看到「1 个视频」，
+	// 点「加入下载」后引擎开始下 25 个视频。有了这个字段就能如实告知。
+	//
+	// yt-dlp 对播放列表给 playlist_count，对单视频给 0/缺省。
+	PlaylistCount int `json:"playlist_count"`
+	// NEntries 部分站点用 n_entries 而非 playlist_count，两个都收。
+	NEntries int `json:"n_entries"`
 	// Entries 播放列表/合集的条目（--playlist-items 1 时只有一条）。
 	// 这类链接（bad.news 这类「页面里嵌了一个视频」）的真实格式与标题
 	// 都在条目里，顶层是空的——不取条目，预览就没有清晰度可选，
@@ -302,6 +342,24 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 	}
 	byHeight := map[int]cand{}
 	var audioBest *cand
+	// 独立音轨体积：DASH 站点的成品是「视频流 + 音轨」合并，
+	// 预览只报视频流体积会与最终产物对不上（66MB vs 75MB）。
+	// combined 站点（音视频在同一条流里）没有独立音轨，不加。
+	var audioSize int64
+	for _, f := range fs {
+		if f.VCodec != "none" || f.ACodec == "none" {
+			continue
+		}
+		var sz int64
+		if f.Filesize != nil {
+			sz = *f.Filesize
+		} else if f.FilesizeApprox != nil {
+			sz = *f.FilesizeApprox
+		}
+		if sz > audioSize {
+			audioSize = sz
+		}
+	}
 	for _, f := range fs {
 		var sz int64
 		if f.Filesize != nil {
@@ -314,7 +372,12 @@ func collectFormats(fs []ytdlpFormat) []FormatInfo {
 			br = *f.TBR
 		}
 		if f.VCodec != "none" && f.Height > 0 {
-			c := cand{id: f.FormatID, size: sz, br: br, note: f.FormatNote, url: f.URL}
+			// 成品 = 视频流 + 音轨（独立音轨存在时）。
+			total := sz
+			if audioSize > 0 {
+				total += audioSize
+			}
+			c := cand{id: f.FormatID, size: total, br: br, note: f.FormatNote, url: f.URL}
 			old, ok := byHeight[f.Height]
 			if !ok || betterB(c, old) {
 				byHeight[f.Height] = c

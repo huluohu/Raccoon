@@ -50,6 +50,9 @@ const sensitiveMask = computed(() => {
   return v ? v : '未设置'
 })
 
+/** 是否展开「自定义」输入（开放枚举用）。 */
+const customOpen = ref(false)
+
 /** 枚举项的值域由后端 choices 定义，用户不必猜合法值。 */
 const choices = computed(() =>
   (props.item.choices ?? []).map((c) => ({ value: c, label: c })),
@@ -155,13 +158,34 @@ async function testProxy() {
         />
       </template>
       <template v-else-if="choices.length > 0">
-        <!-- 枚举项：值域由后端 choices 定义，用户不必猜合法值（前端绕过后端仍会拦） -->
-        <RSelect
-          :model-value="String(modelValue ?? '')"
-          :label="item.desc"
-          :options="choices"
-          @update:model-value="(v) => emit('update:modelValue', String(v))"
-        />
+        <!-- 枚举项：值域由后端 choices 定义，用户不必猜合法值（前端绕过后端仍会拦）。
+             但带「自定义」项：有些枚举是**开放**的（如清晰度可以是任意 <高度>p），
+             只给固定下拉会让用户没法填 1080p60 这类档位。 -->
+        <div class="setting-enum">
+          <RSelect
+            :model-value="String(modelValue ?? '')"
+            :label="item.desc"
+            :options="choices"
+            @update:model-value="(v) => emit('update:modelValue', String(v))"
+          />
+          <button
+            type="button"
+            class="setting-enum-toggle"
+            :aria-expanded="customOpen"
+            @click="customOpen = !customOpen"
+          >
+            {{ customOpen ? '收起自定义' : '自定义…' }}
+          </button>
+          <input
+            v-if="customOpen"
+            class="input"
+            type="text"
+            :value="String(modelValue ?? '')"
+            :placeholder="item.key === 'download.default_quality' ? '如 1080p60 / 2160p / best' : ''"
+            @input="onText"
+            @change="onText"
+          />
+        </div>
       </template>
       <template v-else>
         <input
@@ -246,4 +270,38 @@ async function testProxy() {
 .dirty-pip { width: 7px; height: 7px; border-radius: 50%; background: var(--warning); }
 /* 保存反馈：保存后按后端下发的生效时机如实告知这一项什么时候生效。 */
 .saved-badge { font-size: var(--font-caption); padding: 1px 7px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--success) 16%, transparent); color: var(--success); }
+
+.setting-enum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.setting-enum .input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.setting-enum-toggle {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--radius-sm, 6px);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: var(--font-aux);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.setting-enum-toggle:hover {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
+.setting-enum-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 </style>

@@ -208,10 +208,12 @@ function confirm() {
       <!-- 键盘事件统一在 document 上监听（见 onKeydown）：
            这里再绑一次 @keydown 会让同一次按键被处理两遍（冒泡到根节点一次、到 document 一次），
            Esc 就会重复 emit cancel。焦点即使跑出对话框，document 监听依然能兜住 Esc。 -->
-      <div v-if="open" class="rdialog-root" role="dialog" aria-modal="true">
+      <!-- aria-labelledby 指向标题：读屏打开对话框时必须播报标题，
+           否则用户只听到「对话框」不知道是什么。 -->
+      <div v-if="open" class="rdialog-root" role="dialog" aria-modal="true" aria-labelledby="rdialog-title">
         <div class="rdialog-mask" @click="close" />
         <div ref="panelEl" :class="cls" :style="width ? { maxWidth: width } : undefined">
-          <h3 class="rdialog-title">{{ title }}</h3>
+          <h3 id="rdialog-title" class="rdialog-title">{{ title }}</h3>
           <p v-if="description" class="rdialog-desc">{{ description }}</p>
           <div class="rdialog-body">
             <slot />

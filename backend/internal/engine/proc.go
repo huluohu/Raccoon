@@ -86,6 +86,15 @@ type ResolveResult struct {
 	Platform   string
 	IsPlaylist bool
 	Formats    []FormatInfo
+	// PlaylistCount 播放列表/合集的总条目数（0 = 单个视频或未知）。
+	//
+	// 用途：预览只解析第一条（快），但下载阶段会拉整个列表——界面据此
+	// 如实告诉用户「共 N 项，将全部下载」，避免「预览说 1 个、下了 25 个」。
+	PlaylistCount int
+	// AudioSize 最佳音频流的体积（0 = 该站没有独立音轨）。
+	// 视频档位显示的体积应加上它：DASH 站点成品是「视频流 + 音轨」合并，
+	// 只显示视频流体积会让预览数字与最终产物对不上（66MB vs 75MB）。
+	AudioSize int64
 }
 
 // FormatInfo 一个可选质量。

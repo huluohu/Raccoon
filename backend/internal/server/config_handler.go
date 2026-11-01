@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/huluohu/raccoon/internal/config"
+	"github.com/huluohu/raccoon/internal/engine"
 	"github.com/huluohu/raccoon/internal/httpx"
 )
 
@@ -224,8 +225,19 @@ func validateSettingValue(key string, val any, meta config.Setting) error {
 		if !ok {
 			return httpx.Validation(key + " 需要字符串")
 		}
-		if !inStrList(settingChoices[key], str) {
-			return httpx.Validation("清晰度需为 " + strings.Join(settingChoices[key], " / "))
+		str = strings.TrimSpace(str)
+		if str == "" {
+			str = "best"
+		}
+		// 2026-10-30 放开（别限制死）：原先是封闭白名单，只能选 9 个预设值——
+		// 而平台实际提供的档位远不止这些（1080p60、1440p、4320p…），
+		// 用户在解析预览里能选到的档位在这里却存不进去。
+		// 现在按「<高度>p」或「<高度>p<帧率>」开放任意档位，
+		// 另保留 best / audio 两个语义值。
+		if str != "best" && str != "audio" {
+			if _, ok := engine.ParseHeightQuality(str); !ok {
+				return httpx.Validation("清晰度需为 best / audio，或 <高度>p 形式（如 1080p、2160p、1080p60）")
+			}
 		}
 	case "log.level":
 		str, _ := val.(string)

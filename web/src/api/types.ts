@@ -166,6 +166,13 @@ export interface ParsePreview {
   formats: FormatOption[]
   proxy_used?: string
   route_note?: string
+  /**
+   * 播放列表/合集的总条目数（0 = 单个视频或未知）。
+   *
+   * 预览只解析第一条（快），但下载阶段会拉**整个列表**——这个数字让界面
+   * 能如实告知「共 N 项，将全部下载」，而不是让用户以为只下一个。
+   */
+  playlist_count?: number
 }
 
 export interface CreateTasksResponse {
