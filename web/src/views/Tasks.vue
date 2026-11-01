@@ -172,19 +172,52 @@ function syncBatchItems() {
 /** 已解析成功的条目（提交只用这些；解析失败的不静默丢弃，而是明确提示）。 */
 const parsedItems = computed(() => batchItems.value.filter((i) => i.preview !== null))
 
+/**
+ * 批量解析的节流参数。
+ *
+ * 解析接口限流 **20 次/分钟/IP**（后端 server.go 的 parseLimiter）。批量导入
+ * 50 条时，前 20 条秒过、后面 30 条全被 429，用户看到的是「30 个链接解析失败」
+ * ——既不知道为什么失败，也没法重试。2026-10-30 起：
+ *   - 主动按 3.2s/条 的节奏发（低于 20 次/分钟的限额），从源头避开限流；
+ *   - 万一还是撞上限流，等一个窗口再重试，不直接判失败。
+ */
+const PARSE_PACE_MS = 3200
+const RATE_LIMIT_RETRIES = 3
+const RATE_LIMIT_BACKOFF_MS = 15000
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => window.setTimeout(r, ms))
+}
+
 async function onBatchParse() {
   if (batchParsing.value) return
   batchParsing.value = true
   batchErr.value = ''
+  let paced = false
   for (const item of batchItems.value) {
     if (item.preview || item.error) continue
-    try {
-      const res = await tasks.preview(item.url)
-      item.preview = res.data
-      const videoFormats = res.data.formats.filter((f) => f.quality !== 'audio')
-      item.quality = videoFormats[0]?.quality ?? 'best'
-    } catch (e) {
-      item.error = errorText(e, '解析失败')
+    // 节流：除第一条外，每条之间至少隔 PARSE_PACE_MS。
+    if (paced) await sleep(PARSE_PACE_MS)
+    paced = true
+    let tries = 0
+    for (;;) {
+      try {
+        const res = await tasks.preview(item.url)
+        item.preview = res.data
+        const videoFormats = res.data.formats.filter((f) => f.quality !== 'audio')
+        item.quality = videoFormats[0]?.quality ?? 'best'
+        break
+      } catch (e) {
+        // 限流：等一个窗口重试，而不是直接判这条失败。
+        if (e instanceof ApiError && e.code === 'RATE_LIMITED' && tries < RATE_LIMIT_RETRIES) {
+          tries += 1
+          batchErr.value = `解析接口限流（20 次/分钟），正在等待后重试…（已重试 ${tries} 次）`
+          await sleep(RATE_LIMIT_BACKOFF_MS)
+          continue
+        }
+        item.error = errorText(e, '解析失败')
+        break
+      }
     }
   }
   batchItems.value = [...batchItems.value]
