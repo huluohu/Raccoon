@@ -14,7 +14,7 @@ type codedSQLiteError struct {
 }
 
 func (e *codedSQLiteError) Error() string { return e.text }
-func (e *codedSQLiteError) Code() int    { return e.code }
+func (e *codedSQLiteError) Code() int     { return e.code }
 
 func TestDescribeSQLiteOpenError_DistinguishesCantOpenFromNoMemory(t *testing.T) {
 	// This exact driver message is misleading: "out of memory" is text, but 14 is
