@@ -1016,6 +1016,17 @@ func truncate(s string, n int) string {
 }
 
 // platformOf 平台标识：extractor_key 优先，URL 域名兜底。
+//
+// 2026-10-30 修两处：
+//
+//  1. **域名匹配改为按点分边界**。原先用 strings.Contains(host, "x.com")，
+//     于是 max.com / linux.com / matrix.com 全被标成 twitter——凭据中心
+//     会**去取 twitter 的 Cookie 去请求这些站**（凭据注入按 platform 精确匹配）。
+//     现在用 hostMatches：等于该域名或为其子域才算命中。
+//  2. **补齐平台标识**。原先 galleryHosts 里的知乎/小红书短链等一律落到
+//     "web"，而凭据注入按 platform 取——于是用户明明在「平台账号」页配了
+//     知乎/小红书的 Cookie，任务却因为 platform="web" 永远取不到。
+//     现在这些域名都有各自的平台标识，凭据能真正送达。
 func platformOf(extractorKey, url string) string {
 	k := strings.ToLower(extractorKey)
 	switch {
@@ -1047,43 +1058,95 @@ func platformOf(extractorKey, url string) string {
 		return "weibo"
 	case strings.Contains(k, "xiaohongshu"):
 		return "xiaohongshu"
+	case strings.Contains(k, "zhihu"):
+		return "zhihu"
+	case strings.Contains(k, "pixiv"):
+		return "pixiv"
+	case strings.Contains(k, "deviantart"):
+		return "deviantart"
+	case strings.Contains(k, "artstation"):
+		return "artstation"
+	case strings.Contains(k, "imgur"):
+		return "imgur"
+	case strings.Contains(k, "reddit"):
+		return "reddit"
+	case strings.Contains(k, "douban"):
+		return "douban"
+	case strings.Contains(k, "tumblr"):
+		return "tumblr"
 	}
-	host := strings.ToLower(url)
+	host := hostOf(url)
+	lowerURL := strings.ToLower(url)
 	switch {
-	case strings.Contains(host, "youtube.com"), strings.Contains(host, "youtu.be"):
+	case hostMatches(host, "youtube.com"), hostMatches(host, "youtu.be"):
 		return "youtube"
-	case strings.Contains(host, "bilibili.com"), strings.Contains(host, "b23.tv"):
+	case hostMatches(host, "bilibili.com"), hostMatches(host, "b23.tv"),
+		hostMatches(host, "bilibili.tv"):
 		return "bilibili"
-	case strings.Contains(host, "douyin.com"):
+	case hostMatches(host, "douyin.com"):
 		return "douyin"
-	case strings.Contains(host, "tiktok.com"):
+	case hostMatches(host, "tiktok.com"):
 		return "tiktok"
-	case strings.Contains(host, "music.163.com"):
+	case hostMatches(host, "music.163.com"):
 		return "netease"
-	case strings.Contains(host, "twitter.com"), strings.Contains(host, "x.com"):
+	case hostMatches(host, "twitter.com"), hostMatches(host, "x.com"):
 		return "twitter"
-	case strings.Contains(host, "instagram.com"):
+	case hostMatches(host, "instagram.com"):
 		return "instagram"
-	case strings.Contains(host, "pornhub.com"):
+	case hostMatches(host, "pornhub.com"):
 		return "pornhub"
-	case strings.Contains(host, "vimeo.com"):
+	case hostMatches(host, "vimeo.com"):
 		return "vimeo"
-	case strings.Contains(host, "soundcloud.com"):
+	case hostMatches(host, "soundcloud.com"):
 		return "soundcloud"
-	case strings.Contains(host, "bandcamp.com"):
+	case hostMatches(host, "bandcamp.com"):
 		return "bandcamp"
-	case strings.Contains(host, "weibo.com"):
+	case hostMatches(host, "weibo.com"):
 		return "weibo"
-	case strings.Contains(host, "xiaohongshu.com"):
+	// 小红书短链 xhslink.com：短链展开后是小红书内容，凭据必须按小红书注入。
+	case hostMatches(host, "xiaohongshu.com"), hostMatches(host, "xhslink.com"):
 		return "xiaohongshu"
-	case strings.Contains(host, "youku.com"):
+	case hostMatches(host, "zhihu.com"):
+		return "zhihu"
+	case hostMatches(host, "pixiv.net"):
+		return "pixiv"
+	case hostMatches(host, "deviantart.com"):
+		return "deviantart"
+	case hostMatches(host, "artstation.com"):
+		return "artstation"
+	case hostMatches(host, "imgur.com"):
+		return "imgur"
+	case hostMatches(host, "reddit.com"):
+		return "reddit"
+	case hostMatches(host, "douban.com"):
+		return "douban"
+	case hostMatches(host, "tumblr.com"):
+		return "tumblr"
+	case hostMatches(host, "youku.com"):
 		return "youku"
-	case strings.Contains(host, "v.qq.com"), strings.Contains(host, "qq.com/nv"):
+	case hostMatches(host, "v.qq.com"), strings.Contains(lowerURL, "qq.com/nv"):
 		return "tencent"
-	case strings.Contains(host, "iqiyi.com"):
+	case hostMatches(host, "iqiyi.com"):
 		return "iqiyi"
-	case strings.Contains(host, "weixin.qq.com"), strings.Contains(host, "channels.weixin.qq.com"), strings.Contains(host, "finder.video.qq.com"):
+	case hostMatches(host, "weixin.qq.com"), hostMatches(host, "channels.weixin.qq.com"),
+		hostMatches(host, "finder.video.qq.com"):
 		return "wechat"
 	}
 	return "web"
+}
+
+// hostMatches 判断 host 是否等于 domain 或是其子域（**按点分边界**）。
+//
+// 为什么不能用 strings.Contains：那样 "max.com" 也含 "x.com"，
+// 会被判成 twitter 平台 → 凭据中心去取 twitter 的 Cookie 发给 max.com。
+func hostMatches(host, domain string) bool {
+	h := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	d := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(domain), "."))
+	if h == "" || d == "" {
+		return false
+	}
+	if h == d {
+		return true
+	}
+	return strings.HasSuffix(h, "."+d)
 }

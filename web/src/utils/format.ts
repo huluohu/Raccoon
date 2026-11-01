@@ -202,3 +202,31 @@ export function errorText(e: unknown, fallback: string): string {
   if (base.includes(detail)) return base
   return `${base}（引擎原始信息：${detail}）`
 }
+
+/**
+ * 解析服务端下发的 fix_hint（JSON 字符串）。
+ *
+ * fix_hint 是「这个失败下一步该做什么」的权威说明——后端会点名**媒体直链来自
+ * 哪个 CDN**（「请确认代理规则覆盖该域名」），这是排障最关键的一句。
+ * 2026-10-30 之前它只在详情页可见，列表里看不到，用户得逐个点开详情才知道
+ * 该查哪里。现提取为共享工具，列表行也能显示。
+ */
+export interface FixHint {
+  action: string
+  label: string
+}
+
+export function parseFixHint(raw: string | null | undefined): FixHint | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const obj = parsed as { action?: unknown; label?: unknown }
+    const action = typeof obj.action === 'string' ? obj.action : ''
+    const label = typeof obj.label === 'string' ? obj.label : ''
+    if (!action && !label) return null
+    return { action, label }
+  } catch {
+    return null
+  }
+}

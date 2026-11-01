@@ -18,7 +18,7 @@ import PlatformBadge from './PlatformBadge.vue'
 import RButton from '@/components/base/RButton.vue'
 import RaccoonFace from '@/components/raccoon/RaccoonFace.vue'
 import type { Task, TaskEvent, TaskFile } from '@/api/types'
-import { formatBytes, formatSpeed, formatTime, WAIT_REASON_TEXT } from '@/utils/format'
+import { formatBytes, formatSpeed, formatTime, WAIT_REASON_TEXT, parseFixHint, FixHint } from '@/utils/format'
 import { useNowTick } from '@/utils/now'
 
 const props = withDefaults(
@@ -64,27 +64,8 @@ defineSlots<{
 }>()
 
 /** 服务端 fix_hint 的形状：{action,label}（backend internal/task/worker.go）。 */
-interface FixHint {
-  action: string
-  label: string
-}
-
-/** 解析服务端 fix_hint；解析失败（老数据 / 非 JSON）不报错，退回按错误码给建议。 */
-const fixHint = computed<FixHint | null>(() => {
-  const raw = props.task.fix_hint
-  if (!raw) return null
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return null
-    const obj = parsed as { action?: unknown; label?: unknown }
-    const action = typeof obj.action === 'string' ? obj.action : ''
-    const label = typeof obj.label === 'string' ? obj.label : ''
-    if (!action && !label) return null
-    return { action, label }
-  } catch {
-    return null
-  }
-})
+/** 解析服务端 fix_hint（共享工具，列表行也用它）。 */
+const fixHint = computed<FixHint | null>(() => parseFixHint(props.task.fix_hint))
 
 /** 是否需要更新凭据：fix_hint 指路、错误码是 AUTH_REQUIRED、或在等登录。 */
 const needsCredentials = computed(() => {

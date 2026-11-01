@@ -17,7 +17,7 @@ import TaskProgress from './TaskProgress.vue'
 import PlatformBadge from './PlatformBadge.vue'
 import { api } from '@/api/client'
 import type { Task } from '@/api/types'
-import { formatBytes, formatRelative, formatSpeed, waitReasonWithCountdown } from '@/utils/format'
+import { formatBytes, formatRelative, formatSpeed, parseFixHint, waitReasonWithCountdown } from '@/utils/format'
 import { useNowTick } from '@/utils/now'
 import type { TaskChildStats } from './TaskCard.vue'
 
@@ -40,6 +40,9 @@ const props = withDefaults(
   }>(),
   { selected: false, selectable: true, parent: false, readonly: false },
 )
+
+/** 修复建议文案（fix_hint 的 label）：失败归因前移到列表，不必点开详情。 */
+const hintLabel = computed(() => parseFixHint(props.task.fix_hint)?.label ?? '')
 
 const emit = defineEmits<{
   /** 点选（上层负责 Shift 范围选择等策略）。 */
@@ -133,6 +136,9 @@ const waitReason = computed(() => waitReasonWithCountdown(props.task, nowTick.va
       <p v-if="task.error_message" class="trow-err">
         <span class="tnum">{{ task.error_code }}</span>：{{ task.error_message }}
       </p>
+      <!-- 修复建议（fix_hint）：后端会点名「媒体直链来自哪个 CDN」——
+           这是排障最关键的一句，此前只在详情页可见，用户得逐个点开才知道查哪里。 -->
+      <p v-if="hintLabel" class="trow-hint">{{ hintLabel }}</p>
     </div>
 
     <div class="trow-side">

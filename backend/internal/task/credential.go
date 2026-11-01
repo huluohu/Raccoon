@@ -192,8 +192,6 @@ func cookieDomainFor(platform string) string {
 		return ".tiktok.com"
 	case "weibo":
 		return ".weibo.com"
-	case "zhihu":
-		return ".zhihu.com"
 	case "twitter":
 		return ".twitter.com"
 	case "instagram":
@@ -212,6 +210,27 @@ func cookieDomainFor(platform string) string {
 		return ".soundcloud.com"
 	case "wechat", "wechat_channels", "yuanbao":
 		return ".yuanbao.tencent.com"
+	// 以下平台的 Cookie 需要登录态才有意义（作品/收藏/相册是私有的），
+	// 域名取自 engine.platformOf 的同一份平台清单——
+	// 两边必须同源：平台标识产不出「zhihu」时，凭据就永远送不到（2026-10-30 修）。
+	case "zhihu":
+		return ".zhihu.com"
+	case "pixiv":
+		return ".pixiv.net"
+	case "deviantart":
+		return ".deviantart.com"
+	case "artstation":
+		return ".artstation.com"
+	case "imgur":
+		return ".imgur.com"
+	case "reddit":
+		return ".reddit.com"
+	case "douban":
+		return ".douban.com"
+	case "tumblr":
+		return ".tumblr.com"
+	case "bandcamp":
+		return ".bandcamp.com"
 	}
 	return ""
 }

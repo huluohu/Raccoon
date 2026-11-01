@@ -43,8 +43,14 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		}
 	}()
 
-	// 取消监听（DB 轮询兜底；manager.Cancel 已可直接 cancel ctx）。
-	w.startCancelWatcher(ctx, t.ID)
+	// 取消监听（DB 轮询兜底）：manager.Cancel 只能取消**本进程**注册的 ctx，
+	// 多实例部署时请求可能打到另一个实例——那条路径靠 DB 里的 cancel_requested，
+	// 由这个 watcher 兜底（1s 内生效）。因此这里要有一把自己的 cancel。
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	w.startCancelWatcher(runCtx, cancelRun, t.ID)
+	// 后续所有引擎调用都用 runCtx：被 watcher 取消时，引擎子进程会被杀掉。
+	ctx = runCtx
 
 	// 引擎自检（缺失 → 503 类失败，不可重试短路）。
 	if err := w.eng.Available(); err != nil {
@@ -265,6 +271,14 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 	// 先转 post 态再做格式转换：转换（尤其转码）可能耗时数分钟，
 	// 期间 UI 显示「处理中」而不是挂在「下载中」的假进度上（docs/05 §4）。
 	if err := w.transition(t.ID, "downloading", "post", nil); err != nil {
+		// 2026-10-30 修（永久卡住）：原先是裸 return——**连 handleEngineErr 都不走**，
+		// 任务永远停在 downloading，而 downloading 计入 ActiveConcurrency，
+		// 于是这个任务**白占一个并发额度**直到进程重启。
+		// 现在走正常错误出口：任务要么失败、要么被取消，都能离开这个状态。
+		if errors.Is(err, errAlreadyTerminal) {
+			return // 已取消/已终态，无需再处理
+		}
+		w.handleEngineErr(ctx, t, "downloading", err, proxy)
 		return
 	}
 	files = w.convertFiles(ctx, t, files)
@@ -333,7 +347,21 @@ func (w *Worker) finish(t *store.Task, files []engine.DownloadedFile, duration i
 		"error_message": "",
 		"fix_hint":      "",
 	}); err != nil {
-		return
+		// 2026-10-30 修（永久卡在 post）：下载其实已经成功、产物也已入库，
+		// 但 CAS 失败（被取消或 DB 短暂出错）就直接 return——任务永远停在
+		// post，且**不广播 task.done、不聚合父任务**，用户看到的是"永远处理中"。
+		// 现在兜底：非终态就强制落 done（工作已完成，不该报失败）。
+		if errors.Is(err, errAlreadyTerminal) {
+			return // 被取消：尊重取消结果
+		}
+		w.mgr.log.Warn("post→done 状态推进失败，按已完成兜底", map[string]any{
+			"task_id": t.ID, "err": err.Error(),
+		})
+		_ = w.mgr.st.UpdateTaskFields(t.ID, map[string]any{
+			"status": "done", "finished_at": now,
+			"error_code": "", "error_message": "", "fix_hint": "",
+		}, "")
+		w.mgr.hub.Broadcast("task.status", map[string]any{"task_id": t.ID, "status": "done"})
 	}
 	_ = w.mgr.st.AppendEvent(t.ID, "info", "done", fmt.Sprintf("下载完成：%d 个文件，共 %d 字节", len(files), total), "")
 	w.mgr.hub.Broadcast("task.done", map[string]any{"task_id": t.ID, "status": "done", "files": len(files), "size": total})
@@ -578,20 +606,59 @@ func (w *Worker) markCancelled(taskID, from string) {
 }
 
 // requeue panic 兜底回队列。
+//
+// 2026-10-30 修（热循环）：原先这里**没有**重试上限，也不设退避——
+// panic → 立刻回 waiting → scheduled_at 为空 = 立即到期 → 调度器 500ms 后
+// 重新领取 → 再 panic → 再回队列……**无限热循环**，每次白占一个 worker
+// 并发额度（默认 3）+ 一次 DB 写 + 一次 SSE 广播。正常引擎失败路径
+// （handleEngineErr）是有 attempt < MaxAttempts 判断的，两条路径不一致。
+//
+// 现在与正常失败路径对齐：
+//   - attempt 达上限 → 直接判失败（不再无限重试）；
+//   - 未达上限 → 按指数退避排期，不再立即到期形成热循环。
 func (w *Worker) requeue(taskID, reason string) {
 	cur, err := w.mgr.st.GetTask(taskID)
 	if err != nil {
 		return
 	}
+	attempt := cur.Attempt + 1
+	maxAttempts := cur.MaxAttempts
+	if maxAttempts <= 0 {
+		maxAttempts = 3
+	}
+	if attempt >= maxAttempts {
+		// 重试用尽：判失败，给出可读的修复建议，而不是继续空转。
+		w.fail(taskID, "WORKER_PANIC",
+			fmt.Sprintf("任务内部错误连续发生 %d 次，已停止重试", attempt),
+			fixHintFor("WORKER_PANIC"))
+		return
+	}
+	backoff := backoffFor(cur.Attempt)
 	_ = w.mgr.st.UpdateTaskFields(taskID, map[string]any{
 		"status": "waiting", "wait_reason": reason,
-		"attempt": cur.Attempt + 1, "speed_bps": 0,
+		"attempt": attempt, "speed_bps": 0,
+		// 退避排期：不再「立即到期 → 立刻被重新领取」形成热循环。
+		"scheduled_at": time.Now().Add(backoff).UnixMilli(),
 	}, "")
-	w.mgr.hub.Broadcast("task.status", map[string]any{"task_id": taskID, "status": "waiting", "wait_reason": reason})
+	w.mgr.hub.Broadcast("task.status", map[string]any{
+		"task_id": taskID, "status": "waiting", "wait_reason": reason,
+	})
 }
 
 // startCancelWatcher DB 轮询取消位（1s）；命中即 cancel ctx（杀进程组）。
-func (w *Worker) startCancelWatcher(ctx context.Context, taskID string) {
+//
+// 2026-10-30 修（多实例下取消无效）：这个 watcher 原来**只会 return**，
+// 一个 cancel func 都没有——命中 CancelRequested 只是退出 goroutine，
+// **什么都没取消**。真正的取消只来自 manager.Cancel 里的
+// `m.cancels[taskID]`，而那是**进程内 map**：请求打到另一个实例时，
+// map 里没有这个 taskID → 只写了 DB 的 cancel_requested=true，
+// **下载照跑**，接口却返回 200「ok」。
+//
+// 现在 watcher 拿到真正的 cancel：跨实例发起的取消也能在 1s 内生效。
+func (w *Worker) startCancelWatcher(ctx context.Context, cancel context.CancelFunc, taskID string) {
+	if cancel == nil {
+		return
+	}
 	go func() {
 		t := time.NewTicker(time.Second)
 		defer t.Stop()
@@ -600,13 +667,17 @@ func (w *Worker) startCancelWatcher(ctx context.Context, taskID string) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				cur, err := w.mgr.st.GetTask(taskID)
-				if err != nil {
-					continue
-				}
-				if cur.CancelRequested || cur.Status == "cancelled" || cur.Status == "failed" || cur.Status == "done" {
-					return // manager.Cancel 已处理或已终态
-				}
+			}
+			cur, err := w.mgr.st.GetTask(taskID)
+			if err != nil {
+				continue
+			}
+			if cur.CancelRequested {
+				cancel() // 真的取消（杀引擎进程组）
+				return
+			}
+			if cur.Status == "cancelled" || cur.Status == "failed" || cur.Status == "done" {
+				return // 已终态，无需再等
 			}
 		}
 	}()

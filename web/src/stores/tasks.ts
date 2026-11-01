@@ -61,17 +61,28 @@ export const useTasksStore = defineStore('tasks', () => {
    *  「重连中」，观感就是「老是重连中」）。 */
   let graceTimer: number | undefined
 
+  /** refresh 请求序号：只认最后一次的结果（见 refresh 注释）。 */
+  let refreshSeq = 0
+
   async function refresh(): Promise<void> {
     loading.value = true
     error.value = ''
+    // 请求序号：并发 refresh 时**只认最后一次**的结果。
+    //
+    // 2026-10-30 修（响应乱序覆盖新数据）：一次批量提交会在几秒内产生几十个
+    // done/failed 事件，每个都 void refresh() —— 这些请求并发发出、无先后保证，
+    // 后到的旧响应会把更新的数据覆盖掉（用户看到任务状态"倒退"）。
+    const seq = ++refreshSeq
     try {
       // limit=100（后端上限）：父子任务树要求子项行也在列表里，
       // 否则父卡展开后看不到子任务。
       const res = await api.listTasks({ limit: '100' })
+      if (seq !== refreshSeq) return // 已有更新的请求在飞，丢弃本次结果
       items.value = res.items ?? []
       listTruncated.value = Boolean(res.next_cursor)
       if (res.counts) counts.value = res.counts
     } catch (e) {
+      if (seq !== refreshSeq) return
       if (e instanceof ApiError && (e.code === 'UNAUTHORIZED' || e.code === 'FORBIDDEN')) {
         useAuthStore().markUnauthenticated()
         return
@@ -88,12 +99,33 @@ export const useTasksStore = defineStore('tasks', () => {
     if (row) Object.assign(row, fields)
   }
 
+  /**
+   * SSE 状态迁移时同步筛选标签上的计数。
+   *
+   * 2026-10-30 修（计数漂移）：原先只在「列表里没见过这个任务」时才给目标状态
+   * +1。但服务端 counts 是**全库**计数，而列表只装了前 100 条——于是列表内的
+   * 任务每次迁移都变成「源 -1、目标 +0」，净减 1，筛选标签上的数字持续少算，
+   * 直到下一次 refresh 才纠正。
+   *
+   * 现在无条件 ±1：源状态 -1、目标状态 +1，净值为 0，与「列表内任务换了个状态」
+   * 的真实含义一致（总数不变）。
+   */
   function bumpCounts(from: TaskStatus | undefined, to: TaskStatus, id: string): void {
     if (from === to) return
     if (from && from in counts.value) counts.value[from] = Math.max(0, counts.value[from] - 1)
-    if (!(to in counts.value)) return
-    const known = items.value.some((t) => t.id === id)
-    counts.value[to] = Math.max(0, counts.value[to] + (known ? 0 : 1))
+    if (to in counts.value) counts.value[to] = Math.max(0, counts.value[to] + 1)
+    void id
+  }
+
+  /**
+   * 关闭系统告警条。
+   *
+   * 2026-10-30 修（告警永挂）：原先 warning 只有 setter、没有任何地方清空——
+   * 磁盘低水位这类告警会**永久**挂在页面上，即使条件早已恢复。
+   * 给一个「知道了」入口，用户能手动关掉。
+   */
+  function dismissWarning(): void {
+    warning.value = ''
   }
 
   function connect(): void {
@@ -208,8 +240,18 @@ export const useTasksStore = defineStore('tasks', () => {
     }) as EventListener)
 
     source.addEventListener('task.failed', ((ev: MessageEvent) => {
-      const d = JSON.parse(ev.data) as { task_id: string; error_code?: string; error_message?: string; wait_reason?: string }
-      patch(d.task_id, { status: d.wait_reason === 'auto_retry' ? 'waiting' : 'failed', error_code: d.error_code, error_message: d.error_message })
+      const d = JSON.parse(ev.data) as { task_id: string; error_code?: string; error_message?: string; wait_reason?: string; fix_hint?: string }
+      // 2026-10-30 修（错误文案被覆盖成空）：后端 task.failed 帧**不带**
+      // error_message（只有 error_code 与 fix_hint），而这里无条件写
+      // error_message: d.error_message → 把已有文案覆盖成 undefined，
+      // 列表里只剩一个孤零零的错误码。改成「有值才写」。
+      const fields: Partial<Task> = {
+        status: d.wait_reason === 'auto_retry' ? 'waiting' : 'failed',
+      }
+      if (d.error_code !== undefined) fields.error_code = d.error_code
+      if (d.error_message !== undefined) fields.error_message = d.error_message
+      if (d.fix_hint !== undefined) fields.fix_hint = d.fix_hint
+      patch(d.task_id, fields)
       void refresh()
     }) as EventListener)
 
@@ -217,6 +259,7 @@ export const useTasksStore = defineStore('tasks', () => {
       const d = JSON.parse(ev.data) as { code: string; message: string }
       warning.value = d.message
     }) as EventListener)
+
 
     // 通知中心复用这条连接：后端 notification_handler 在 notify() 里广播 notif.new。
     // 这里只置个时间戳，由 notifications store 的 watch 触发拉取（保持单一数据源，不在前端拼通知对象）。
@@ -361,6 +404,8 @@ export const useTasksStore = defineStore('tasks', () => {
     submit,
     submitParent,
     submitBatch,
+    dismissWarning,
+    bumpCounts,
     batch,
     preview,
     cancel,

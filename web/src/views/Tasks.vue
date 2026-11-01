@@ -550,7 +550,12 @@ onBeforeUnmount(() => {
       </template>
     </PageHeader>
 
-    <p v-if="tasks.warning" class="alert">{{ tasks.warning }}</p>
+    <!-- 系统告警条：可手动关闭。此前 warning 只有 setter 没有清除入口，
+         磁盘低水位这类告警会永久挂在页面上（即使条件早已恢复）。 -->
+    <p v-if="tasks.warning" class="alert">
+      <span class="alert-text">{{ tasks.warning }}</span>
+      <button type="button" class="alert-close" aria-label="关闭告警" @click="tasks.dismissWarning()">知道了</button>
+    </p>
 
     <!-- 解析预览区（方案 §3：/tasks 的关键组件是 TaskList + TaskDetail，
          提交入口是全局顶栏 QuickSubmit）。这里只放「先看看有什么清晰度再选」的
@@ -860,6 +865,7 @@ onBeforeUnmount(() => {
   margin: 0; padding: 10px 14px; border-radius: var(--radius-ctrl);
   background: color-mix(in srgb, var(--warning) 12%, transparent);
   color: var(--warning); font-size: var(--font-body);
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
 }
 .err { margin: 0; color: var(--danger); font-size: var(--font-body); }
 .muted { color: var(--text-3); font-size: var(--font-aux); }
@@ -947,4 +953,30 @@ onBeforeUnmount(() => {
 .bi-meta { margin: 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: var(--font-aux); color: var(--text-2); }
 .bi-err { color: var(--danger); }
 
+
+.alert-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.alert-close {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+  background: transparent;
+  color: inherit;
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px 10px;
+  font: inherit;
+  font-size: var(--font-aux);
+  cursor: pointer;
+}
+
+.alert-close:hover {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+}
+
+.alert-close:focus-visible {
+  outline: 2px solid var(--warning);
+  outline-offset: 2px;
+}
 </style>

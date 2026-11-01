@@ -44,7 +44,10 @@ func IsGalleryURL(rawURL string) bool {
 		return false
 	}
 	for _, h := range galleryHosts {
-		if strings.Contains(host, h) {
+		// 按点分边界匹配：strings.Contains(host, "x.com") 会把 max.com、
+		// linux.com、matrix.com 全判成图站——路由错、平台标识也错，
+		// 连带「去 twitter 凭据里取 Cookie 发给这些站」。
+		if hostMatches(host, h) {
 			return true
 		}
 	}

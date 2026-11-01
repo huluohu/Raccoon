@@ -170,3 +170,67 @@ describe('tasks store · 批量操作', () => {
     expect(store.error).toBe('任务不在失败态')
   })
 })
+
+// ── 2026-10-30 新增：并发对账、计数漂移、告警可清除 ──
+
+describe('tasks store · 对账并发与计数', () => {
+  it('并发 refresh 时只认最后一次的结果（旧响应不得覆盖新数据）', async () => {
+    const store = useTasksStore()
+    // 第一个请求慢、返回旧数据；第二个请求快、返回新数据。
+    let resolveFirst: ((v: unknown) => void) | undefined
+    h.listTasks
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            resolveFirst = res
+          }),
+      )
+      .mockImplementationOnce(async () => ({
+        items: [task('new')],
+        counts: emptyCounts,
+        next_cursor: '',
+      }))
+
+    const first = store.refresh()
+    const second = store.refresh()
+    await second
+    // 第一个请求此刻才返回旧数据——不应覆盖已更新的列表。
+    resolveFirst?.({
+      items: [task('old')],
+      counts: emptyCounts,
+      next_cursor: '',
+    })
+    await first
+
+    expect(store.items.map((t) => t.id)).toEqual(['new'])
+  })
+
+  it('状态迁移不改变总计数（源 -1 / 目标 +1，净值 0）', async () => {
+    const store = useTasksStore()
+    h.listTasks.mockResolvedValue({
+      items: [task('a', 'downloading')],
+      counts: { ...emptyCounts, downloading: 3 },
+      next_cursor: '',
+    })
+    await store.refresh()
+    expect(store.counts.downloading).toBe(3)
+
+    // 模拟一次 downloading → post 的 SSE 迁移：总数应保持 3。
+    const before = Object.values(store.counts).reduce((a, b) => a + b, 0)
+    store.bumpCounts('downloading', 'post', 'a')
+    const after = Object.values(store.counts).reduce((a, b) => a + b, 0)
+    expect(after).toBe(before)
+    expect(store.counts.downloading).toBe(2)
+    expect(store.counts.post).toBe(1)
+  })
+})
+
+describe('tasks store · 系统告警', () => {
+  it('告警可被手动关闭', () => {
+    const store = useTasksStore()
+    store.warning = '磁盘剩余空间低于 5%'
+    expect(store.warning).toBeTruthy()
+    store.dismissWarning()
+    expect(store.warning).toBe('')
+  })
+})
