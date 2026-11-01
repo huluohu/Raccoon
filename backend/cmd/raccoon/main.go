@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -62,12 +63,29 @@ func main() {
 		minLv = logx.LevelDebug
 	}
 
+	// 前置检查：数据目录必须可写。
+	// 若容器外部以受限用户运行或卷权限不足，提前明确拦截并报告真实的 OS 错误，
+	// 避免后续 SQLite 将权限不足模糊报成难以理解的错误代码。
+	if err := checkDataDirWritable(dataDir); err != nil {
+		logger.Error("数据目录不可写，服务无法启动", map[string]any{
+			"dir": dataDir,
+			"uid": os.Getuid(),
+			"gid": os.Getgid(),
+			"err": err.Error(),
+		})
+		fmt.Fprintf(os.Stderr, "raccoon: 数据目录不可写（dir=%s, uid=%d, gid=%d）：%v\n", dataDir, os.Getuid(), os.Getgid(), err)
+		os.Exit(1)
+	}
+
 	// 双写：stdout（docker logs 照旧可看）+ 运行日志文件（/api/v1/logs 页面读它）。
-	// 文件打不开不致命——降级为仅 stdout，但要在 stdout 留痕，否则日志页空着没人知道为什么。
+	// 文件打不开不致命——降级为仅 stdout，但要在 stdout 留痕，说明真实原因。
 	var logSink io.WriteCloser
 	if sink, err := logx.OpenSink(logx.FilePath(dataDir)); err != nil {
 		logger = logx.New(os.Stdout, "main", minLv)
-		logger.Warn("运行日志文件不可写，日志页将为空", map[string]any{"err": err.Error()})
+		logger.Warn("运行日志文件不可写，降级为仅标准输出日志", map[string]any{
+			"path": logx.FilePath(dataDir),
+			"err":  err.Error(),
+		})
 	} else {
 		logSink = sink
 		logger = logx.New(io.MultiWriter(os.Stdout, sink), "main", minLv)
@@ -78,7 +96,12 @@ func main() {
 
 	st, err := store.Open(dataDir + "/raccoon.db")
 	if err != nil {
-		logger.Error("数据库初始化失败", map[string]any{"err": err.Error()})
+		desc := store.DescribeSQLiteOpenError(err)
+		logger.Error("数据库初始化失败", map[string]any{
+			"path": dataDir + "/raccoon.db",
+			"err":  desc,
+		})
+		fmt.Fprintf(os.Stderr, "raccoon: 数据库初始化失败（%s）：%s\n", dataDir+"/raccoon.db", desc)
 		os.Exit(1)
 	}
 	defer st.Close()
@@ -214,4 +237,23 @@ func isEngineProcess(name string) bool {
 	n := strings.ToLower(name)
 	return strings.Contains(n, "yt-dlp") || strings.Contains(n, "yt_dlp") ||
 		strings.Contains(n, "ffmpeg") || strings.Contains(n, "gallery-dl")
+}
+
+// checkDataDirWritable 探测数据目录是否具备实际写权限。
+// 使用 os.CreateTemp 生成唯一临时探针，避免硬编码固定名称带来的截断或冲突风险。
+func checkDataDirWritable(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("创建数据目录失败: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, ".raccoon-write-probe-*")
+	if err != nil {
+		return fmt.Errorf("数据目录不可写: %w", err)
+	}
+	name := tmp.Name()
+	_ = tmp.Close()
+	_ = os.Remove(name)
+	return nil
 }
