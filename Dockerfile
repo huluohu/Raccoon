@@ -42,7 +42,7 @@ FROM debian:bookworm-slim
 # 引擎各装各的层：以前 apt + ffmpeg + 三个 pip 挤在同一个 RUN 里，
 # 升级任何一个引擎都会让整层失效 → 每次发版都重下几百 MB。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl tzdata python3 python3-pip tar xz-utils \
+      ca-certificates curl tzdata python3 python3-pip tar xz-utils gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # 静态 ffmpeg：按目标架构选包（amd64→linux64 / arm64→linuxarm64）
@@ -133,9 +133,11 @@ RUN case "${TARGETARCH}" in \
     && qjs --version
 
 COPY --from=go-build /out/raccoon /usr/local/bin/raccoon
-# 非 root 运行（方案 §7.1）
-RUN useradd --system --uid 1000 --create-home --home-dir /data raccoon
-USER raccoon
+COPY backend/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && groupadd -g 1000 raccoon || true \
+    && useradd --system --uid 1000 -g 1000 --create-home --home-dir /data raccoon || true
+
 WORKDIR /data
 # 下载文件独立于数据目录：数据库/凭据/配置（/data）与视频文件（/downloads）分开挂载，
 # 备份小体积的数据目录时不必背着媒体文件。路径由 env 锁定（设置页该项只读并标注来源），
@@ -144,4 +146,5 @@ ENV RACCOON_DATA_DIR=/data RACCOON_DOWNLOAD_DIR=/downloads RACCOON_SERVER_ADDR=:
 EXPOSE 8530
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8530/healthz || exit 1
-ENTRYPOINT ["/usr/local/bin/raccoon"]
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/raccoon"]
