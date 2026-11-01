@@ -53,6 +53,8 @@ function isMagnet(u: string): boolean {
 /** 下载通道：''=自动（按存储策略）/ qb / n115。只对磁力链接有意义。 */
 const chosenKind = ref('')
 /** 批量面板的下载通道选择（整批生效）。 */
+/** 详情抽屉的加载错误（区分「加载失败」与「本来就没有」）。 */
+const detailErr = ref('')
 const batchKind = ref('')
 /** 批量面板的产物格式选择（整批生效）。 */
 const batchFormat = ref('')
@@ -337,6 +339,7 @@ async function openDetail(t: Task) {
   detail.value = t
   detailEvents.value = []
   detailFiles.value = []
+  detailErr.value = ''
   try {
     const ev = await tasks.events(t.id)
     const files = await fetchDetail(t.id)
@@ -344,8 +347,13 @@ async function openDetail(t: Task) {
     if (detail.value?.id !== t.id) return
     detailEvents.value = ev
     detailFiles.value = files
-  } catch {
-    // 详情失败不阻断主列表
+  } catch (e) {
+    // 2026-10-30 修（静默失败）：原先 catch 是空的——详情加载失败时，
+    // 抽屉里显示的是「还没有日志记录」与空产物列表，**与「真的没有日志/产物」
+    // 长得一模一样**，用户无法分辨是加载失败还是真的没数据。
+    // 现在如实报错，并允许重试。
+    if (detail.value?.id !== t.id) return
+    detailErr.value = errorText(e, '详情加载失败')
   }
 }
 
@@ -946,8 +954,14 @@ onBeforeUnmount(() => {
 
     <!-- 详情抽屉：五区（概览 / 进度 / 日志 / 错误与建议 / 操作），Cookie 过期一键跳 connections -->
     <DetailDrawer :open="detail !== null" title="任务详情" @close="closeDetail">
+      <!-- 详情加载失败：如实告知并可重试。否则抽屉里显示的「还没有日志记录」
+           与「真的没有日志」长得一样，用户无从分辨。 -->
+      <p v-if="detailErr" class="err">
+        {{ detailErr }}
+        <RButton size="sm" variant="ghost" @click="detail && openDetail(detail)">重试</RButton>
+      </p>
       <TaskDetail
-        v-if="detail"
+        v-else-if="detail"
         :task="detail"
         :events="detailEvents"
         :files="detailFiles"

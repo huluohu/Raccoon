@@ -122,8 +122,11 @@ function clearSelection(): void {
         type="button"
         role="tab"
         class="tab"
+        :id="`task-tab-${f.key}`"
+        :aria-controls="`task-panel-${f.key}`"
         :class="{ on: filter === f.key }"
         :aria-selected="filter === f.key"
+        :tabindex="filter === f.key ? 0 : -1"
         @click="emit('update:filter', f.key)"
       >
         {{ f.label }}<em class="tnum">{{ countOf(f.key) }}</em>
@@ -178,7 +181,14 @@ function clearSelection(): void {
     <!-- 列表（父 → 子）。父任务用 TaskCard（子项聚合计数 + 重试失败项插槽），
          普通任务与子项用 TaskRow 紧凑行；选中态供 §7 键盘多选使用。
          只读模式：行组件自身也不渲染操作区，这里干脆不传 #actions（双保险）。 -->
-    <div v-if="roots.length" class="list">
+    <!-- 任务列表区：与上方筛选 tab 建立 ARIA 关联（aria-controls 指向此处）。 -->
+    <div
+      v-if="roots.length"
+      class="list"
+      role="tabpanel"
+      :id="`task-panel-${filter}`"
+      :aria-labelledby="`task-tab-${filter}`"
+    >
       <template v-for="t in roots" :key="t.id">
         <TaskCard
           v-if="isParent(t)"

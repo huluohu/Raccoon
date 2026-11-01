@@ -1,13 +1,23 @@
 <script setup lang="ts">
 // RToast：全局 Toast 出口（四级；错误常驻；docs/07 §4）。
+import { computed } from 'vue'
 import { useToastStore } from '@/stores/toast'
 
 const toast = useToastStore()
+
+/** 屏上是否有错误级：有则整个容器切到 assertive（错误应立即播报）。 */
+const hasError = computed(() => toast.items.some((t) => t.level === 'error'))
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="rtoasts" role="status" aria-live="polite">
+    <!-- 错误级用 assertive（role="alert"）：错误应立即打断读屏，
+         不该排在 polite 队列里等空闲才播报。 -->
+    <div
+      class="rtoasts"
+      :role="hasError ? 'alert' : 'status'"
+      :aria-live="hasError ? 'assertive' : 'polite'"
+    >
       <div
         v-for="t in toast.items"
         :key="t.id"
