@@ -151,6 +151,7 @@ func (w *Worker) Run(ctx context.Context, t *store.Task) {
 		HTTPProxy:      proxy,
 		RateLimit:      int64(w.mgr.cfg.GetInt("download.rate_limit_bps")),
 		MaxFilesize:    int64(w.mgr.cfg.GetInt("download.max_filesize_mb")) * 1024 * 1024,
+		PlaylistItems:  t.PlaylistItems,
 		WriteThumbnail: w.mgr.cfg.GetBool("download.save_thumbnail"),
 		EmbedMetadata:  w.mgr.cfg.GetBool("download.embed_metadata"),
 	}

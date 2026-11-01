@@ -3,23 +3,28 @@ package store
 // model.go：任务域模型与 SQLite 表一一对应（docs/03）。JSON tag 对齐 API 契约（docs/04）。
 // 存于 store 包避免 task(逻辑) ↔ store(数据) 循环依赖；状态机纯函数仍在 internal/task。
 type Task struct {
-	ID              string  `json:"id"`
-	ParentID        *string `json:"parent_id,omitempty"`
-	Kind            string  `json:"kind"`
-	Source          string  `json:"source"`
-	SourceRef       string  `json:"source_ref,omitempty"`
-	Platform        string  `json:"platform,omitempty"`
-	URL             string  `json:"url"`
-	Title           string  `json:"title,omitempty"`
-	Thumbnail       string  `json:"thumbnail,omitempty"`
-	DedupeKey       string  `json:"-"`
-	Status          string  `json:"status"`
-	WaitReason      string  `json:"wait_reason,omitempty"`
-	Quality         string  `json:"quality,omitempty"`
-	SavePath        string  `json:"save_path,omitempty"`
-	ConvertTo       string  `json:"convert_to,omitempty"` // 产物目标格式：""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
-	Proxy           string  `json:"proxy,omitempty"`      // 任务级代理配置（""=跟随系统，有值=独立走代理）
-	ExitUsed        string  `json:"exit_used,omitempty"`  // 本轮**实际使用**的出口（代理地址；""=直连）——与上面的「配置」分开记录
+	ID         string  `json:"id"`
+	ParentID   *string `json:"parent_id,omitempty"`
+	Kind       string  `json:"kind"`
+	Source     string  `json:"source"`
+	SourceRef  string  `json:"source_ref,omitempty"`
+	Platform   string  `json:"platform,omitempty"`
+	URL        string  `json:"url"`
+	Title      string  `json:"title,omitempty"`
+	Thumbnail  string  `json:"thumbnail,omitempty"`
+	DedupeKey  string  `json:"-"`
+	Status     string  `json:"status"`
+	WaitReason string  `json:"wait_reason,omitempty"`
+	Quality    string  `json:"quality,omitempty"`
+	SavePath   string  `json:"save_path,omitempty"`
+	ConvertTo  string  `json:"convert_to,omitempty"` // 产物目标格式：""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
+	Proxy      string  `json:"proxy,omitempty"`      // 任务级代理配置（""=跟随系统，有值=独立走代理）
+	ExitUsed   string  `json:"exit_used,omitempty"`  // 本轮**实际使用**的出口（代理地址；""=直连）——与上面的「配置」分开记录
+	// PlaylistItems 合集/频道要下多少条（0 = 全部）。
+	//
+	// 解析预览只解析第一条（快），下载阶段默认会拉**整个列表**——不给这个
+	// 选择，用户预览时看到「1 个视频」，点下去却下了 25 个。
+	PlaylistItems   int     `json:"playlist_items,omitempty"`
 	MediaURL        string  `json:"media_url,omitempty"`  // 真实媒体直链（CDN，带签名有时效；仅供排查）
 	MediaHost       string  `json:"media_host,omitempty"` // 媒体直链主机名（如 googlevideo.com）
 	ExpectedSize    *int64  `json:"expected_size"`        // NULL=未知，禁估算

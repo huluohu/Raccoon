@@ -53,6 +53,8 @@ function isMagnet(u: string): boolean {
 /** 下载通道：''=自动（按存储策略）/ qb / n115。只对磁力链接有意义。 */
 const chosenKind = ref('')
 /** 批量面板的下载通道选择（整批生效）。 */
+/** 下载范围（合集/频道取前几条；0 = 全部）。 */
+const chosenPlaylistItems = ref(0)
 /** 详情抽屉的加载错误（区分「加载失败」与「本来就没有」）。 */
 const detailErr = ref('')
 const batchKind = ref('')
@@ -122,7 +124,13 @@ async function onAddToDownload() {
   submitting.value = true
   parseErr.value = ''
   try {
-    await tasks.submit(preview.value.url, chosenQuality.value, chosenFormat.value, chosenKind.value)
+    await tasks.submit(
+      preview.value.url,
+      chosenQuality.value,
+      chosenFormat.value,
+      chosenKind.value,
+      chosenPlaylistItems.value,
+    )
     preview.value = null
     url.value = ''
     toast.success('已加入下载队列')
@@ -687,10 +695,10 @@ onBeforeUnmount(() => {
           <span v-if="preview.uploader">{{ preview.uploader }}</span>
           <span class="tnum">时长 {{ formatDuration(preview.duration) }}</span>
           <span v-if="preview.is_playlist" class="pill pill--warn">合集</span>
-          <!-- 列表条目数：预览只解析第一条，下载阶段会拉整个列表——
-               如实告知，避免「预览说 1 个、实际下了 25 个」。 -->
+          <!-- 列表条目数：预览只解析第一条，下载阶段默认会拉整个列表——
+               如实告知，并让用户能限定范围（别下完 25 个才发现）。 -->
           <span v-if="preview.playlist_count && preview.playlist_count > 1" class="pill pill--muted">
-            共 {{ preview.playlist_count }} 项，将全部下载
+            共 {{ preview.playlist_count }} 项
           </span>
         </p>
         <!-- 出口说明：解析实际走了哪条路（代理/直连）、中途是否切换过——
@@ -749,6 +757,28 @@ onBeforeUnmount(() => {
             {{ opt.label }}
           </button>
         </div>
+        <!-- 下载范围：合集/频道默认全部下载（与预览一致），也可只取前若干条。
+             预览只解析第一条，不给这个选择用户会以为只下一个。 -->
+        <div v-if="preview.playlist_count && preview.playlist_count > 1" class="fmt-row" role="radiogroup" aria-label="下载范围">
+          <span class="fmt-label">范围</span>
+          <button
+            v-for="opt in [
+              { v: 0, label: `全部 ${preview.playlist_count} 项` },
+              { v: 1, label: '仅第 1 项' },
+              { v: 3, label: '前 3 项' },
+            ]"
+            :key="opt.v"
+            type="button"
+            class="q fmt"
+            role="radio"
+            :aria-checked="chosenPlaylistItems === opt.v"
+            :class="{ on: chosenPlaylistItems === opt.v }"
+            @click="chosenPlaylistItems = opt.v"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+
         <!-- 产物格式：默认源格式零开销；MP4 优先无损 remux（不兼容才转码）、MP3 提取音轨。 -->
         <div class="fmt-row" role="radiogroup" aria-label="产物格式">
           <span class="fmt-label">格式</span>

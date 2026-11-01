@@ -464,6 +464,14 @@ func (y *YTDLP) Download(ctx context.Context, url string, opts DownloadOpts, onP
 	if opts.MaxFilesize > 0 {
 		args = append(args, "--max-filesize", strconv.FormatInt(opts.MaxFilesize, 10))
 	}
+	// 合集/频道只取前 N 条（0 = 全部，沿用既有行为）。
+	//
+	// 为什么需要：解析预览用 --playlist-items 1 只解析第一条（快），
+	// 下载阶段却会把整个列表都拉下来——用户预览时看到「1 个视频 3:45」，
+	// 点下去却开始下 25 个 1080P。给一个显式上限，别让用户事后才发现。
+	if opts.PlaylistItems > 0 {
+		args = append(args, "--playlist-items", strconv.Itoa(opts.PlaylistItems))
+	}
 	if opts.Cookies != "" {
 		args = append(args, "--cookies", opts.Cookies)
 	}

@@ -468,13 +468,15 @@ func (m *Manager) RunningCount() int {
 
 // SubmitItem 创建入参（docs/04 §2.2 POST /tasks items[]）。
 type SubmitItem struct {
-	URL       string         `json:"url"`
-	Quality   string         `json:"quality,omitempty"`
-	SavePath  string         `json:"save_path,omitempty"`
-	ConvertTo string         `json:"convert_to,omitempty"` // ""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
-	Proxy     string         `json:"proxy,omitempty"`      // 任务级独立代理（空=跟随系统策略）
-	Kind      string         `json:"kind,omitempty"`
-	Options   map[string]any `json:"options,omitempty"`
+	URL       string `json:"url"`
+	Quality   string `json:"quality,omitempty"`
+	SavePath  string `json:"save_path,omitempty"`
+	ConvertTo string `json:"convert_to,omitempty"` // ""=源格式 / mp4 / mp3（post 阶段 ffmpeg 处理）
+	Proxy     string `json:"proxy,omitempty"`      // 任务级独立代理（空=跟随系统策略）
+	Kind      string `json:"kind,omitempty"`
+	// PlaylistItems 合集/频道要下多少条（0 = 全部）。
+	PlaylistItems int            `json:"playlist_items,omitempty"`
+	Options       map[string]any `json:"options,omitempty"`
 }
 
 // ValidConvertTargets 任务产物允许的目标格式（白名单；防拼参数注入）。
@@ -535,6 +537,7 @@ func (m *Manager) Submit(items []SubmitItem, source, sourceRef string) ([]Submit
 			SavePath:      it.SavePath,
 			ConvertTo:     convertTo,
 			Proxy:         strings.TrimSpace(it.Proxy),
+			PlaylistItems: clampPlaylistItems(it.PlaylistItems),
 			RoutePath:     InitialRoutePath(kind, m.cfg.GetString("storage.strategy")),
 			ConfigVersion: cfgVersion,
 			MaxAttempts:   maxAttempts,
@@ -709,4 +712,19 @@ func SafeJoin(root, rel string) (string, bool) {
 		return "", false
 	}
 	return abs, true
+}
+
+// clampPlaylistItems 规整合集条目数上限：负数视为 0（全部），上限封顶。
+//
+// 封顶的理由：--playlist-items 是拼进命令行的，必须有界，避免被当成
+// 「无限下载」的入口。
+func clampPlaylistItems(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	const maxPlaylistItems = 500
+	if n > maxPlaylistItems {
+		return maxPlaylistItems
+	}
+	return n
 }

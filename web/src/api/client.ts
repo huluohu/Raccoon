@@ -123,7 +123,15 @@ export const api = {
     return request<import('./types').TaskListResult>('/tasks' + (qs ? '?' + qs : ''))
   },
   createTasks: (
-    items: { url: string; quality?: string; save_path?: string; convert_to?: string; proxy?: string; kind?: string }[],
+    items: {
+      url: string
+      quality?: string
+      save_path?: string
+      convert_to?: string
+      proxy?: string
+      kind?: string
+      playlist_items?: number
+    }[],
     preview = false,
   ) =>
     request<import('./types').CreateTasksResponse>('/tasks', {
@@ -132,7 +140,15 @@ export const api = {
     }),
   /** 父子批量（docs/05 §5）：父任务 + 子任务树，父卡聚合子进度。 */
   createParentTasks: (
-    items: { url: string; quality?: string; save_path?: string; convert_to?: string; proxy?: string; kind?: string }[],
+    items: {
+      url: string
+      quality?: string
+      save_path?: string
+      convert_to?: string
+      proxy?: string
+      kind?: string
+      playlist_items?: number
+    }[],
     quality?: string,
   ) =>
     request<import('./types').CreateParentTasksResponse>('/tasks/parent', {

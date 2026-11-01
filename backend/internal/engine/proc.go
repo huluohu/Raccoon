@@ -67,9 +67,14 @@ type (
 		// 这会连带把数据库和凭据一起写坏。映射到 yt-dlp 的 --max-filesize，
 		// 超限时引擎直接失败（可重试/可提示），而不是悄悄写满盘。
 		MaxFilesize int64
-		WriteDesc   bool
-		EmbedSubs   bool
-		HTTPProxy   string
+		// PlaylistItems 合集/频道要下多少条（0 = 全部）。
+		//
+		// 映射到 yt-dlp 的 --playlist-items N。解析预览只解析第一条，
+		// 而下载默认会拉整个列表——用户预览时以为只下一个。所以给一个显式选择。
+		PlaylistItems int
+		WriteDesc     bool
+		EmbedSubs     bool
+		HTTPProxy     string
 		// WriteThumbnail 封面图落盘（--write-thumbnail；有 ffmpeg 时转 jpg）。
 		WriteThumbnail bool
 		// EmbedMetadata 标题/作者写入媒体文件（--embed-metadata）。

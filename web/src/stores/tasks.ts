@@ -318,10 +318,24 @@ export const useTasksStore = defineStore('tasks', () => {
 
   // ---- 操作 ----
 
-  async function submit(url: string, quality?: string, convertTo?: string, kind?: string): Promise<void> {
+  async function submit(
+    url: string,
+    quality?: string,
+    convertTo?: string,
+    kind?: string,
+    playlistItems?: number,
+  ): Promise<void> {
     error.value = ''
     try {
-      await api.createTasks([{ url, quality, convert_to: convertTo || undefined, kind: kind || undefined }])
+      await api.createTasks([
+        {
+          url,
+          quality,
+          convert_to: convertTo || undefined,
+          kind: kind || undefined,
+          playlist_items: playlistItems || undefined,
+        },
+      ])
       await refresh()
     } catch (e) {
       error.value = e instanceof ApiError ? e.message : '提交失败'

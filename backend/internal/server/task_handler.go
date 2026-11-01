@@ -125,6 +125,10 @@ type submitItemJSON struct {
 	// 于是**所有**任务都跟着变。用户问「下载时如何直接选择用 115 或 qB」，
 	// 答案是「做不到」。现在单任务可显式指定，全局策略仍是默认值。
 	Kind string `json:"kind,omitempty"`
+	// PlaylistItems 合集/频道要下多少条（0 = 全部，默认）。
+	//
+	// 预览只解析第一条、下载默认拉整个列表——这个字段让用户能显式限定范围。
+	PlaylistItems int `json:"playlist_items,omitempty"`
 }
 
 // normalizeSubmitKind 归一任务通道取值；非法值返回错误。
@@ -219,12 +223,13 @@ func (s *Server) handleTasksCreate(w http.ResponseWriter, r *http.Request) error
 			return err
 		}
 		items = append(items, task.SubmitItem{
-			URL:       it.URL,
-			Quality:   it.Quality,
-			SavePath:  it.SavePath,
-			ConvertTo: it.ConvertTo,
-			Proxy:     it.Proxy,
-			Kind:      kind,
+			URL:           it.URL,
+			Quality:       it.Quality,
+			SavePath:      it.SavePath,
+			ConvertTo:     it.ConvertTo,
+			Proxy:         it.Proxy,
+			Kind:          kind,
+			PlaylistItems: it.PlaylistItems,
 		})
 	}
 	u := userFrom(r)

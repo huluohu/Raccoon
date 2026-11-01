@@ -87,6 +87,7 @@ func usage() {
   rc login --server <url> --token <token>     保存服务地址与 API Token
   rc add <url>... [选项]                      提交下载任务（多链接 = 批量）
        --quality <档位>   清晰度（best/2160p/1440p/1080p/720p/480p/360p/audio）
+       --playlist-items N 合集/频道只下前 N 条（0 = 全部，默认）
        --kind <通道>      下载通道：qb（qBittorrent）/ n115（115 网盘）/ download（本地下载）
        --path <目录>      保存目录（相对数据根）
        --no-preview       跳过解析预览直接入队
@@ -269,6 +270,7 @@ func cmdLogin(args []string) error {
 func cmdAdd(args []string) error {
 	var urls []string
 	quality, path, convert, kind := "", "", "", ""
+	playlistItems := 0
 	preview, asJSON, asJSONL := true, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -281,6 +283,16 @@ func cmdAdd(args []string) error {
 				return fmt.Errorf("--quality 缺参数")
 			}
 			quality = args[i]
+		case a == "--playlist-items":
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("--playlist-items 缺参数")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 0 {
+				return fmt.Errorf("--playlist-items 需为非负整数（0 = 全部）")
+			}
+			playlistItems = n
 		case a == "--kind" || a == "-k":
 			i++
 			if i >= len(args) {
@@ -341,6 +353,9 @@ func cmdAdd(args []string) error {
 			}
 			if kind != "" {
 				it["kind"] = kind
+			}
+			if playlistItems > 0 {
+				it["playlist_items"] = strconv.Itoa(playlistItems)
 			}
 			items = append(items, it)
 		}
